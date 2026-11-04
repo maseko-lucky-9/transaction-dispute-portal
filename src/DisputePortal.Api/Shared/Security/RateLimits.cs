@@ -17,9 +17,20 @@ public static class RateLimits
     private const int DefaultPermitsPerMinute = 300;
     private const string DisputeSubmitSetting = "RateLimiting:DisputeSubmitsPerMinute";
     private const int DefaultDisputeSubmitsPerMinute = 10;
+    private const string BackchannelLogoutSetting = "RateLimiting:BackchannelLogoutsPerMinute";
+    private const int DefaultBackchannelLogoutsPerMinute = 6000;
 
     /// <summary>The tighter bucket on POST /api/v1/disputes, on top of the global one.</summary>
     public const string DisputeSubmitPolicy = "dispute-submit";
+
+    /// <summary>
+    /// Keycloak's back-channel logout, per socket peer (the management port ignores X-Forwarded-For). A bound on the
+    /// signature checks an unauthenticated caller can make us do; the compose network is trusted, but not assumed to be.
+    /// High on purpose (6000 a minute per replica): every Keycloak logout arrives from the same peer, so a low limit would
+    /// let any user who loops sign-in and logout starve the real calls. An RSA verification is cheap and only the data
+    /// network reaches the endpoint, so a 429 here is itself the signal: a flood from inside the data network.
+    /// </summary>
+    public const string BackchannelLogoutPolicy = "backchannel-logout";
 
     public const string RejectionCode = "rate_limited";
 
@@ -27,11 +38,13 @@ public static class RateLimits
     {
         int permits = configuration.GetValue(PermitSetting, DefaultPermitsPerMinute);
         int disputeSubmits = configuration.GetValue(DisputeSubmitSetting, DefaultDisputeSubmitsPerMinute);
+        int backchannelLogouts = configuration.GetValue(BackchannelLogoutSetting, DefaultBackchannelLogoutsPerMinute);
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context => PerMinute(context, permits));
             options.AddPolicy(DisputeSubmitPolicy, context => PerMinute(context, disputeSubmits));
+            options.AddPolicy(BackchannelLogoutPolicy, context => PerMinute("peer:" + context.Connection.RemoteIpAddress, backchannelLogouts));
             options.OnRejected = async (context, _) =>
             {
                 context.HttpContext.RequestServices.GetRequiredService<SecurityMetrics>().Record(SecurityMetrics.RateLimited);
@@ -48,8 +61,10 @@ public static class RateLimits
         return services;
     }
 
-    private static RateLimitPartition<string> PerMinute(HttpContext context, int permits) =>
-        RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ => new FixedWindowRateLimiterOptions
+    private static RateLimitPartition<string> PerMinute(HttpContext context, int permits) => PerMinute(PartitionKey(context), permits);
+
+    private static RateLimitPartition<string> PerMinute(string partitionKey, int permits) =>
+        RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = permits,
             Window = TimeSpan.FromMinutes(1),

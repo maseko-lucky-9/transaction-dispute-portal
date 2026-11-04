@@ -12,13 +12,34 @@ namespace DisputePortal.Api.Shared.Security;
 /// <summary>
 /// Server-side session tickets: the browser's cookie carries only an opaque key. Each ticket is DataProtection-encrypted
 /// before it reaches Redis, and expires with the session's absolute lifetime. Any Redis failure fails closed (503).
+/// Every write also files the ticket id under its Keycloak session (<see cref="SessionIndexPrefix"/>), so a back-channel
+/// logout can find and delete all of that session's tickets (ADR-011).
 /// </summary>
 public sealed class RedisTicketStore(IConnectionMultiplexer redis, IDataProtectionProvider dataProtection, TimeProvider time) : ITicketStore
 {
     public const string KeyPrefix = "bff:ticket:";
 
+    /// <summary>
+    /// <c>bff:sid:&lt;SHA-256 of the Keycloak sid&gt;</c>, a set of ticket ids. Ids only, never token material, and the sid is
+    /// hashed. Each write resets its TTL to the full absolute lifetime, so it outlives every ticket in it; a member whose
+    /// ticket expired on its own lingers harmlessly until then.
+    /// </summary>
+    public const string SessionIndexPrefix = "bff:sid:";
+
     private const int CompareAndDeleteAttempts = 3;
     private static readonly TimeSpan MinimumTtl = TimeSpan.FromSeconds(1);
+
+    // One script, so no ticket can join the set between reading it and deleting it. Ticket keys are built from ARGV[1],
+    // which a cluster would refuse; this Redis is standalone (and the ACL's ~bff:* still covers every key it touches).
+    private const string RemoveSessionScript = """
+        local ids = redis.call('SMEMBERS', KEYS[1])
+        local removed = 0
+        for i = 1, #ids do
+          removed = removed + redis.call('DEL', ARGV[1] .. ids[i])
+        end
+        redis.call('DEL', KEYS[1])
+        return removed
+        """;
 
     private readonly IDataProtector protector = dataProtection.CreateProtector("DisputePortal.Bff.SessionTicket.v1");
 
@@ -38,10 +59,13 @@ public sealed class RedisTicketStore(IConnectionMultiplexer redis, IDataProtecti
         return Unprotect(await RunAsync(() => redis.GetDatabase().StringGetAsync(KeyPrefix + key)));
     }
 
+    /// <summary>Deletes the ticket and its index entry. The ticket is read first: its sid is inside the encryption.</summary>
     public async Task RemoveAsync(string key)
     {
         using Activity? activity = StartActivity("session.remove");
-        await RunAsync(() => redis.GetDatabase().KeyDeleteAsync(KeyPrefix + key));
+        IDatabase database = redis.GetDatabase();
+        AuthenticationTicket? ticket = Unprotect(await RunAsync(() => database.StringGetAsync(KeyPrefix + key)));
+        await RunAsync(() => DeleteAsync(database, key, ticket, condition: null));
     }
 
     /// <summary>
@@ -62,15 +86,13 @@ public sealed class RedisTicketStore(IConnectionMultiplexer redis, IDataProtecti
                 return null;
             }
 
-            if (Unprotect(stored) is { } ticket && !shouldRemove(ticket))
+            AuthenticationTicket? ticket = Unprotect(stored);
+            if (ticket is not null && !shouldRemove(ticket))
             {
                 return ticket;
             }
 
-            ITransaction transaction = database.CreateTransaction();
-            transaction.AddCondition(Condition.StringEqual(KeyPrefix + key, stored));
-            _ = transaction.KeyDeleteAsync(KeyPrefix + key);
-            if (await RunAsync(() => transaction.ExecuteAsync()))
+            if (await RunAsync(() => DeleteAsync(database, key, ticket, Condition.StringEqual(KeyPrefix + key, stored))))
             {
                 return null;
             }
@@ -80,6 +102,16 @@ public sealed class RedisTicketStore(IConnectionMultiplexer redis, IDataProtecti
         return await RetrieveAsync(key);
     }
 
+    /// <summary>Back-channel logout: deletes every ticket signed in under this Keycloak session, and the session's index.</summary>
+    /// <returns>How many live tickets were deleted: 0 for an unknown or already-ended session.</returns>
+    public async Task<int> RemoveBySessionIdAsync(string sessionId)
+    {
+        using Activity? activity = StartActivity("session.remove_by_sid");
+        RedisResult removed = await RunAsync(() => redis.GetDatabase().ScriptEvaluateAsync(
+            RemoveSessionScript, [SessionIndexKey(sessionId)], [KeyPrefix]));
+        return (int)removed;
+    }
+
     /// <summary>Sign-in refuses to start (503) when the store is down, rather than failing after the identity provider round trip.</summary>
     public async Task EnsureAvailableAsync()
     {
@@ -87,14 +119,53 @@ public sealed class RedisTicketStore(IConnectionMultiplexer redis, IDataProtecti
         await RunAsync(() => redis.GetDatabase().PingAsync());
     }
 
+    public static RedisKey SessionIndexKey(string sessionId) => SessionIndexPrefix + SessionTokens.Fingerprint(sessionId);
+
     private async Task WriteAsync(string key, AuthenticationTicket ticket, When when)
     {
         using Activity? activity = StartActivity("session.store");
         TimeSpan remaining = SessionTokens.AbsoluteExpiresAt(ticket.Properties) - time.GetUtcNow();
         TimeSpan ttl = remaining > MinimumTtl ? remaining : MinimumTtl;
         byte[] payload = protector.Protect(TicketSerializer.Default.Serialize(ticket));
-        await RunAsync(() => redis.GetDatabase().StringSetAsync(KeyPrefix + key, payload, ttl, when));
+        // One transaction: the ticket and its index entry are written together, or (a renewal of a ticket that is gone)
+        // neither is, so a logged-out session never re-enters the index.
+        ITransaction transaction = redis.GetDatabase().CreateTransaction();
+        if (when == When.Exists)
+        {
+            transaction.AddCondition(Condition.KeyExists(KeyPrefix + key));
+        }
+
+        _ = transaction.StringSetAsync(KeyPrefix + key, payload, ttl, When.Always);
+        if (SessionIdOf(ticket) is { } sessionId)
+        {
+            RedisKey index = SessionIndexKey(sessionId);
+            _ = transaction.SetAddAsync(index, key);
+            _ = transaction.KeyExpireAsync(index, SessionTokens.AbsoluteLifetime);
+        }
+
+        await RunAsync(() => transaction.ExecuteAsync());
     }
+
+    private static Task<bool> DeleteAsync(IDatabase database, string key, AuthenticationTicket? ticket, Condition? condition)
+    {
+        ITransaction transaction = database.CreateTransaction();
+        if (condition is not null)
+        {
+            transaction.AddCondition(condition);
+        }
+
+        _ = transaction.KeyDeleteAsync(KeyPrefix + key);
+        // An unreadable ticket (old key ring) has no readable sid: its entry stays until the index expires.
+        if (ticket is not null && SessionIdOf(ticket) is { } sessionId)
+        {
+            _ = transaction.SetRemoveAsync(SessionIndexKey(sessionId), key);
+        }
+
+        return transaction.ExecuteAsync();
+    }
+
+    private static string? SessionIdOf(AuthenticationTicket ticket) =>
+        ticket.Principal.FindFirst(ClaimNames.SessionId)?.Value is { Length: > 0 } sessionId ? sessionId : null;
 
     private AuthenticationTicket? Unprotect(RedisValue value)
     {

@@ -34,6 +34,8 @@ public static class BffAuthentication
         services.AddScoped<SessionValidator>();
         services.AddScoped<BffCookieEvents>();
         services.AddScoped<BffOidcEvents>();
+        services.AddSingleton<ILogoutTokenReplayCache, RedisLogoutTokenReplayCache>();
+        services.AddSingleton<LogoutTokenValidator>();
         // No retries on the POST: Keycloak rotates refresh tokens with reuse 0, so replaying one would revoke the session.
         // Bounded well under the refresh lock's expiry, so the lock never lapses while a refresh is in flight.
         services.AddHttpClient<ITokenRefresher, KeycloakTokenRefresher>()

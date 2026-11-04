@@ -9,11 +9,11 @@ there is none ([ADR-009](decisions/009-local-and-ci-deploy.md)): the stack runs 
 | Component | Compose service | Network | Notes |
 |---|---|---|---|
 | nginx (SPA, `/api`, `/bff`, Keycloak origin) | `web` | edge, app | Only published container. Ports `127.0.0.1:${APP_PORT:-8080}` and `127.0.0.1:${AUTH_PORT:-8180}`. JSON access log on stdout with `request_id` |
-| API (.NET 10) | `api` | app, data | Stateless; health on an unpublished management port 8081 (`/health/live`, `/health/ready`; `src/DisputePortal.Api/Shared/Health/ManagementSettings.cs`). Readiness checks Postgres and Redis |
+| API (.NET 10) | `api` | app, data (alias `api-mgmt`) | Stateless; an unpublished management port 8081 serves health (`/health/live`, `/health/ready`; `src/DisputePortal.Api/Shared/Health/ManagementSettings.cs`) and Keycloak's back-channel logout (`POST /bff/backchannel-logout`, only as `api-mgmt` from the data network; [ADR-011](decisions/011-backchannel-logout.md)). Readiness checks Postgres and Redis |
 | Migrate job | `migrate` | data | Same image with `--migrate`; uses the `dispute-migrate` AppRole (schema owner) |
 | Postgres 17 | `postgres` | data | Volume `pgdata`. Holds the app database `disputes`, the `keycloak` database and the DataProtection keys |
-| Redis 8 | `redis` | data | Volume `redisdata`, AOF, `noeviction`, ACL user `dispute_api` limited to `~bff:*`. Holds encrypted session tickets and refresh locks only |
-| Keycloak 26.4 | `keycloak` | app, data | Realm import from `deploy/keycloak/` |
+| Redis 8 | `redis` | data | Volume `redisdata`, AOF, `noeviction`, ACL user `dispute_api` limited to `~bff:*`. Holds encrypted session tickets (`bff:ticket:*`), the Keycloak-session index (`bff:sid:<sha256 of sid>`, ticket ids only), refresh locks and used logout-token ids (`bff:logout-jti:*`, hashed, 3-minute TTL) only |
+| Keycloak 26.4 | `keycloak` | app, data | Realm import from `deploy/keycloak/`. Calls the API's back-channel logout at `http://api-mgmt:8081/bff/backchannel-logout` (`BACKCHANNEL_LOGOUT_URL`) whenever a session ends there |
 | Vault 1.20 | `vault`, `bootstrap` | data | Server mode, file storage in volume `vault-data`, one key share (local only) |
 | Grafana LGTM | `lgtm` | edge, app | Only with `--profile observability` |
 
@@ -39,7 +39,7 @@ Custom meters (source: `src/DisputePortal.Api/Shared/Observability/`):
 
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|
-| `security.events` | counter | `type` | `authz_denied`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
+| `security.events` | counter | `type` | `authz_denied`, `backchannel_logout`, `backchannel_logout_rejected`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
 | `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
 | `disputes.submitted` | counter | `reason` | reason code | `DisputePortal.Disputes` |
 | `disputes.transitions` | counter | `to` | status name | `DisputePortal.Disputes` |
@@ -58,7 +58,11 @@ server spans; client spans keep the URL without its query. Health endpoints are 
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`Telemetry.cs`).
 
 Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` (ids, filter, counts and agent
-subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`.
+subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`,
+`Back-channel logout ended {SessionCount} session(s)` (a count, never a sid, sub or jti) and `Back-channel logout token
+refused: {Reason}`, where `Reason` is one of `Malformed`, `Algorithm`, `Type`, `Signature`, `Issuer`, `Audience`,
+`IssuedAt`, `Expired`, `NotYetValid`, `Events`, `Nonce`, `TokenId`, `SessionId`, `Replayed` (category
+`DisputePortal.Api.Features.Bff.BackchannelLogout`).
 
 ## 4. Alerts
 
@@ -74,8 +78,10 @@ Thresholds marked "starting point" are guesses to be tuned against a baseline th
 | `security.events{type="bola_404"}` | **rate**, not a count: increase over 5 minutes above a baseline learned in production. Starting point: more than 20 per customer-facing minute across all replicas | ticket | The counter counts every 404 answered to a customer (the owner filter cannot tell someone else's id from an unknown id, documented in `SecurityMetrics.cs`). Normal noise is stale bookmarks; a probe for foreign ids is a sustained rate from one session. Find the session in the nginx log by `request_id`, and the subject in the API log by trace id |
 | `security.events{type="authz_denied"}` | Rate above baseline for 5 minutes | ticket | Role misconfiguration after a realm change, or a customer probing `/agent` |
 | `security.events{type="csrf_rejected"}` | Any sustained rate | ticket | A client without the `X-CSRF: 1` header: a broken deploy of the SPA, or a forged cross-site request |
-| `security.events{type="rate_limited"}` | Rate above baseline for 5 minutes | ticket | A runaway client or abuse. Limits are per replica (Section 9) |
+| `security.events{type="rate_limited"}` | Rate above baseline for 5 minutes | ticket | A runaway client or abuse. Limits are per replica (Section 9). A 429 on `/bff/backchannel-logout` (HTTP server metrics with `http.route` `/bff/backchannel-logout` and status 429) is a signal on its own: that limit is 6000 a minute per peer (`RateLimiting:BackchannelLogoutsPerMinute`), so hitting it means a flood from inside the data network, and the throttled Keycloak calls fall back to the refresh bound |
 | `security.events{type="session_refresh_failed"}` | Rate above baseline for 5 minutes, or any burst after a Keycloak change | page if it follows a Keycloak or secret rotation | Section 7 (client secret) and Section 8 (Keycloak down). A refused refresh signs the user out (`Shared/Security/SessionValidator.cs`) |
+| `security.events{type="backchannel_logout_rejected"}` | Any sustained rate | ticket | Read `Reason` in the API log. `Issuer`, `Audience` or `Signature` right after a Keycloak change is a configuration mismatch (`KC_HOSTNAME` versus `Keycloak__Authority`, the client id, rotated realm keys: the API refetches keys on an unknown `kid`); `Replayed` or `Malformed` without a Keycloak change is a probe from inside the data network. Either way the affected sessions fall back to the 5-minute refresh bound |
+| `security.events{type="backchannel_logout"}` | No alert; a dashboard series | none | One per Keycloak logout the API acted on (a logout at Keycloak, an admin ending sessions). A sudden burst is an admin "sign out all". Sessions that merely expire at Keycloak do not show here: they end at their next refresh |
 | `disputes.resolution.duration` | p95 above the business target | ticket | Business signal; the target is not defined in the spec [UNVERIFIED] |
 
 ## 5. Observability profile (local)
@@ -197,13 +203,13 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 
 **Dependency down**
 - Redis: login and every authenticated call return 503 (fail closed, `WhenRedisIsDownLoginAndSessionValidationFailClosedWith503`). Restart `redis`; users keep their cookies but tickets are lost only if the volume was.
-- Keycloak: sign-in is 503; existing sessions keep working until the 60-second pre-expiry refresh, and an unreachable IdP during refresh keeps the session (`AnUnreachableIdpDuringRefreshIs503AndKeepsTheSession`).
+- Keycloak: sign-in is 503; existing sessions keep working until the 60-second pre-expiry refresh, and an unreachable IdP during refresh keeps the session (`AnUnreachableIdpDuringRefreshIs503AndKeepsTheSession`). Sessions ended at Keycloak while the API or Redis is down are not retried by Keycloak: the back-channel call returns 503 and those sessions end at their next refresh instead. Keycloak logs nothing at its default level for a failed call (checked), so the only trace is the API side (`session_store_unavailable` 503s on `/bff/backchannel-logout`, or no `Back-channel logout ended` line).
 - Postgres: readiness fails; EF retries 3 times; restore from backup if data is lost (Section 6).
 - Vault sealed after a restart: `docker compose up -d bootstrap` unseals it (single local key share). `api` reads Vault only at start, so a sealed Vault does not hurt running replicas but blocks new ones.
 
 **Suspected credential or session compromise**
 1. Revoke sessions: rotate DataProtection keys (Section 7) so every ticket becomes unreadable, or flush the `bff:*` keys in Redis.
-2. Disable the user in Keycloak; their access token lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
+2. End the user's sessions in Keycloak (admin console: Users, the user, Sessions, sign out; or `kcadm.sh delete sessions/<id> -r dispute-portal` inside the `keycloak` container) and disable the user. Keycloak calls the back-channel logout, so the app sessions end on their next request (API log `Back-channel logout ended n session(s)`). If that call was lost, the access token still lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
 3. Rotate the secrets that may have leaked (Section 7).
 4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
@@ -224,7 +230,19 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
   re-seeds. The secrets volume and the Postgres volume must be reset together, because the database role passwords come
   from the secrets volume on first start (README).
 - **Safari** and `Secure` cookies on `http://localhost` are unverified; use Chromium or Firefox.
-- **Ports and subnets**: `APP_PORT`, `AUTH_PORT`, `APP_SUBNET`, `DATA_SUBNET` (see `.env.example`).
+- **Ports and subnets**: `APP_PORT`, `AUTH_PORT`, `APP_SUBNET`, `DATA_SUBNET` (see `.env.example`). `DATA_SUBNET` is
+  also the API's `Ports__InternalNetwork`: the management port answers only loopback and that network.
+- **Back-channel logout check** (replace `dispute-portal` with your project name):
+  - The edge never forwards it: `curl -s -o /dev/null -w '%{http_code}' -X POST -d logout_token=x
+    http://localhost:8080/bff/backchannel-logout` prints `404` (nginx's own page).
+  - Keycloak's path works: from the data network, `docker run --rm --network dispute-portal_data --entrypoint wget
+    redis:8-alpine -q -S -O- --post-data logout_token=x http://api-mgmt:8081/bff/backchannel-logout` shows
+    `400 Bad Request` (a refused token, so the endpoint is reachable and verifying) and the API logs
+    `Back-channel logout token refused: Malformed`. From the app network (where nginx is), the management port
+    answers 404 even with `Host: api-mgmt` and a forged `X-Forwarded-For`.
+  - End to end: `e2e/tests/backchannel-logout.spec.ts` (a logout at Keycloak itself, and an admin deleting the
+    session with `kcadm.sh`, each followed by a 401 on the very next request). It runs `docker compose exec
+    keycloak`, so set `COMPOSE_PROJECT_NAME` when the stack is not the default project.
 - Another stack using the same compose project name (`dispute-portal`) will share volumes with this one.
 
 ## 10. Data retention (design only)

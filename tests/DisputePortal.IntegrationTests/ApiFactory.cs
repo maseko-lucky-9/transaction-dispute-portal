@@ -28,6 +28,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string OwnerRole = "dispute_owner";
     public const string PublicBaseUrl = "http://localhost";
 
+    /// <summary>The management port under the compose alias Keycloak uses for back-channel logout.</summary>
+    public const string InternalHost = "api-mgmt";
+    public const string ManagementBaseUrl = "http://" + InternalHost + ":8081";
+    public const int ManagementPort = 8081;
+
+    /// <summary>The compose data network, and Keycloak's address on it: the peer a management-port request comes from by default.</summary>
+    public const string InternalNetwork = "10.231.28.0/24";
+    public const string KeycloakPeer = "10.231.28.20";
+
     /// <summary>The compose ACL user (deploy/bootstrap/bootstrap.sh), so every Redis command the app sends is proven under it.</summary>
     public const string RedisUser = "dispute_api";
 
@@ -77,6 +86,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Keycloak:Authority", FakeIdentityProvider.Issuer);
         builder.UseSetting("Keycloak:ClientSecret", IdentityProvider.ClientSecret);
         builder.UseSetting("Forwarded:KnownNetwork", "172.28.0.0/16");
+        // As compose: Keycloak reaches the management port under this name, from the data network (ADR-011).
+        builder.UseSetting("Ports:InternalHost", InternalHost);
+        builder.UseSetting("Ports:InternalNetwork", InternalNetwork);
         builder.ConfigureTestServices(services =>
         {
             // The real OIDC handler, with metadata supplied in memory and the back channel answered by the fake.
@@ -94,6 +106,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>A client that behaves like a browser tab with cookies off: no redirects followed, cookies sent by hand.</summary>
     public HttpClient CreateBrowserClient(string baseAddress = PublicBaseUrl) =>
         CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri(baseAddress) });
+
+    /// <summary>
+    /// Takes Redis commands away from the app's ACL user, or gives them back (each was allowed by the compose rule below),
+    /// to make one kind of Redis call fail while the others work. ACL changes apply to open connections at once.
+    /// </summary>
+    public async Task SetRedisCommandsAsync(bool allowed, params string[] commands)
+    {
+        ExecResult result = await redis.ExecAsync(
+            ["redis-cli", "ACL", "SETUSER", RedisUser, .. commands.Select(command => (allowed ? "+" : "-") + command)]);
+        Assert.Equal("OK", result.Stdout.Trim());
+    }
 
     // The same rule as compose's users.acl: bff:* keys only, no channels, no admin or dangerous commands.
     private async Task PrepareRedisUserAsync()

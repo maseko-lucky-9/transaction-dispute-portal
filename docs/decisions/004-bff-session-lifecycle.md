@@ -14,7 +14,8 @@ Current OAuth guidance for browser apps keeps tokens out of JavaScript. Keycloak
   forge a session. Redis runs a key-scoped ACL user, `noeviction` and AOF.
 - Lifetime: 15 minutes idle, 8 hours absolute. When the access token is within 60 seconds of expiry the API
   refreshes it and re-reads roles; a failed refresh signs the user out. Revocation is bounded by the 5-minute access
-  token. Back-channel logout is a stretch item.
+  token. Amended 2026-11-04: a session ended at Keycloak now ends at once through back-channel logout
+  ([ADR-011](011-backchannel-logout.md)); the refresh bound remains the fallback when that call is lost.
 - Logout is a top-level navigation to `/bff/logout?sid=...`, which deletes the ticket and calls Keycloak
   end-session with `id_token_hint`, so the next login asks for the password again (an E2E test proves it).
 - Unauthenticated `/api` calls return JSON 401/403, never a redirect. The OIDC challenge happens only at

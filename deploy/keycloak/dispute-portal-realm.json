@@ -49,6 +49,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
+      "frontchannelLogout": false,
       "rootUrl": "${PUBLIC_URL}",
       "baseUrl": "/",
       "redirectUris": ["${PUBLIC_URL}/signin-oidc"],
@@ -58,7 +59,10 @@
         "post.logout.redirect.uris": "${PUBLIC_URL}/signout-callback-oidc",
         "access.token.lifespan": "300",
         "client.session.idle.timeout": "900",
-        "client.session.max.lifespan": "28800"
+        "client.session.max.lifespan": "28800",
+        "backchannel.logout.url": "${BACKCHANNEL_LOGOUT_URL}",
+        "backchannel.logout.session.required": "true",
+        "backchannel.logout.revoke.offline.tokens": "false"
       },
       "defaultClientScopes": ["basic", "profile"],
       "optionalClientScopes": [],

@@ -38,9 +38,12 @@ public static class SessionTokens
     public static DateTimeOffset AbsoluteExpiresAt(AuthenticationProperties properties) =>
         Parse(properties.Items.TryGetValue(AbsoluteExpiresAtItem, out string? value) ? value : null) ?? DateTimeOffset.MinValue;
 
-    /// <summary>A refresh token's SHA-256, for lock and single-flight keys: a usable token never becomes a key.</summary>
-    public static string Fingerprint(string refreshToken) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
+    /// <summary>
+    /// A SHA-256 (hex), for Redis keys derived from a token or an identifier (refresh lock, single-flight, session index,
+    /// logout-token replay): a usable token, a Keycloak sid or a jti never becomes a key.
+    /// </summary>
+    public static string Fingerprint(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
     private static string Format(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
 

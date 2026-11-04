@@ -263,6 +263,30 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
+    // ADR-011: Keycloak logs the session out (a logout at Keycloak, an admin ending it) and posts a signed logout token
+    // to the management port. The very next request is refused, long before the 5-minute access token would expire.
+    [Fact]
+    public async Task ABackchannelLogoutFromKeycloakEndsTheSessionOnTheNextRequest()
+    {
+        IdpUser user = Thandi();
+        BrowserSession session = await BrowserSession.SignInAsync(api, user);
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpClient keycloak = api.CreateBrowserClient(ApiFactory.ManagementBaseUrl);
+        HttpResponseMessage before = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+        int refreshesBefore = api.IdentityProvider.RefreshCount;
+
+        HttpResponseMessage logout = await keycloak.PostAsync(BackchannelLogoutEndpoint.Path,
+            new FormUrlEncodedContent([new KeyValuePair<string, string>("logout_token", api.IdentityProvider.LogoutToken(user.SessionId, user.Subject))]));
+        HttpResponseMessage after = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+        Assert.Equal("unauthorized", (await Problem.ReadAsync(after)).Code);
+        // Ended by the back channel alone: no refresh was attempted (the access token still had minutes to live).
+        Assert.Equal(refreshesBefore, api.IdentityProvider.RefreshCount);
+    }
+
     // A second sign-in from the same browser must revoke the first server-side ticket, not just rotate the cookie:
     // otherwise a copied old cookie (with its refresh token in Redis) stays usable for the full absolute lifetime.
     [Fact]
