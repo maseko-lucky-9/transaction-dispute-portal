@@ -107,6 +107,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public HttpClient CreateBrowserClient(string baseAddress = PublicBaseUrl) =>
         CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri(baseAddress) });
 
+    /// <summary>
+    /// Takes Redis commands away from the app's ACL user, or gives them back (each was allowed by the compose rule below),
+    /// to make one kind of Redis call fail while the others work. ACL changes apply to open connections at once.
+    /// </summary>
+    public async Task SetRedisCommandsAsync(bool allowed, params string[] commands)
+    {
+        ExecResult result = await redis.ExecAsync(
+            ["redis-cli", "ACL", "SETUSER", RedisUser, .. commands.Select(command => (allowed ? "+" : "-") + command)]);
+        Assert.Equal("OK", result.Stdout.Trim());
+    }
+
     // The same rule as compose's users.acl: bff:* keys only, no channels, no admin or dangerous commands.
     private async Task PrepareRedisUserAsync()
     {

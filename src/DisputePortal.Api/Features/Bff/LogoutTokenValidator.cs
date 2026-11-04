@@ -73,7 +73,7 @@ public sealed class LogoutTokenValidator(IOptionsMonitor<OpenIdConnectOptions> o
         string sessionId = Identifier(payload.RootElement, "sid")!;
         string tokenId = Identifier(payload.RootElement, "jti")!;
         return await replayCache.TryClaimAsync(verified.Issuer, tokenId, ReplayWindow)
-            ? LogoutTokenResult.Accepted(sessionId)
+            ? LogoutTokenResult.Accepted(sessionId, verified.Issuer, tokenId)
             : LogoutTokenResult.Refused(LogoutTokenFailure.Replayed);
     }
 

@@ -54,6 +54,8 @@ public sealed class LogoutTokenValidatorTests
         Assert.Equal(SessionId, result.SessionId);
         (string issuer, string tokenId, TimeSpan window) = Assert.Single(replay.Claims);
         Assert.Equal((Issuer, (string)claims["jti"], TimeSpan.FromSeconds(180)), (issuer, tokenId, window));
+        // What the endpoint needs to release the claim if deleting the tickets fails.
+        Assert.Equal((Issuer, (string)claims["jti"]), (result.Issuer, result.TokenId));
     }
 
     [Fact]
@@ -320,6 +322,12 @@ public sealed class LogoutTokenValidatorTests
         {
             Claims.Add((issuer, tokenId, window));
             return Task.FromResult(seen.Add(issuer + "\n" + tokenId));
+        }
+
+        public Task ReleaseAsync(string issuer, string tokenId)
+        {
+            seen.Remove(issuer + "\n" + tokenId);
+            return Task.CompletedTask;
         }
     }
 }

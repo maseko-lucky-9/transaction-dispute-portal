@@ -51,7 +51,13 @@ public static class BackchannelLogoutEndpoint
     // Every refusal, whatever the rule, is the same 400 with the same body (spec section 2.8): no oracle for a forger.
     // A valid token for a session this API never saw (or already ended) is a 200, as the spec requires.
     private static async Task<IResult> HandleAsync(
-        HttpContext context, LogoutTokenValidator validator, RedisTicketStore sessions, SecurityMetrics metrics, ILoggerFactory loggers, CancellationToken cancellationToken)
+        HttpContext context,
+        LogoutTokenValidator validator,
+        RedisTicketStore sessions,
+        ILogoutTokenReplayCache replayCache,
+        SecurityMetrics metrics,
+        ILoggerFactory loggers,
+        CancellationToken cancellationToken)
     {
         ILogger logger = loggers.CreateLogger(LogCategory);
         LogoutTokenResult result = await validator.ValidateAsync(await ReadTokenAsync(context.Request, cancellationToken), cancellationToken);
@@ -67,11 +73,26 @@ public static class BackchannelLogoutEndpoint
             });
         }
 
-        int ended = await sessions.RemoveBySessionIdAsync(result.SessionId!);
+        int ended = await EndSessionsAsync(result, sessions, replayCache);
         metrics.Record(SecurityMetrics.BackchannelLogout);
         // A count only: no sid, sub or jti ever reaches a log line.
         logger.LogInformation("Back-channel logout ended {SessionCount} session(s)", ended);
         return TypedResults.Ok();
+    }
+
+    // The jti is claimed before the tickets are deleted. If the deletion fails (503), the claim is released again, best
+    // effort, so a retry of the same token is processed instead of being refused as a replay.
+    private static async Task<int> EndSessionsAsync(LogoutTokenResult result, RedisTicketStore sessions, ILogoutTokenReplayCache replayCache)
+    {
+        try
+        {
+            return await sessions.RemoveBySessionIdAsync(result.SessionId!);
+        }
+        catch (SessionStoreUnavailableException)
+        {
+            await replayCache.ReleaseAsync(result.Issuer!, result.TokenId!);
+            throw;
+        }
     }
 
     /// <returns>The one <c>logout_token</c> of a small urlencoded form with a declared length; null for anything else.</returns>

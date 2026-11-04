@@ -308,6 +308,59 @@ public sealed class BackchannelLogoutTests : IDisposable
     }
 
 
+    // Fix for a lost claim: the jti is claimed before the tickets are deleted. When the deletion fails (Redis refuses the
+    // script here, so the claim and its release still work), the claim is released and Keycloak's retry goes through.
+    [Fact]
+    public async Task AFailedDeletionReleasesTheJtiSoARetryOfTheSameTokenSucceeds()
+    {
+        IdpUser user = Thandi();
+        (BrowserSession session, string ticketId) = await RedisTickets.SignInAsync(api, user);
+        string token = api.IdentityProvider.LogoutToken(user.SessionId, user.Subject);
+
+        HttpResponseMessage failed;
+        await api.SetRedisCommandsAsync(allowed: false, "eval", "evalsha");
+        try
+        {
+            failed = await PostAsync(token);
+        }
+        finally
+        {
+            await api.SetRedisCommandsAsync(allowed: true, "eval", "evalsha");
+        }
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failed.StatusCode);
+        Assert.Equal("session_store_unavailable", (await Problem.ReadAsync(failed)).Code);
+        Assert.Contains(ticketId, RedisTickets.Ids(api));
+        HttpResponseMessage retry = await PostAsync(token);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.DoesNotContain(ticketId, RedisTickets.Ids(api));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await UserAsync(session)).StatusCode);
+    }
+
+    // The release is best effort: when it fails too, the caller still gets the original 503, never a 500. Both delete
+    // commands are taken away: StackExchange.Redis 3 deletes with UNLINK (denying DEL alone left the release working).
+    [Fact]
+    public async Task AFailedReleaseStillAnswersTheOriginal503()
+    {
+        IdpUser user = Thandi();
+        await RedisTickets.SignInAsync(api, user);
+        string token = api.IdentityProvider.LogoutToken(user.SessionId, user.Subject);
+
+        HttpResponseMessage failed;
+        await api.SetRedisCommandsAsync(allowed: false, "eval", "evalsha", "del", "unlink");
+        try
+        {
+            failed = await PostAsync(token);
+        }
+        finally
+        {
+            await api.SetRedisCommandsAsync(allowed: true, "eval", "evalsha", "del", "unlink");
+        }
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failed.StatusCode);
+        Assert.Equal("session_store_unavailable", (await Problem.ReadAsync(failed)).Code);
+    }
+
     // Misconfiguration fails start-up: an internal host name without the network it may be used from.
     [Fact]
     public async Task AnInternalHostWithoutAnInternalNetworkStopsStartUp()
