@@ -38,7 +38,7 @@ Custom meters (source: `src/DisputePortal.Api/Shared/Observability/`):
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|
 | `security.events` | counter | `type` | `authz_denied`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
-| `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned` | `DisputePortal.Security` |
+| `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
 | `disputes.submitted` | counter | `reason` | reason code | `DisputePortal.Disputes` |
 | `disputes.transitions` | counter | `to` | status name | `DisputePortal.Disputes` |
 | `disputes.eligibility_rejections` | counter | `rule` | rule code | `DisputePortal.Disputes` |
@@ -55,8 +55,8 @@ Traces: ASP.NET Core, HttpClient and Npgsql, plus a `DisputePortal.Api` activity
 server spans; client spans keep the URL without its query. Health endpoints are not traced. Telemetry is exported only
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`Telemetry.cs`).
 
-Logs: JSON console. Structured events of note: `agent.dispute.viewed` and `agent.dispute.transitioned` (ids and agent
-subject only), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`.
+Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` (ids, filter, counts and agent
+subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`.
 
 ## 4. Alerts
 
@@ -203,7 +203,7 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 1. Revoke sessions: rotate DataProtection keys (Section 7) so every ticket becomes unreadable, or flush the `bff:*` keys in Redis.
 2. Disable the user in Keycloak; their access token lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
 3. Rotate the secrets that may have leaked (Section 7).
-4. Review `agent.dispute.viewed` and `agent.dispute.transitioned` log lines and `audit.events` for the affected agent subject.
+4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
 
 **Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`); redeploy the previous sha. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]
