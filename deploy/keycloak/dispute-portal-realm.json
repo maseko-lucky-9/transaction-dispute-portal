@@ -1,0 +1,83 @@
+{
+  "realm": "dispute-portal",
+  "enabled": true,
+  "displayName": "Dispute Portal",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "editUsernameAllowed": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "maxDeltaTimeSeconds": 43200,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Bank customer: views and disputes own transactions" },
+      { "name": "dispute-agent", "description": "Back-office agent: reviews disputes across customers" }
+    ]
+  },
+  "scopeMappings": [
+    { "client": "dispute-portal-bff", "roles": ["customer", "dispute-agent"] }
+  ],
+  "clients": [
+    {
+      "clientId": "dispute-portal-bff",
+      "name": "Dispute Portal BFF",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_CLIENT_SECRET}",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "rootUrl": "${PUBLIC_URL}",
+      "baseUrl": "/",
+      "redirectUris": ["${PUBLIC_URL}/signin-oidc"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${PUBLIC_URL}/signout-callback-oidc",
+        "access.token.lifespan": "300",
+        "client.session.idle.timeout": "900",
+        "client.session.max.lifespan": "28800"
+      },
+      "defaultClientScopes": ["basic", "profile"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

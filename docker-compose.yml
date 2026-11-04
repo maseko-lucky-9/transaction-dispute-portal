@@ -1,0 +1,197 @@
+# One command, nothing else installed on the host:  docker compose up --build
+# Open http://localhost:8080 (APP_PORT / AUTH_PORT override the host ports; every URL derives from them).
+name: dispute-portal
+
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-vault-env: &vault-env
+  Vault__Address: http://vault:8200
+
+services:
+  vault:
+    image: hashicorp/vault:1.20
+    command: ["server"]
+    environment:
+      SKIP_SETCAP: "true"
+      VAULT_LOCAL_CONFIG: >-
+        {"storage":{"file":{"path":"/vault/file"}},
+        "listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}},
+        "disable_mlock":true,"ui":false,"api_addr":"http://vault:8200"}
+    volumes: [vault-data:/vault/file]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]
+
+  bootstrap:
+    image: hashicorp/vault:1.20
+    entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
+    depends_on: [vault]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      BACKEND_CIDR: 172.28.0.0/16
+    volumes:
+      - secrets:/secrets
+      - ./deploy/bootstrap:/bootstrap:ro
+      - ./deploy/vault/policies:/policies:ro
+    restart: "no"
+    networks: [backend]
+
+  postgres:
+    image: postgres:17-alpine
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: disputes
+      POSTGRES_PASSWORD_FILE: /run/pg/superuser
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - { type: volume, source: secrets, target: /run/pg, read_only: true, volume: { subpath: pg } }
+      - ./deploy/postgres/roles.sql:/roles/roles.sql:ro
+      - ./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d disputes"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  redis:
+    image: redis:8-alpine
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+    command: ["redis-server", "--aclfile", "/run/redis/users.acl", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+      - { type: volume, source: secrets, target: /run/redis, read_only: true, volume: { subpath: redis } }
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning --user dispute_api -a \"$$(cat /run/redis/password)\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    depends_on:
+      postgres: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        export KC_DB_PASSWORD="$$(cat /run/kc/db_password)"
+        KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/kc/admin_password)"
+        KC_CLIENT_SECRET="$$(cat /run/kc/client_secret)";
+        exec /opt/keycloak/bin/kc.sh start --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:${AUTH_PORT:-8180}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      PUBLIC_URL: http://localhost:${APP_PORT:-8080}
+    volumes:
+      - { type: volume, source: secrets, target: /run/kc, read_only: true, volume: { subpath: keycloak } }
+      - ./deploy/keycloak/dispute-portal-realm.json:/opt/keycloak/data/import/dispute-portal-realm.json:ro
+      - ./deploy/keycloak/dispute-portal-users-0.json:/opt/keycloak/data/import/dispute-portal-users-0.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [backend]
+
+  migrate:
+    build: { context: ., target: api }
+    image: dispute-portal-api:local
+    command: ["--migrate"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
+    environment:
+      <<: *vault-env
+      Vault__RoleIdFile: /run/approle/role_id
+      Vault__SecretIdFile: /run/approle/secret_id
+    volumes:
+      - { type: volume, source: secrets, target: /run/approle, read_only: true, volume: { subpath: approle/migrate } }
+    <<: *hardened
+    read_only: true
+    restart: "no"
+    networks: [backend]
+
+  api:
+    image: dispute-portal-api:local
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+    environment:
+      <<: *vault-env
+      Vault__RoleIdFile: /run/approle/role_id
+      Vault__SecretIdFile: /run/approle/secret_id
+      Public__BaseUrl: http://localhost:${APP_PORT:-8080}
+      Keycloak__Authority: http://localhost:${AUTH_PORT:-8180}/realms/dispute-portal
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/dispute-portal/.well-known/openid-configuration
+      Forwarded__KnownNetwork: 172.28.0.0/16
+      AllowedHosts: localhost
+      ASPNETCORE_ENVIRONMENT: Production
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-}
+    volumes:
+      - { type: volume, source: secrets, target: /run/approle, read_only: true, volume: { subpath: approle/api } }
+    healthcheck:
+      test: ["CMD", "dotnet", "DisputePortal.Api.dll", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    <<: *hardened
+    read_only: true
+    networks: [backend]
+
+  web:
+    build: { context: ., target: web }
+    image: dispute-portal-web:local
+    depends_on:
+      api: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+      - "127.0.0.1:${AUTH_PORT:-8180}:8180"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [edge, backend]
+
+  # docker compose --profile observability up   (set OTEL_ENDPOINT=http://lgtm:4317 for the api)
+  lgtm:
+    profiles: [observability]
+    image: grafana/otel-lgtm:latest
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [edge, backend]
+
+volumes:
+  secrets:
+  vault-data:
+  pgdata:
+  redisdata:
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
