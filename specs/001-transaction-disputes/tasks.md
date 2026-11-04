@@ -33,6 +33,7 @@ Format: `[ID] [P?] [Story] description`. Tasks within a PR run in order unless m
 
 ## PR5 — Agent (US5)
 - [ ] T040 Agent queue/detail/transitions, segregation of duties, view logging
+- [ ] T040a Free-text rule on the agent's resolution note: same invalid_characters + sensitive_data checks as the description (scan the trimmed text that is stored), same shared validation-cases.json, same 2000 limit (PR4 review N7: `Dispute.Transition(note)` has no check today)
 - [ ] T041 [P] Agent UI
 
 ## PR6 — Ops hardening
