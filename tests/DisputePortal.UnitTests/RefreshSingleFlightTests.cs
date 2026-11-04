@@ -1,61 +1,64 @@
-using System.Security.Claims;
 using DisputePortal.Api.Shared.Security;
 
 namespace DisputePortal.UnitTests;
 
 public sealed class RefreshSingleFlightTests
 {
-    private static readonly RefreshedSession Refreshed = new(new ClaimsIdentity(), "id", "rt-2", DateTimeOffset.UnixEpoch);
+    private static readonly RefreshOutcome Outcome = RefreshOutcome.Gone;
 
     [Fact]
-    public async Task ParallelRefreshesOfOneTokenRedeemItOnce()
+    public async Task ParallelRefreshesOfOneTokenRunOnce()
     {
-        RefreshSingleFlight singleFlight = new(TimeProvider.System);
-        TaskCompletionSource<RefreshedSession?> gate = new();
+        RefreshSingleFlight singleFlight = new();
+        TaskCompletionSource<RefreshOutcome> gate = new();
         int calls = 0;
 
-        Task<RefreshedSession?>[] requests = [.. Enumerable.Range(0, 5).Select(_ => singleFlight.RunAsync("rt-1", () =>
+        Task<RefreshOutcome>[] requests = [.. Enumerable.Range(0, 5).Select(_ => singleFlight.RunAsync("rt-1", () =>
         {
             Interlocked.Increment(ref calls);
             return gate.Task;
         }))];
-        gate.SetResult(Refreshed);
-        RefreshedSession?[] results = await Task.WhenAll(requests);
+        gate.SetResult(Outcome);
+        RefreshOutcome[] results = await Task.WhenAll(requests);
 
         Assert.Equal(1, calls);
-        Assert.All(results, result => Assert.Same(Refreshed, result));
+        Assert.All(results, result => Assert.Same(Outcome, result));
     }
 
+    // A finished attempt is never served again: an Unavailable outcome must not stick, and a later request re-reads the ticket.
     [Fact]
-    public async Task ALateRequestWithTheSameTokenReusesTheResult()
+    public async Task ACompletedFlightIsNotCached()
     {
-        RefreshSingleFlight singleFlight = new(TimeProvider.System);
+        RefreshSingleFlight singleFlight = new();
         int calls = 0;
-        Task<RefreshedSession?> Refresh()
+        Task<RefreshOutcome> Refresh()
         {
             calls++;
-            return Task.FromResult<RefreshedSession?>(Refreshed);
+            return Task.FromResult(Outcome);
         }
 
         await singleFlight.RunAsync("rt-1", Refresh);
         await singleFlight.RunAsync("rt-1", Refresh);
 
-        Assert.Equal(1, calls);
+        Assert.Equal(2, calls);
     }
 
     [Fact]
-    public async Task DifferentTokensRefreshIndependently()
+    public async Task DifferentTokensRunIndependently()
     {
-        RefreshSingleFlight singleFlight = new(TimeProvider.System);
+        RefreshSingleFlight singleFlight = new();
+        TaskCompletionSource<RefreshOutcome> gate = new();
         int calls = 0;
-        Task<RefreshedSession?> Refresh()
+        Task<RefreshOutcome> Refresh()
         {
-            calls++;
-            return Task.FromResult<RefreshedSession?>(Refreshed);
+            Interlocked.Increment(ref calls);
+            return gate.Task;
         }
 
-        await singleFlight.RunAsync("rt-1", Refresh);
-        await singleFlight.RunAsync("rt-other", Refresh);
+        Task<RefreshOutcome> first = singleFlight.RunAsync("rt-1", Refresh);
+        Task<RefreshOutcome> second = singleFlight.RunAsync("rt-other", Refresh);
+        gate.SetResult(Outcome);
+        await Task.WhenAll(first, second);
 
         Assert.Equal(2, calls);
     }

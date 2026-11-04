@@ -7,7 +7,7 @@ using Npgsql;
 namespace DisputePortal.Api.Shared.Errors;
 
 /// <summary>The one place an exception becomes an HTTP response (SCAD ADR-004).</summary>
-public sealed class ApiExceptionHandler(IProblemDetailsService problemDetails, ILogger<ApiExceptionHandler> logger)
+public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
     : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
@@ -24,12 +24,8 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problemDetails, I
             httpContext.Response.Headers.RetryAfter = "1";
         }
 
-        httpContext.Response.StatusCode = status;
-        return await problemDetails.TryWriteAsync(new ProblemDetailsContext
-        {
-            HttpContext = httpContext,
-            ProblemDetails = new ProblemDetails { Status = status, Detail = detail, Extensions = { ["code"] = code } },
-        });
+        await ProblemResponses.WriteAsync(httpContext, new ProblemDetails { Status = status, Detail = detail, Extensions = { ["code"] = code } });
+        return true;
     }
 
     // No stack trace or exception text ever reaches the client.

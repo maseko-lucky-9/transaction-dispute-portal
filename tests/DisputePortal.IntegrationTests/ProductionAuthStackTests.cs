@@ -4,6 +4,9 @@ using System.Text.Json;
 using DisputePortal.Api.Features.Bff;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
@@ -256,6 +259,39 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
+    // A second sign-in from the same browser must revoke the first server-side ticket, not just rotate the cookie:
+    // otherwise a copied old cookie (with its refresh token in Redis) stays usable for the full absolute lifetime.
+    [Fact]
+    public async Task SigningInAgainWithTheSameCookieJarRevokesTheOldTicket()
+    {
+        IConnectionMultiplexer redis = api.Services.GetRequiredService<IConnectionMultiplexer>();
+        HashSet<RedisKey> before = TicketKeys(redis);
+        BrowserSession first = await BrowserSession.SignInAsync(api, Thandi());
+        RedisKey oldTicket = Assert.Single(TicketKeys(redis).Except(before));
+
+        BrowserSession second = await BrowserSession.SignInAsync(api, Thandi(), cookieJar: first.Cookie);
+        using HttpClient browser = api.CreateBrowserClient();
+        HttpResponseMessage oldCookie = await browser.SendAsync(first.Request(HttpMethod.Get, "/bff/user"));
+        HttpResponseMessage newCookie = await browser.SendAsync(second.Request(HttpMethod.Get, "/bff/user"));
+
+        Assert.NotEqual(first.Cookie, second.Cookie);
+        Assert.DoesNotContain(oldTicket, TicketKeys(redis));
+        Assert.Equal(HttpStatusCode.Unauthorized, oldCookie.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, newCookie.StatusCode);
+    }
+
+    // A stale or forged cookie in the jar must not break sign-in.
+    [Fact]
+    public async Task SignInSucceedsWhenTheJarHoldsAnUnreadableSessionCookie()
+    {
+        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi(), cookieJar: BffAuthentication.CookieName + "=garbage");
+        using HttpClient browser = api.CreateBrowserClient();
+
+        HttpResponseMessage response = await browser.SendAsync(session.Request(HttpMethod.Get, "/bff/user"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     [Fact]
     public async Task ANearlyExpiredAccessTokenIsRefreshedAndTheRolesAreReRead()
     {
@@ -291,6 +327,146 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
+    // H1: a browser navigation sends Accept: text/html; a refusal must still be a Problem Details, never a 500.
+    [Theory]
+    [InlineData("text/html")]
+    [InlineData("text/plain")]
+    [InlineData("image/png")]
+    public async Task AnUnauthenticatedApiCallWithANonJsonAcceptIsStillA401Problem(string accept)
+    {
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = new(HttpMethod.Get, "/api/v1/me");
+        request.Headers.Add(CsrfMiddleware.HeaderName, "1");
+        request.Headers.Add(HeaderNames.Accept, accept);
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("unauthorized", (await Problem.ReadAsync(response)).Code);
+    }
+
+    [Fact]
+    public async Task AMissingCsrfHeaderWithAnHtmlAcceptIsStillA403Problem()
+    {
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = new(HttpMethod.Get, "/api/v1/me");
+        request.Headers.Add(HeaderNames.Accept, "text/html");
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(CsrfMiddleware.Code, (await Problem.ReadAsync(response)).Code);
+    }
+
+    [Fact]
+    public async Task TheUserEndpointWithAnHtmlAcceptIsStillA401Problem()
+    {
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = new(HttpMethod.Get, "/bff/user");
+        request.Headers.Add(HeaderNames.Accept, "text/html");
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("unauthorized", (await Problem.ReadAsync(response)).Code);
+    }
+
+    [Fact]
+    public async Task ABadReturnUrlWithAnHtmlAcceptIsStillA400ValidationProblem()
+    {
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = new(HttpMethod.Get, "/bff/login?returnUrl=" + Uri.EscapeDataString("//evil.example/"));
+        request.Headers.Add(HeaderNames.Accept, "text/html");
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Problem problem = await Problem.ReadAsync(response);
+        Assert.Equal("validation_failed", problem.Code);
+        Assert.True(problem.Body.GetProperty("errors").TryGetProperty("returnUrl", out _));
+    }
+
+    // Status-code pages write through the same helper: a bare 404 for a signed-in browser is a Problem Details too.
+    [Fact]
+    public async Task AnUnknownPathWithAnHtmlAcceptIsA404Problem()
+    {
+        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = session.Request(HttpMethod.Get, "/no-such-page", csrf: false);
+        request.Headers.Add(HeaderNames.Accept, "text/html");
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("not_found", (await Problem.ReadAsync(response)).Code);
+    }
+
+    // L3: Keycloak down at the first sign-in (metadata never fetched) is a 503 the SPA can explain, not a 500.
+    [Fact]
+    public async Task LoginIs503IdpUnavailableWhenTheMetadataCannotBeFetched()
+    {
+        await using WebApplicationFactory<Program> keycloakDown = api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
+            {
+                // Discovery through the fake's back channel, which answers 404 for it.
+                options.Configuration = null;
+                options.ConfigurationManager = null;
+                options.MetadataAddress = FakeIdentityProvider.Issuer + "/.well-known/openid-configuration";
+            })));
+        using HttpClient browser = keycloakDown.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
+
+        HttpResponseMessage response = await browser.GetAsync("/bff/login");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("idp_unavailable", (await Problem.ReadAsync(response)).Code);
+    }
+
+    // An unreachable Keycloak is not a refusal: the request fails closed, and the session survives the outage.
+    [Fact]
+    public async Task AnUnreachableIdpDuringRefreshIs503AndKeepsTheSession()
+    {
+        api.IdentityProvider.AccessTokenLifetimeSeconds = 30;
+        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
+        api.IdentityProvider.AccessTokenLifetimeSeconds = 300;
+        api.IdentityProvider.RefreshUnavailable = true;
+        using HttpClient browser = api.CreateBrowserClient();
+
+        HttpResponseMessage during = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+        api.IdentityProvider.RefreshUnavailable = false;
+        HttpResponseMessage after = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, during.StatusCode);
+        Assert.Equal("idp_unavailable", (await Problem.ReadAsync(during)).Code);
+        Assert.Equal(HttpStatusCode.OK, after.StatusCode);
+    }
+
+    // M1: two replicas (two hosts: separate single-flights and Redis connections, shared Redis and key ring) get
+    // parallel requests inside the refresh leeway. Keycloak refuses a replayed refresh token, and a successful redemption
+    // is slow, so without the cross-replica lock the losing replica is refused and deletes the shared ticket.
+    [Fact]
+    public async Task ParallelRefreshesAcrossTwoReplicasRedeemOnceAndKeepTheSession()
+    {
+        api.IdentityProvider.AccessTokenLifetimeSeconds = 30;
+        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
+        api.IdentityProvider.AccessTokenLifetimeSeconds = 300;
+        api.IdentityProvider.RefreshDelay = TimeSpan.FromMilliseconds(500);
+        await using WebApplicationFactory<Program> replicaB = api.WithWebHostBuilder(_ => { });
+        using HttpClient a = api.CreateBrowserClient();
+        using HttpClient b = replicaB.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
+        await b.GetAsync("/bff/user");
+        int refreshesBefore = api.IdentityProvider.RefreshCount;
+
+        HttpResponseMessage[] responses = await Task.WhenAll(Enumerable.Range(0, 6)
+            .Select(index => (index % 2 == 0 ? a : b).SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"))));
+        HttpResponseMessage afterA = await a.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+        HttpResponseMessage afterB = await b.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        Assert.Equal(HttpStatusCode.OK, afterA.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, afterB.StatusCode);
+        Assert.Equal(refreshesBefore + 1, api.IdentityProvider.RefreshCount);
+    }
+
     [Fact]
     public async Task WhenRedisIsDownLoginAndSessionValidationFailClosedWith503()
     {
@@ -316,6 +492,9 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.ServiceUnavailable, me.StatusCode);
         Assert.Equal("session_store_unavailable", (await Problem.ReadAsync(me)).Code);
     }
+
+    private static HashSet<RedisKey> TicketKeys(IConnectionMultiplexer redis) =>
+        [.. redis.GetServer(redis.GetEndPoints().Single()).Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
 
     private async Task WaitForRedisAsync()
     {

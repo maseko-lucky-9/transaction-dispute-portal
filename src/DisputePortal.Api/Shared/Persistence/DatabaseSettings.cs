@@ -12,8 +12,7 @@ public sealed class DatabaseSettings
     public const string AppSection = "Database";
     public const string OwnerSection = "DatabaseOwner";
 
-    // Capacity baseline: 50 connections per replica; statement_timeout bounds a runaway query.
-    private const int MaxPoolSize = 50;
+    // statement_timeout bounds a runaway API query; migrations run without it, so a long index build can finish.
     private const int ConnectTimeoutSeconds = 5;
     private const int StatementTimeoutMilliseconds = 5000;
 
@@ -32,16 +31,31 @@ public sealed class DatabaseSettings
     [Required]
     public string Password { get; init; } = string.Empty;
 
-    public string ToConnectionString() => new NpgsqlConnectionStringBuilder
+    /// <summary>
+    /// Connections per replica. 20 keeps 3 replicas (60) plus Keycloak and the migrate job under Postgres's default
+    /// max_connections of 100; raise it together with max_connections.
+    /// </summary>
+    [Range(1, 200)]
+    public int MaxPoolSize { get; init; } = 20;
+
+    public string ToConnectionString(DatabaseUse use)
     {
-        Host = Host,
-        Port = Port,
-        Database = Name,
-        Username = Username,
-        Password = Password,
-        MaxPoolSize = MaxPoolSize,
-        Timeout = ConnectTimeoutSeconds,
-        Options = $"-c statement_timeout={StatementTimeoutMilliseconds}",
-        ApplicationName = "dispute-portal",
-    }.ConnectionString;
+        NpgsqlConnectionStringBuilder builder = new()
+        {
+            Host = Host,
+            Port = Port,
+            Database = Name,
+            Username = Username,
+            Password = Password,
+            MaxPoolSize = MaxPoolSize,
+            Timeout = ConnectTimeoutSeconds,
+            ApplicationName = use == DatabaseUse.Migrations ? "dispute-portal-migrate" : "dispute-portal",
+        };
+        if (use == DatabaseUse.Application)
+        {
+            builder.Options = $"-c statement_timeout={StatementTimeoutMilliseconds}";
+        }
+
+        return builder.ConnectionString;
+    }
 }

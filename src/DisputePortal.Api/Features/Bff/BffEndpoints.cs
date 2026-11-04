@@ -1,10 +1,13 @@
 using System.Security.Claims;
+using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Security;
 using DisputePortal.Api.Shared.Validation;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace DisputePortal.Api.Features.Bff;
 
@@ -35,9 +38,11 @@ public static class BffEndpoints
         return app;
     }
 
-    private static async Task<ChallengeHttpResult> LoginAsync([AsParameters] LoginRequest request, RedisTicketStore sessions)
+    private static async Task<ChallengeHttpResult> LoginAsync(
+        [AsParameters] LoginRequest request, RedisTicketStore sessions, IOptionsMonitor<OpenIdConnectOptions> oidcOptions, CancellationToken cancellationToken)
     {
         await sessions.EnsureAvailableAsync();
+        await EnsureIdentityProviderAsync(oidcOptions.Get(OpenIdConnectDefaults.AuthenticationScheme), cancellationToken);
         AuthenticationProperties properties = new() { RedirectUri = request.ReturnUrl ?? Home };
         return TypedResults.Challenge(properties, [OpenIdConnectDefaults.AuthenticationScheme]);
     }
@@ -54,16 +59,32 @@ public static class BffEndpoints
         string? sessionId = user.FindFirstValue(ClaimNames.SessionId);
         if (sessionId is null || !string.Equals(sid, sessionId, StringComparison.Ordinal))
         {
-            return TypedResults.Problem(
-                detail: "The logout link does not belong to this session.",
-                statusCode: StatusCodes.Status400BadRequest,
-                extensions: new Dictionary<string, object?> { ["code"] = "invalid_logout_request" });
+            return ProblemResponses.Result(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Detail = "The logout link does not belong to this session.",
+                Extensions = { ["code"] = "invalid_logout_request" },
+            });
         }
 
         // Cookie first (deletes the Redis ticket), then OIDC (redirects to Keycloak's end-session with id_token_hint).
         return TypedResults.SignOut(
             new AuthenticationProperties { RedirectUri = Home },
             [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
+    }
+
+    // The challenge needs the metadata; without it the OIDC handler throws and the user would see a 500.
+    // A cached configuration is returned even while a refresh of it fails, so only a cold miss lands here.
+    private static async Task EnsureIdentityProviderAsync(OpenIdConnectOptions options, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await options.ConfigurationManager!.GetConfigurationAsync(cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new IdentityProviderUnavailableException(exception);
+        }
     }
 
     private static Ok<BffUserResponse> GetUser(ClaimsPrincipal user) =>

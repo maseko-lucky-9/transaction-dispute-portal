@@ -13,12 +13,13 @@ public static class PersistenceRegistration
     private const int MaxRetryCount = 3;
     private const int CommandTimeoutSeconds = 10;
 
-    /// <param name="section"><see cref="DatabaseSettings.AppSection"/> for the API, <see cref="DatabaseSettings.OwnerSection"/> for --migrate.</param>
-    public static IServiceCollection AddPersistence(this IServiceCollection services, string section)
+    /// <param name="use">The API binds <see cref="DatabaseSettings.AppSection"/>; --migrate binds <see cref="DatabaseSettings.OwnerSection"/>.</param>
+    public static IServiceCollection AddPersistence(this IServiceCollection services, DatabaseUse use)
     {
+        string section = use == DatabaseUse.Migrations ? DatabaseSettings.OwnerSection : DatabaseSettings.AppSection;
         services.AddOptions<DatabaseSettings>().BindConfiguration(section).ValidateDataAnnotations().ValidateOnStart();
         // Resolved on first use, so test settings apply.
-        services.AddSingleton(provider => NpgsqlDataSource.Create(provider.GetRequiredService<IOptions<DatabaseSettings>>().Value.ToConnectionString()));
+        services.AddSingleton(provider => NpgsqlDataSource.Create(provider.GetRequiredService<IOptions<DatabaseSettings>>().Value.ToConnectionString(use)));
         // Not pooled: a later slice adds a per-request owner filter, and pooled contexts would carry it across requests.
         services.AddDbContext<DisputePortalDbContext>((provider, options) => Configure(options, provider.GetRequiredService<NpgsqlDataSource>()));
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();

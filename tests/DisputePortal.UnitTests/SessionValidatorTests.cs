@@ -3,31 +3,35 @@ using DisputePortal.Api.Shared.Observability;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using StackExchange.Redis;
 
 namespace DisputePortal.UnitTests;
 
+/// <summary>The decisions taken before any refresh. Refresh itself (Redis lock, identity provider) is covered by the integration suite.</summary>
 public sealed class SessionValidatorTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 4, 10, 0, 0, TimeSpan.Zero);
 
     private readonly FixedClock clock = new(Now);
     private readonly ITokenRefresher refresher = Substitute.For<ITokenRefresher>();
+    private readonly IConnectionMultiplexer redis = Substitute.For<IConnectionMultiplexer>();
     private readonly IAuthenticationService authentication = Substitute.For<IAuthenticationService>();
     private readonly ServiceProvider services;
     private readonly SessionValidator validator;
-    private readonly SecurityEventListener securityEvents;
 
     public SessionValidatorTests()
     {
         services = new ServiceCollection().AddMetrics().AddSingleton(authentication).BuildServiceProvider();
-        System.Diagnostics.Metrics.IMeterFactory meterFactory = services.GetRequiredService<System.Diagnostics.Metrics.IMeterFactory>();
-        securityEvents = new SecurityEventListener(meterFactory);
-        SecurityMetrics metrics = new(meterFactory);
-        validator = new SessionValidator(refresher, new RefreshSingleFlight(clock), clock, metrics, NullLogger<SessionValidator>.Instance);
+        SessionRefreshCoordinator coordinator = new(
+            refresher, new SessionRefreshLock(redis, clock), new RedisTicketStore(redis, new EphemeralDataProtectionProvider(), clock));
+        validator = new SessionValidator(
+            coordinator, new RefreshSingleFlight(), clock,
+            new SecurityMetrics(services.GetRequiredService<System.Diagnostics.Metrics.IMeterFactory>()), NullLogger<SessionValidator>.Instance);
     }
 
     [Fact]
@@ -40,38 +44,7 @@ public sealed class SessionValidatorTests : IDisposable
         Assert.NotNull(context.Principal);
         Assert.False(context.ShouldRenew);
         await refresher.DidNotReceiveWithAnyArgs().RefreshAsync(default!, default);
-    }
-
-    [Fact]
-    public async Task AnAccessTokenWithinTheLeewayIsRefreshedAndTheRolesReplaced()
-    {
-        CookieValidatePrincipalContext context = Context(accessTokenExpiresAt: Now.AddSeconds(60));
-        refresher.RefreshAsync("rt-1", Arg.Any<CancellationToken>()).Returns(new RefreshedSession(
-            new ClaimsIdentity([new Claim("sub", "user-1"), new Claim("name", "Thandi"), new Claim("roles", Roles.DisputeAgent)]),
-            "id-2", "rt-2", Now.AddMinutes(5)));
-
-        await validator.ValidateAsync(context);
-
-        Assert.True(context.ShouldRenew);
-        Assert.Equal([Roles.DisputeAgent], SessionPrincipal.RolesOf(context.Principal!));
-        // The refreshed ID token had no sid: the session keeps its own, so the logout link still matches.
-        Assert.Equal("s-1", context.Principal!.FindFirstValue("sid"));
-        Assert.Equal("rt-2", context.Properties.GetTokenValue(SessionTokens.RefreshToken));
-        Assert.Equal("id-2", context.Properties.GetTokenValue(SessionTokens.IdToken));
-        Assert.Equal(Now.AddMinutes(5), SessionTokens.AccessTokenExpiresAt(context.Properties));
-    }
-
-    [Fact]
-    public async Task AFailedRefreshEndsTheSessionAndIsCounted()
-    {
-        CookieValidatePrincipalContext context = Context(accessTokenExpiresAt: Now.AddSeconds(10));
-        refresher.RefreshAsync("rt-1", Arg.Any<CancellationToken>()).Returns((RefreshedSession?)null);
-
-        await validator.ValidateAsync(context);
-
-        Assert.Null(context.Principal);
-        await authentication.Received(1).SignOutAsync(context.HttpContext, CookieAuthenticationDefaults.AuthenticationScheme, Arg.Any<AuthenticationProperties?>());
-        Assert.Equal([SecurityMetrics.SessionRefreshFailed], securityEvents.Types);
+        Assert.Empty(redis.ReceivedCalls());
     }
 
     [Fact]
@@ -97,6 +70,18 @@ public sealed class SessionValidatorTests : IDisposable
         Assert.Null(context.Principal);
     }
 
+    // No session cookie to find the ticket by: nothing can be refreshed safely, so the session ends.
+    [Fact]
+    public async Task ANearlyExpiredSessionWithoutASessionCookieEnds()
+    {
+        CookieValidatePrincipalContext context = Context(accessTokenExpiresAt: Now.AddSeconds(30));
+
+        await validator.ValidateAsync(context);
+
+        Assert.Null(context.Principal);
+        await refresher.DidNotReceiveWithAnyArgs().RefreshAsync(default!, default);
+    }
+
     private CookieValidatePrincipalContext Context(DateTimeOffset accessTokenExpiresAt, bool stampLifetime = true)
     {
         AuthenticationProperties properties = new();
@@ -109,12 +94,9 @@ public sealed class SessionValidatorTests : IDisposable
         ClaimsPrincipal principal = SessionPrincipal.Create([new Claim("sub", "user-1"), new Claim("sid", "s-1"), new Claim("roles", Roles.Customer)]);
         DefaultHttpContext httpContext = new() { RequestServices = services };
         AuthenticationScheme scheme = new(CookieAuthenticationDefaults.AuthenticationScheme, null, typeof(CookieAuthenticationHandler));
-        return new CookieValidatePrincipalContext(httpContext, scheme, new CookieAuthenticationOptions(), new AuthenticationTicket(principal, properties, scheme.Name));
+        CookieAuthenticationOptions options = new() { Cookie = { Name = "dp_session" }, CookieManager = new ChunkingCookieManager() };
+        return new CookieValidatePrincipalContext(httpContext, scheme, options, new AuthenticationTicket(principal, properties, scheme.Name));
     }
 
-    public void Dispose()
-    {
-        securityEvents.Dispose();
-        services.Dispose();
-    }
+    public void Dispose() => services.Dispose();
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using DotNet.Testcontainers.Containers;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -26,6 +27,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string OwnerRole = "dispute_owner";
     public const string PublicBaseUrl = "http://localhost";
 
+    /// <summary>The compose ACL user (deploy/bootstrap/bootstrap.sh), so every Redis command the app sends is proven under it.</summary>
+    public const string RedisUser = "dispute_api";
+
     private const string SetPasswordSql = "SELECT format('ALTER ROLE %I PASSWORD %L', @role, @password)";
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase(DatabaseName).Build();
@@ -34,6 +38,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     // Throwaway secrets, new every run and never printed.
     private readonly string appPassword = Secret();
     private readonly string ownerPassword = Secret();
+    private readonly string redisPassword = Secret();
 
     public FakeIdentityProvider IdentityProvider { get; } = new(Secret());
 
@@ -44,6 +49,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public async Task InitializeAsync()
     {
         await Task.WhenAll(postgres.StartAsync(), redis.StartAsync());
+        await PrepareRedisUserAsync();
         await PrepareRolesAsync();
         await MigrateAsOwnerAsync();
     }
@@ -58,6 +64,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Database:Password", appPassword);
         builder.UseSetting("Redis:Host", redis.Hostname);
         builder.UseSetting("Redis:Port", redis.GetMappedPublicPort(RedisBuilder.RedisPort).ToString(CultureInfo.InvariantCulture));
+        builder.UseSetting("Redis:Username", RedisUser);
+        builder.UseSetting("Redis:Password", redisPassword);
         builder.UseSetting("Public:BaseUrl", PublicBaseUrl);
         builder.UseSetting("Keycloak:Authority", FakeIdentityProvider.Issuer);
         builder.UseSetting("Keycloak:ClientSecret", IdentityProvider.ClientSecret);
@@ -79,6 +87,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>A client that behaves like a browser tab with cookies off: no redirects followed, cookies sent by hand.</summary>
     public HttpClient CreateBrowserClient(string baseAddress = PublicBaseUrl) =>
         CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri(baseAddress) });
+
+    // The same rule as compose's users.acl: bff:* keys only, no channels, no admin or dangerous commands.
+    private async Task PrepareRedisUserAsync()
+    {
+        ExecResult result = await redis.ExecAsync(
+        [
+            "redis-cli", "ACL", "SETUSER", RedisUser, "on", ">" + redisPassword, "~bff:*", "resetchannels",
+            "+@all", "-@admin", "-@dangerous", "+info", "+client|setname", "+client|setinfo", "+client|id",
+        ]);
+        Assert.Equal("OK", result.Stdout.Trim());
+    }
 
     private async Task PrepareRolesAsync()
     {
@@ -118,7 +137,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         services.AddSingleton(configuration);
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
-        services.AddPersistence(DatabaseSettings.OwnerSection);
+        services.AddPersistence(DatabaseUse.Migrations);
         services.AddDataProtectionKeyRing();
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
         int exitCode = await MigrationRunner.RunAsync(provider, CancellationToken.None);

@@ -6,7 +6,11 @@ using Microsoft.Extensions.Options;
 
 namespace DisputePortal.Api.Features.Bff;
 
-public sealed class BffOidcEvents(IOptions<PublicSettings> publicSettings, TimeProvider time, ILogger<BffOidcEvents> logger)
+public sealed class BffOidcEvents(
+    IOptions<PublicSettings> publicSettings,
+    PreviousSessionRevoker previousSession,
+    TimeProvider time,
+    ILogger<BffOidcEvents> logger)
     : OpenIdConnectEvents
 {
     // Built from configuration, so the exact URIs registered in the realm match whatever Host header arrived.
@@ -22,9 +26,13 @@ public sealed class BffOidcEvents(IOptions<PublicSettings> publicSettings, TimeP
         return Task.CompletedTask;
     }
 
-    /// <summary>Trims the principal to the session's claims and keeps only the tokens the BFF needs (SaveTokens is off).</summary>
-    public override Task TokenValidated(TokenValidatedContext context)
+    /// <summary>
+    /// Revokes any session this browser already had, trims the principal to the session's claims and keeps only the
+    /// tokens the BFF needs (SaveTokens is off).
+    /// </summary>
+    public override async Task TokenValidated(TokenValidatedContext context)
     {
+        await previousSession.RevokeAsync(context.HttpContext);
         DateTimeOffset now = time.GetUtcNow();
         context.Principal = SessionPrincipal.Create(context.Principal?.Claims ?? []);
         context.Properties ??= new AuthenticationProperties();
@@ -36,7 +44,6 @@ public sealed class BffOidcEvents(IOptions<PublicSettings> publicSettings, TimeP
             context.TokenEndpointResponse?.IdToken ?? context.ProtocolMessage.IdToken ?? string.Empty,
             context.TokenEndpointResponse?.RefreshToken ?? string.Empty,
             now.AddSeconds(lifetimeSeconds));
-        return Task.CompletedTask;
     }
 
     // A cancelled or tampered sign-in is a client error with a stable code, not a 500 with a stack trace.

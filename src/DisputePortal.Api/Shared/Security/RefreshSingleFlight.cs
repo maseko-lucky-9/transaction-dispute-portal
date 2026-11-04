@@ -1,39 +1,27 @@
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace DisputePortal.Api.Shared.Security;
 
 /// <summary>
-/// One refresh per refresh token at a time in this process. Keycloak rotates refresh tokens with reuse 0, so two
-/// parallel SPA requests replaying the same token would revoke the session; here the second one shares the first's result.
-/// ponytail: per replica only; with N replicas a race across replicas is still possible. The upgrade is a Redis lock per session.
+/// The cheap first layer: parallel requests on this replica that need the same refresh share one attempt, so only one
+/// of them queues on the Redis lock (<see cref="SessionRefreshLock"/>, the layer that works across replicas).
+/// Nothing is cached after completion: a later request re-reads the ticket instead.
 /// </summary>
-public sealed class RefreshSingleFlight(TimeProvider time)
+public sealed class RefreshSingleFlight
 {
-    // Kept briefly after completion, so a request that read the ticket just before its renewal reuses the result.
-    private static readonly TimeSpan Retention = TimeSpan.FromSeconds(30);
+    private readonly ConcurrentDictionary<string, Lazy<Task<RefreshOutcome>>> flights = new(StringComparer.Ordinal);
 
-    private readonly ConcurrentDictionary<string, Lazy<Task<RefreshedSession?>>> flights = new(StringComparer.Ordinal);
-
-    public async Task<RefreshedSession?> RunAsync(string refreshToken, Func<Task<RefreshedSession?>> refresh)
+    public async Task<RefreshOutcome> RunAsync(string refreshToken, Func<Task<RefreshOutcome>> refresh)
     {
-        // Hashed, so the dictionary never holds a usable token as a key.
-        string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
-        Lazy<Task<RefreshedSession?>> flight = flights.GetOrAdd(key, _ => new Lazy<Task<RefreshedSession?>>(refresh));
+        string key = SessionTokens.Fingerprint(refreshToken);
+        Lazy<Task<RefreshOutcome>> flight = flights.GetOrAdd(key, _ => new Lazy<Task<RefreshOutcome>>(refresh));
         try
         {
             return await flight.Value;
         }
         finally
         {
-            _ = ForgetLaterAsync(key, flight);
+            flights.TryRemove(new KeyValuePair<string, Lazy<Task<RefreshOutcome>>>(key, flight));
         }
-    }
-
-    private async Task ForgetLaterAsync(string key, Lazy<Task<RefreshedSession?>> flight)
-    {
-        await Task.Delay(Retention, time);
-        flights.TryRemove(new KeyValuePair<string, Lazy<Task<RefreshedSession?>>>(key, flight));
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentValidation;
+using DisputePortal.Api.Shared.Errors;
 using FluentValidation.Results;
 
 namespace DisputePortal.Api.Shared.Validation;
@@ -24,7 +25,11 @@ public sealed class ValidationFilter<T>(IValidator<T> validator) : IEndpointFilt
         Dictionary<string, string[]> errors = result.Errors
             .GroupBy(failure => JsonNamingPolicy.CamelCase.ConvertName(failure.PropertyName))
             .ToDictionary(group => group.Key, group => group.Select(failure => failure.ErrorMessage).ToArray());
-        return TypedResults.ValidationProblem(
-            errors, detail: Detail, extensions: new Dictionary<string, object?> { ["code"] = "validation_failed" });
+        return ProblemResponses.Result(new HttpValidationProblemDetails(errors)
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Detail = Detail,
+            Extensions = { ["code"] = "validation_failed" },
+        });
     }
 }

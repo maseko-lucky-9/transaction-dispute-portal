@@ -54,6 +54,12 @@ public sealed class FakeIdentityProvider
     /// <summary>Roles the next refreshed ID token carries, to prove the session re-reads them.</summary>
     public IReadOnlyList<string>? RolesOnRefresh { get; set; }
 
+    /// <summary>Answers the refresh_token grant with 503, as a restarting Keycloak would.</summary>
+    public bool RefreshUnavailable { get; set; }
+
+    /// <summary>How long a successful redemption takes. A replayed token is refused at once, so a race is decided before the winner returns.</summary>
+    public TimeSpan RefreshDelay { get; set; }
+
     public int RefreshCount => refreshCount;
 
     /// <summary>Registers the code Keycloak would hand back for this authorize request.</summary>
@@ -64,6 +70,8 @@ public sealed class FakeIdentityProvider
     {
         AccessTokenLifetimeSeconds = 300;
         RefuseRefresh = false;
+        RefreshUnavailable = false;
+        RefreshDelay = TimeSpan.Zero;
         RolesOnRefresh = null;
     }
 
@@ -84,7 +92,7 @@ public sealed class FakeIdentityProvider
         return form.GetValueOrDefault("grant_type") switch
         {
             "authorization_code" => RedeemCode(form),
-            "refresh_token" => Refresh(form),
+            "refresh_token" => await RefreshAsync(form),
             _ => Error("unsupported_grant_type"),
         };
     }
@@ -100,15 +108,21 @@ public sealed class FakeIdentityProvider
         return Tokens(pending.User, pending.Nonce);
     }
 
-    private HttpResponseMessage Refresh(Dictionary<string, string> form)
+    private async Task<HttpResponseMessage> RefreshAsync(Dictionary<string, string> form)
     {
         Interlocked.Increment(ref refreshCount);
+        if (RefreshUnavailable)
+        {
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+
         // Rotation with reuse 0: a refresh token works once.
         if (RefuseRefresh || !refreshTokens.TryRemove(form.GetValueOrDefault("refresh_token") ?? "", out IdpUser? user))
         {
             return Error("invalid_grant");
         }
 
+        await Task.Delay(RefreshDelay);
         return Tokens(RolesOnRefresh is null ? user : user with { Roles = RolesOnRefresh }, nonce: null);
     }
 

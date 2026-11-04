@@ -12,6 +12,9 @@ public static class MigrationRunner
 {
     private static readonly TimeSpan KeyLifetime = TimeSpan.FromDays(90);
 
+    // The API's 10 s command timeout would cut off a long index build; migrations get far longer.
+    public static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(10);
+
     public static async Task<int> RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         ILogger logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(MigrationRunner));
@@ -19,6 +22,7 @@ public static class MigrationRunner
         {
             await using AsyncServiceScope scope = services.CreateAsyncScope();
             DisputePortalDbContext db = scope.ServiceProvider.GetRequiredService<DisputePortalDbContext>();
+            db.Database.SetCommandTimeout(CommandTimeout);
             await db.Database.MigrateAsync(cancellationToken);
             EnsureDataProtectionKey(scope.ServiceProvider.GetRequiredService<IKeyManager>(), services.GetRequiredService<TimeProvider>().GetUtcNow());
             logger.LogInformation("Migrations applied; seed data and data-protection key in place");

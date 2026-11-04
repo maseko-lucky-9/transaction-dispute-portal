@@ -19,17 +19,30 @@ public static class BffAuthentication
     // __Host- binds the cookie to the exact origin, but browsers accept it only over https.
     public const string HostPrefixedCookieName = "__Host-" + CookieName;
 
+    private static readonly TimeSpan RefreshAttemptTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan RefreshTotalTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan BackchannelTimeout = TimeSpan.FromSeconds(10);
+
     public static IServiceCollection AddBffAuthentication(this IServiceCollection services)
     {
         services.AddOptions<PublicSettings>().BindConfiguration(PublicSettings.Section).ValidateDataAnnotations().ValidateOnStart();
         services.AddOptions<KeycloakSettings>().BindConfiguration(KeycloakSettings.Section).ValidateDataAnnotations().ValidateOnStart();
         services.AddSingleton<RefreshSingleFlight>();
+        services.AddSingleton<PreviousSessionRevoker>();
+        services.AddSingleton<SessionRefreshLock>();
+        services.AddScoped<SessionRefreshCoordinator>();
         services.AddScoped<SessionValidator>();
         services.AddScoped<BffCookieEvents>();
         services.AddScoped<BffOidcEvents>();
         // No retries on the POST: Keycloak rotates refresh tokens with reuse 0, so replaying one would revoke the session.
+        // Bounded well under the refresh lock's expiry, so the lock never lapses while a refresh is in flight.
         services.AddHttpClient<ITokenRefresher, KeycloakTokenRefresher>()
-            .AddStandardResilienceHandler(options => options.Retry.DisableForUnsafeHttpMethods());
+            .AddStandardResilienceHandler(options =>
+            {
+                options.Retry.DisableForUnsafeHttpMethods();
+                options.AttemptTimeout.Timeout = RefreshAttemptTimeout;
+                options.TotalRequestTimeout.Timeout = RefreshTotalTimeout;
+            });
 
         services.AddAuthentication(options =>
             {
@@ -83,6 +96,7 @@ public static class BffAuthentication
         options.GetClaimsFromUserInfoEndpoint = false;
         options.MapInboundClaims = false;
         options.DisableTelemetry = true;
+        options.BackchannelTimeout = BackchannelTimeout;
         options.TokenValidationParameters.ValidIssuer = keycloak.Authority;
         options.TokenValidationParameters.NameClaimType = ClaimNames.Name;
         options.TokenValidationParameters.RoleClaimType = ClaimNames.Roles;

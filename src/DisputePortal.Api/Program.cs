@@ -10,6 +10,7 @@ using DisputePortal.Api.Shared.Secrets;
 using DisputePortal.Api.Shared.Security;
 using FluentValidation;
 using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.Mvc;
 
 // The chiseled image has no curl: the container's healthcheck runs this binary with --healthcheck.
 if (args.Contains(RunModes.HealthCheck))
@@ -46,7 +47,7 @@ catch (VaultUnavailableException exception)
 }
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddPersistence(migrate ? DatabaseSettings.OwnerSection : DatabaseSettings.AppSection);
+builder.Services.AddPersistence(migrate ? DatabaseUse.Migrations : DatabaseUse.Application);
 builder.Services.AddDataProtectionKeyRing();
 
 if (migrate)
@@ -77,7 +78,8 @@ WebApplication app = builder.Build();
 // First, so everything after it (the rate limiter above all) sees the client's address, not nginx's.
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
-app.UseStatusCodePages();
+// Bare 401/403/404/429 statuses get a body from the same writer as every other error.
+app.UseStatusCodePages(context => ProblemResponses.WriteAsync(context.HttpContext, new ProblemDetails()));
 // After the status-code pages, so their 404s and the CSRF 403 carry a Problem Details body.
 app.UseMiddleware<ManagementPortMiddleware>();
 app.UseMiddleware<NoStoreMiddleware>();

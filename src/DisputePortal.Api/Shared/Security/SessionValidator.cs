@@ -1,3 +1,4 @@
+using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Observability;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -6,11 +7,12 @@ namespace DisputePortal.Api.Shared.Security;
 
 /// <summary>
 /// Runs on every authenticated request. Ends a session past its absolute lifetime; when the access token is within
-/// <see cref="RefreshLeeway"/> of expiry, refreshes it and re-reads the roles, so a revoked user or role is noticed
-/// within one access-token lifetime (5 minutes). A failed refresh ends the session.
+/// <see cref="RefreshLeeway"/> of expiry, refreshes it (once across all replicas) and re-reads the roles, so a revoked
+/// user or role is noticed within one access-token lifetime (5 minutes). A refused refresh ends the session; an
+/// unreachable identity provider fails the request with 503 and keeps the session.
 /// </summary>
 public sealed class SessionValidator(
-    ITokenRefresher refresher,
+    SessionRefreshCoordinator coordinator,
     RefreshSingleFlight singleFlight,
     TimeProvider time,
     SecurityMetrics metrics,
@@ -27,32 +29,42 @@ public sealed class SessionValidator(
             return;
         }
 
-        DateTimeOffset? accessTokenExpiresAt = SessionTokens.AccessTokenExpiresAt(context.Properties);
-        if (accessTokenExpiresAt is { } expiresAt && expiresAt - now > RefreshLeeway)
+        if (SessionTokens.AccessTokenExpiresAt(context.Properties) is { } expiresAt && expiresAt - now > RefreshLeeway)
         {
             return;
         }
 
         string? refreshToken = context.Properties.GetTokenValue(SessionTokens.RefreshToken);
-        RefreshedSession? refreshed = refreshToken is null
-            ? null
-            // Not the request's token: a cancelled request must not cancel the refresh another request is waiting on.
-            : await singleFlight.RunAsync(refreshToken, () => refresher.RefreshAsync(refreshToken, CancellationToken.None));
-        if (refreshed is null)
-        {
-            metrics.Record(SecurityMetrics.SessionRefreshFailed);
-            logger.LogWarning("Session refresh failed; the session was ended");
-            await EndSessionAsync(context);
-            return;
-        }
-
-        string? sessionId = context.Principal?.FindFirst(ClaimNames.SessionId)?.Value;
-        context.ReplacePrincipal(SessionPrincipal.Create(refreshed.Identity.Claims, sessionId));
-        SessionTokens.Store(context.Properties, refreshed.IdToken, refreshed.RefreshToken, refreshed.AccessTokenExpiresAt);
-        context.ShouldRenew = true;
+        string? sessionKey = SessionCookie.ReadKey(context.HttpContext, context.Options);
+        RefreshOutcome outcome = refreshToken is null || sessionKey is null
+            ? RefreshOutcome.Gone
+            : await singleFlight.RunAsync(refreshToken, () => coordinator.RefreshAsync(
+                sessionKey, refreshToken, context.Principal?.FindFirst(ClaimNames.SessionId)?.Value, context.Scheme.Name));
+        await ApplyAsync(context, outcome);
     }
 
-    // Rejecting alone would leave the ticket in Redis; signing out deletes it and expires the cookie.
+    private async Task ApplyAsync(CookieValidatePrincipalContext context, RefreshOutcome outcome)
+    {
+        switch (outcome.Kind)
+        {
+            case RefreshOutcomeKind.Renewed:
+                // Copied, not shared: the outcome's ticket may serve several requests at once.
+                context.ReplacePrincipal(outcome.Ticket!.Principal);
+                context.Properties.StoreTokens(outcome.Ticket.Properties.GetTokens());
+                context.ShouldRenew = true;
+                return;
+            case RefreshOutcomeKind.Unavailable:
+                throw new IdentityProviderUnavailableException();
+            case RefreshOutcomeKind.Refused:
+                metrics.Record(SecurityMetrics.SessionRefreshFailed);
+                logger.LogWarning("Session refresh was refused; the session was ended");
+                break;
+        }
+
+        await EndSessionAsync(context);
+    }
+
+    // Rejecting alone would leave the cookie; signing out expires it (its ticket is already gone, or deleted here).
     private static async Task EndSessionAsync(CookieValidatePrincipalContext context)
     {
         context.RejectPrincipal();

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Authentication;
 
 namespace DisputePortal.Api.Shared.Security;
@@ -35,6 +37,10 @@ public static class SessionTokens
     /// <summary>A ticket without the stamp counts as expired: fail closed.</summary>
     public static DateTimeOffset AbsoluteExpiresAt(AuthenticationProperties properties) =>
         Parse(properties.Items.TryGetValue(AbsoluteExpiresAtItem, out string? value) ? value : null) ?? DateTimeOffset.MinValue;
+
+    /// <summary>A refresh token's SHA-256, for lock and single-flight keys: a usable token never becomes a key.</summary>
+    public static string Fingerprint(string refreshToken) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
 
     private static string Format(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
 
