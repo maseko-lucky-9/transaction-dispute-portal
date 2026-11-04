@@ -81,8 +81,11 @@ Measured by CI and earlier local runs, not re-run in the same session as the lin
 | Manual mutation checks (window rule, Owner filter, If-Match, plus CSRF, Luhn, 23505, partial unique index, concurrency) | 14 mutations all caught, 1 probe survived (likely an equivalent mutant) | [docs/mutation-checks.md](docs/mutation-checks.md) with raw output |
 | CodeQL (C#, JavaScript/TypeScript, Actions) | first analysis: 0, 1, 0 results; the one finding (a regex in the CSP build guard) is fixed | GitHub code scanning (default setup) |
 
-No latency or load figure has been measured: there is no k6 or other load test in the repository, so the SLOs in the
-[runbook](docs/runbook.md) are targets, not results.
+Latency (k6 smoke test, `perf/k6/smoke.js`, two 3-minute runs on a laptop with three API replicas, 12 req/s reads plus
+submit-and-withdraw writes, 0 failures, 0 x 429; the thresholds were shown to gate with a negative control that exits 99):
+read p95 8.66 ms and 8.27 ms, write p95 17.78 ms and 20.93 ms, against the SLO targets of 300 ms and 500 ms. Raw output and
+caveats are in [docs/perf.md](docs/perf.md). It is not a capacity test (per-subject rate limits cap the rate; the API sat
+at about 10% CPU) and it does not measure availability, so the 99.9% target remains an assumption.
 
 ## Verified on a clean clone
 
@@ -127,7 +130,7 @@ test names are xUnit methods (`tests/DisputePortal.*Tests/<File>.cs`), Vitest fi
 | Architecture and scalability | [ADR-001](docs/decisions/001-vertical-slices-and-domain-project.md), [ADR-002](docs/decisions/002-ef-core-repositories-unit-of-work.md), [ADR-006](docs/decisions/006-keyset-pagination-and-signed-cursors.md); stateless API, nginx upstream `resolve` in `web/nginx/default.conf`, keyset indexes | `TransactionPlanTests.TheKeysetQueryIsAnIndexScanWithNoSortOn50kRows`; `ArchitectureTests.TheDomainReferencesNeitherEfCoreNorAspNetCore`; `ProductionAuthStackTests.ParallelRefreshesAcrossTwoReplicasRedeemOnceAndKeepTheSession`; `scripts/check-constraints.sh` | `docker compose up --scale api=3` was not exercised by any test in the repository; the capacity numbers in the design doc are assumptions (the doc says so) |
 | Security | [Threat model](docs/threat-model.md), ADR-004, 005, 007, 008 | Rows in the security table below | Residual risks listed in "Known limits" and the threat model |
 | Domain modelling | `src/DisputePortal.Domain/` (aggregate, transition table, eligibility chain, `Money`), [ADR-003](docs/decisions/003-dispute-state-machine.md) | `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable`, `TerminalStatusesHaveNoWayOut`; `DisputeEligibilityPolicyTests.TheWindowIncludesDay120AndEndsOnDay121`; `DisputeEligibilityPolicyTests`; Stryker 86.80% on this project | Stryker figure is from an earlier run on the same commit |
-| API contracts | `docs/openapi.json` (code-first, committed), [ADR-007](docs/decisions/007-http-status-policy-and-idempotency.md), RFC 9457 errors with `code` and `traceId` | `OpenApiTests.TheDocumentMatchesTheCommittedSnapshot`, `TheAgentRoutesDocumentIfMatchTheETagAnd412And428`; `web/src/api/contract.test.ts`; CI step "TS types match the committed OpenAPI snapshot" | `api.http` (listed in the plan's repo layout) does not exist in the repository |
+| API contracts | `docs/openapi.json` (code-first, committed), [ADR-007](docs/decisions/007-http-status-policy-and-idempotency.md), RFC 9457 errors with `code` and `traceId` | `OpenApiTests.TheDocumentMatchesTheCommittedSnapshot`, `TheAgentRoutesDocumentIfMatchTheETagAnd412And428`; `web/src/api/contract.test.ts`; CI step "TS types match the committed OpenAPI snapshot" | `api.http` (37 requests, each checked against a live stack; not tested in VS Code or JetBrains) lets a reviewer call every endpoint |
 | Testing | [Test catalogue](#test-catalogue) | Counts above; CI | Manual mutation-check output (plan: "paste the output") is not in the repository [UNVERIFIED] |
 | Observability | `src/DisputePortal.Api/Shared/Observability/`, `web/nginx/default.conf` (JSON access log with `$request_id`), [runbook](docs/runbook.md) | `DisputeMetricsTests`, `Bola404MetricTests`, `ResolutionDurationMetricTests`, `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`, `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes` | No automated test asserts the OTLP export or the Grafana view. It was checked by hand on a clean clone (see "Verified on a clean clone"); that check is not repeatable in CI |
 
@@ -152,7 +155,7 @@ test names are xUnit methods (`tests/DisputePortal.*Tests/<File>.cs`), Vitest fi
 | NFR-2 stateless, scalable | ADR-001, ADR-006 | see "Architecture and scalability" above |
 | NFR-3 reliability: idempotent submit, optimistic concurrency, readiness, bounded startup retry | `Shared/Health/`, `Shared/Secrets/VaultConfigurationProvider.cs`, `Shared/Persistence/PersistenceRegistration.cs` | `DisputeConcurrencyTests.*`; `ManagementPortTests.HealthAnswersOnTheManagementPort`; `VaultConfigurationProviderTests.AnUnavailableVaultFailsAfterTheBoundedRetry`, `TheRetryReallyBacksOff`; `ProductionAuthStackTests.WhenRedisIsDownLoginAndSessionValidationFailClosedWith503` |
 | NFR-4 observability | see "Observability" above | see above |
-| NFR-5 SLOs 99.9% / p95 300 ms reads, 500 ms writes | [runbook](docs/runbook.md) (assumed targets) | **None.** No load test exists; not measured |
+| NFR-5 SLOs 99.9% / p95 300 ms reads, 500 ms writes | [runbook](docs/runbook.md) (assumed targets), `perf/k6/smoke.js`, [docs/perf.md](docs/perf.md) | k6 smoke run (manual, not in CI): read p95 about 8 ms, write p95 18 to 21 ms at 12 req/s. **Does not prove** capacity, tail behaviour under saturation, or the 99.9% availability target |
 | NFR-6 one-command start, CI runs full-stack E2E | `docker-compose.yml`, CI job `e2e` | CI job `e2e` (17 Playwright tests) |
 | NFR-7 POPIA: masked account numbers, no PII in logs, agent views logged, retention | `Features/Transactions/Account.cs` (`MaskedNumber`), [threat model](docs/threat-model.md) | `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes`; `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`. **Retention is a documented design, not implemented code** |
 
@@ -229,6 +232,6 @@ stretch in the plan):
 - An outbox and event publishing.
 - Back-channel logout (stretch; revocation is bounded by the 5-minute access token through refresh).
 - Agent TOTP (stretch).
-- A k6 p95 smoke test (stretch). Until it exists the SLOs are unmeasured.
+- Run the k6 smoke test in CI against the compose stack (today it is a documented manual run), and add a capacity test that raises the per-subject limits to find where latency degrades.
 - Scalar API docs at `/api/docs` (stretch). `docs/openapi.json` is the contract.
 - Dynamic database credentials and a distributed rate limiter (see "Known limits").

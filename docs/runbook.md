@@ -19,8 +19,10 @@ there is none ([ADR-009](decisions/009-local-and-ci-deploy.md)): the stack runs 
 
 ## 2. Service level objectives
 
-These are assumed targets from `specs/001-transaction-disputes/spec.md` (NFR-5). They have not been measured: the
-repository has no load test (k6 is a stretch item in the plan) and no production traffic.
+These are assumed targets from `specs/001-transaction-disputes/spec.md` (NFR-5). A k6 smoke test (`perf/k6/smoke.js`,
+results in [perf.md](perf.md)) measured p95 of about 8 ms for reads and 18 to 21 ms for writes on a laptop with three API
+replicas, with no failures and no 429s. That shows the latency targets are not at risk at that load; it is not a capacity
+test, it does not measure availability, and there is no production traffic.
 
 | SLO | Target | SLI (what to measure) |
 |---|---|---|
