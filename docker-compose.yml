@@ -11,7 +11,7 @@ x-vault-env: &vault-env
 
 services:
   vault:
-    image: hashicorp/vault:1.20@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
+    image: hashicorp/vault:2.2@sha256:962a92876e168d68eaaa24b0b8b49bbce1cb63024060a67bba95cd158a366fc2
     command: ["server"]
     environment:
       SKIP_SETCAP: "true"
@@ -26,7 +26,7 @@ services:
     networks: [data]
 
   bootstrap:
-    image: hashicorp/vault:1.20@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
+    image: hashicorp/vault:2.2@sha256:962a92876e168d68eaaa24b0b8b49bbce1cb63024060a67bba95cd158a366fc2
     entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
     depends_on: [vault]
     environment:
