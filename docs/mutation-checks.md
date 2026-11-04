@@ -3,15 +3,15 @@
 Short version: for each guard the plan names (the 120-day window, the Owner filter, `If-Match`) and for a few more
 (sensitive-data check, CSRF, the unique-violation path, optimistic concurrency), I broke the code on purpose, ran the
 unit and integration suites, and recorded which tests went red. Every mutation was temporary: applied, tested,
-reverted with `git checkout -- .`, and the suites were re-run green. Nothing mutated is committed; this file is the only
-change on the branch.
+reverted with `git checkout -- .`, and the suites were re-run green. Nothing mutated is committed. The runs were made on the base commit below (475 unit and 307 integration tests); later
+changes in the same pull request raised the totals (see the README's measured results).
 
 Why: a test that still passes against broken source proves nothing. The project plan (Testing, "Manual mutation check")
 asks for this check with the output pasted, and that output was not in the repo. Stryker (Domain only, report-only in CI)
 does not exercise the API, the database or the pipeline, so these were done by hand.
 
 - Date: 2026-11-04
-- Base commit: `0e882b3` (`docs(docs): correct the HSTS claim in ADR-008 (#18)`), branch `docs/mutation-checks`
+- Base commit: `0e882b3` (`docs(docs): correct the HSTS claim in ADR-008 (#18)`), 
 - Environment: macOS arm64, .NET SDK 10.0.201, Docker Desktop 4.98.0. Integration tests use Testcontainers
   (`postgres:17-alpine`, `redis:7-alpine`); the API connects as `dispute_app`. Docker was already running; `docker compose` was not used.
 - Both suites ran in full for every mutation (`dotnet test` rebuilds first, and the repo builds with warnings as errors,
@@ -1121,7 +1121,8 @@ Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration:
    Hypothesis (not proven): the test decodes the AES ciphertext of the Redis session ticket as UTF-8 and asserts it does
    not contain the three characters `eyJ` (`ProductionAuthStackTests.cs:137`); random bytes contain that sequence now and
    then, so the assertion has a small false-failure rate. Across the 17 integration runs I did on a clean tree it failed
-   once. It is not related to any mutation. I did not change the test (this branch may only add the doc).
+   once. It is not related to any mutation. The test was left alone while the mutation runs were made. It was fixed afterwards in the same pull request: it now asserts only on the
+   ticket its own sign-in created, and a check that stores tickets unencrypted still turns it red.
 
 2. **One invalid integration run (infrastructure, not a test result).** The first integration run of M4c1 reported
    `Failed: 275, Passed: 32` after `1 m 4 s`, and all 275 failures carried
@@ -1174,7 +1175,9 @@ thing keeping history private. None of the M-series mutations survived.
    practice (a real change would need a migration), but it means that mutation could not be used to measure the
    concurrency tests (Run notes, item 3).
 6. *One flaky integration test* (Run notes, item 1): `ProductionAuthStackTests.TheSessionTicketInRedisIsEncryptedAndExpiresWithTheAbsoluteLifetime`
-   failed once in 17 clean-tree runs. Suggestion: assert on something other than a 3-character substring of random data.
+   failed once in 17 clean-tree runs. Status: fixed in the same pull request after these runs (it now looks only at the ticket its own
+   sign-in created, instead of every ticket in the shared Redis). The failure was never reproduced, so the root cause above is a
+   hypothesis and the fix targets the shared-state reading of it.
 7. *Environment sensitivity.* The Testcontainers reaper failed to start once during this session (Run notes,
    item 2). When it does, the report is 275 red tests rather than one clear infrastructure error.
 
