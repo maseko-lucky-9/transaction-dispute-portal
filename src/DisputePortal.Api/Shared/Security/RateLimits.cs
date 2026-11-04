@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Observability;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -15,6 +16,8 @@ public static class RateLimits
     private const string PermitSetting = "RateLimiting:PermitsPerMinute";
     private const int DefaultPermitsPerMinute = 300;
 
+    public const string RejectionCode = "rate_limited";
+
     public static IServiceCollection AddPerSubjectRateLimiter(this IServiceCollection services, IConfiguration configuration)
     {
         int permits = configuration.GetValue(PermitSetting, DefaultPermitsPerMinute);
@@ -28,7 +31,7 @@ public static class RateLimits
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                 }));
-            options.OnRejected = (context, _) =>
+            options.OnRejected = async (context, _) =>
             {
                 context.HttpContext.RequestServices.GetRequiredService<SecurityMetrics>().Record(SecurityMetrics.RateLimited);
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
@@ -36,8 +39,9 @@ public static class RateLimits
                     context.HttpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
                 }
 
-                // The body comes from the status-code pages: a Problem Details with code too_many_requests.
-                return ValueTask.CompletedTask;
+                // Written here, like every other refusal, rather than left to the status-code pages.
+                await ProblemResponses.WriteAsync(context.HttpContext, StatusCodes.Status429TooManyRequests, RejectionCode,
+                    "Too many requests for this account; retry after the Retry-After interval.");
             };
         });
         return services;

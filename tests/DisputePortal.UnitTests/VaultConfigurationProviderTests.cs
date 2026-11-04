@@ -47,6 +47,49 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal(3, requested.Count(request => request.EndsWith("/approle/login", StringComparison.Ordinal)));
     }
 
+    // Connection refused while the Vault container is still starting (the bootstrap race) is retried.
+    [Fact]
+    public void ConnectionRefusedTwiceThenAnswerStillLoadsTheSecrets()
+    {
+        int failuresLeft = 2;
+        IConfiguration configuration = Build(migrate: false, request =>
+        {
+            if (failuresLeft > 0)
+            {
+                failuresLeft--;
+                Track(request, new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                throw new HttpRequestException("Connection refused");
+            }
+
+            return AnswerVault(request);
+        });
+
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+        Assert.Equal(3, requested.Count(request => request.EndsWith("/approle/login", StringComparison.Ordinal)));
+    }
+
+    // A defect (Vault answering something that is not its API) fails at once instead of burning the retry budget.
+    [Fact]
+    public void ANonRetryableErrorFailsAfterExactlyOneRequest()
+    {
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => Build(migrate: false, request =>
+            Track(request, new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>not vault</html>") })));
+
+        Assert.Single(requested);
+    }
+
+    [Fact]
+    public void TheRetryReallyBacksOff()
+    {
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        Assert.Throws<VaultUnavailableException>(() =>
+            Build(migrate: false, request => Track(request, new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)), TimeSpan.FromMilliseconds(50)));
+
+        // Three attempts wait 50 ms, then 100 ms.
+        Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(150), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
+    }
+
     [Fact]
     public void MissingCredentialFilesAreRetriedThenReported()
     {
@@ -56,7 +99,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             new ConfigurationBuilder().Add(new VaultConfigurationSource(settings, VaultSecretPath.For(false))).Build());
     }
 
-    private IConfiguration Build(bool migrate, Func<HttpRequestMessage, HttpResponseMessage> respond)
+    private IConfiguration Build(bool migrate, Func<HttpRequestMessage, HttpResponseMessage> respond, TimeSpan? firstRetryDelay = null)
     {
         File.WriteAllText(Path.Combine(directory, "role_id"), "role-123\n");
         File.WriteAllText(Path.Combine(directory, "secret_id"), "secret-456\n");
@@ -66,7 +109,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             RoleIdFile = Path.Combine(directory, "role_id"),
             SecretIdFile = Path.Combine(directory, "secret_id"),
             Attempts = 3,
-            FirstRetryDelay = TimeSpan.FromMilliseconds(1),
+            FirstRetryDelay = firstRetryDelay ?? TimeSpan.FromMilliseconds(1),
         };
         return new ConfigurationBuilder()
             .Add(new VaultConfigurationSource(settings, VaultSecretPath.For(migrate)) { HttpMessageHandler = new Responder(respond) })

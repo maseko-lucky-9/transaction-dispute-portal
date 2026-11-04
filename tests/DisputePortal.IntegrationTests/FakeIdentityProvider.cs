@@ -60,7 +60,13 @@ public sealed class FakeIdentityProvider
     /// <summary>How long a successful redemption takes. A replayed token is refused at once, so a race is decided before the winner returns.</summary>
     public TimeSpan RefreshDelay { get; set; }
 
+    /// <summary>Signs refreshed ID tokens with a key the metadata does not list, as a forged token would be.</summary>
+    public bool SignRefreshedIdTokenWithUnknownKey { get; set; }
+
     public int RefreshCount => refreshCount;
+
+    /// <summary>The refresh token most recently handed out; after a rotation, the only one Keycloak still honours.</summary>
+    public string? LastIssuedRefreshToken { get; private set; }
 
     /// <summary>Registers the code Keycloak would hand back for this authorize request.</summary>
     public void Approve(string code, IdpUser user, string nonce, string codeChallenge) =>
@@ -72,6 +78,7 @@ public sealed class FakeIdentityProvider
         RefuseRefresh = false;
         RefreshUnavailable = false;
         RefreshDelay = TimeSpan.Zero;
+        SignRefreshedIdTokenWithUnknownKey = false;
         RolesOnRefresh = null;
     }
 
@@ -123,13 +130,15 @@ public sealed class FakeIdentityProvider
         }
 
         await Task.Delay(RefreshDelay);
-        return Tokens(RolesOnRefresh is null ? user : user with { Roles = RolesOnRefresh }, nonce: null);
+        SecurityKey? unknownKey = SignRefreshedIdTokenWithUnknownKey ? new RsaSecurityKey(RSA.Create(2048)) { KeyId = signingKey.KeyId } : null;
+        return Tokens(RolesOnRefresh is null ? user : user with { Roles = RolesOnRefresh }, nonce: null, unknownKey);
     }
 
-    private HttpResponseMessage Tokens(IdpUser user, string? nonce)
+    private HttpResponseMessage Tokens(IdpUser user, string? nonce, SecurityKey? signingKeyOverride = null)
     {
         string refreshToken = "rt-" + Guid.NewGuid().ToString("N");
         refreshTokens[refreshToken] = user;
+        LastIssuedRefreshToken = refreshToken;
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = JsonContent.Create(new Dictionary<string, object>
@@ -138,12 +147,12 @@ public sealed class FakeIdentityProvider
                 ["token_type"] = "Bearer",
                 ["expires_in"] = AccessTokenLifetimeSeconds,
                 ["refresh_token"] = refreshToken,
-                ["id_token"] = IdToken(user, nonce),
+                ["id_token"] = IdToken(user, nonce, signingKeyOverride ?? signingKey),
             }),
         };
     }
 
-    private string IdToken(IdpUser user, string? nonce)
+    private string IdToken(IdpUser user, string? nonce, SecurityKey key)
     {
         Dictionary<string, object> claims = new(StringComparer.Ordinal)
         {
@@ -165,7 +174,7 @@ public sealed class FakeIdentityProvider
             Claims = claims,
             IssuedAt = DateTime.UtcNow,
             Expires = DateTime.UtcNow.AddMinutes(5),
-            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256),
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256),
         });
     }
 

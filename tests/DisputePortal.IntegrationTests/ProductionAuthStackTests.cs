@@ -264,10 +264,7 @@ public sealed class ProductionAuthStackTests : IDisposable
     [Fact]
     public async Task SigningInAgainWithTheSameCookieJarRevokesTheOldTicket()
     {
-        IConnectionMultiplexer redis = api.Services.GetRequiredService<IConnectionMultiplexer>();
-        HashSet<RedisKey> before = TicketKeys(redis);
-        BrowserSession first = await BrowserSession.SignInAsync(api, Thandi());
-        RedisKey oldTicket = Assert.Single(TicketKeys(redis).Except(before));
+        (BrowserSession first, string oldTicket) = await RedisTickets.SignInAsync(api, Thandi());
 
         BrowserSession second = await BrowserSession.SignInAsync(api, Thandi(), cookieJar: first.Cookie);
         using HttpClient browser = api.CreateBrowserClient();
@@ -275,7 +272,7 @@ public sealed class ProductionAuthStackTests : IDisposable
         HttpResponseMessage newCookie = await browser.SendAsync(second.Request(HttpMethod.Get, "/bff/user"));
 
         Assert.NotEqual(first.Cookie, second.Cookie);
-        Assert.DoesNotContain(oldTicket, TicketKeys(redis));
+        Assert.DoesNotContain(oldTicket, RedisTickets.Ids(api));
         Assert.Equal(HttpStatusCode.Unauthorized, oldCookie.StatusCode);
         Assert.Equal(HttpStatusCode.OK, newCookie.StatusCode);
     }
@@ -492,9 +489,6 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.ServiceUnavailable, me.StatusCode);
         Assert.Equal("session_store_unavailable", (await Problem.ReadAsync(me)).Code);
     }
-
-    private static HashSet<RedisKey> TicketKeys(IConnectionMultiplexer redis) =>
-        [.. redis.GetServer(redis.GetEndPoints().Single()).Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
 
     private async Task WaitForRedisAsync()
     {

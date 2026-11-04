@@ -48,10 +48,10 @@ public sealed class SessionValidator(
         switch (outcome.Kind)
         {
             case RefreshOutcomeKind.Renewed:
-                // Copied, not shared: the outcome's ticket may serve several requests at once.
+                // Copied, not shared: the outcome's ticket may serve several requests at once. No ShouldRenew: the
+                // coordinator already saved the ticket, and the cookie's idle window slides on its own (SlidingExpiration).
                 context.ReplacePrincipal(outcome.Ticket!.Principal);
                 context.Properties.StoreTokens(outcome.Ticket.Properties.GetTokens());
-                context.ShouldRenew = true;
                 return;
             case RefreshOutcomeKind.Unavailable:
                 throw new IdentityProviderUnavailableException();
