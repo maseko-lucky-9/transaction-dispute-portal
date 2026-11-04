@@ -27,7 +27,9 @@
  * alone.
  *
  * Known limits: this deters ACCIDENTAL disclosure, not deliberate obfuscation. A gap of five or
- * more separators, words between the groups, or digits spelled out as words are not joined.
+ * more separators, words between the groups, digits spelled out as words, or invisible code
+ * points that are not format characters (variation selectors, U+034F, fillers such as U+115F,
+ * U+3164, U+FFA0, the braille blank U+2800) are not joined.
  * And "every digit of every script" means every digit this runtime's Unicode tables know: a
  * script added in a newer Unicode than the server's (Node 22 knows ten Sunuwar digits that
  * .NET 10 does not) is read here and not there. The server is authoritative, so that can only

@@ -12,10 +12,15 @@ namespace DisputePortal.Domain.Disputes;
 /// Checked first; a NUL would otherwise reach PostgreSQL, which refuses it.</item>
 /// <item><b>sensitive_data</b>: a card or South African ID number. The text is normalised first (NFKC, then every format
 /// character, Unicode Cf, removed, then every decimal digit, Unicode Nd, mapped to ASCII), so look-alike digits and
-/// invisible characters cannot hide one. A chain is digit groups joined by runs of 1 to 4 separators (whitespace, dashes,
+/// zero-width format characters cannot hide one. A chain is digit groups joined by runs of 1 to 4 separators (whitespace, dashes,
 /// <c>. , / _ ( )</c>); any run of whole groups inside a chain with 13 to 19 digits that passes the Luhn check is
 /// sensitive, so a leading reference number cannot hide a card behind it. Five or more separators end the chain.</item>
 /// </list>
+/// Known limit: this deters ACCIDENTAL disclosure, not deliberate obfuscation by the customer about their own number.
+/// Five or more separators, words between groups, and invisible code points that are not format characters (variation
+/// selectors, U+034F, fillers such as U+115F, U+3164, U+FFA0, the braille blank U+2800) are not joined; the README lists
+/// it. Treating every non-alphanumeric as a separator would flag ordinary text, and the same person could spell the
+/// digits out, so the rule stays a guard against accidents.
 /// </summary>
 public static partial class SensitiveNumberDetector
 {
