@@ -8,4 +8,5 @@ ALTER ROLE dispute_owner PASSWORD '$(cat $P/owner)';
 ALTER ROLE dispute_app   PASSWORD '$(cat $P/app)';
 CREATE ROLE keycloak LOGIN PASSWORD '$(cat $P/keycloak)';
 CREATE DATABASE keycloak OWNER keycloak;
+REVOKE CONNECT, TEMP ON DATABASE keycloak FROM PUBLIC;
 SQL

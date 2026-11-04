@@ -11,3 +11,5 @@ if [ -n "$hits" ]; then
   echo "$hits"
   exit 1
 fi
+
+scripts/check-image-pins.sh

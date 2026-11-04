@@ -23,7 +23,7 @@ put() { # put <relative path> <value>: always rewritten (derived files)
 for p in pg/superuser pg/owner pg/app pg/keycloak redis/password keycloak/admin_password keycloak/db_password keycloak/client_secret; do gen "$p"; done
 put keycloak/db_password "$(cat $S/pg/keycloak)"
 put redis/users.acl "user default off
-user dispute_api on >$(cat $S/redis/password) ~bff:* &* +@all -@admin -@dangerous +info +client|setname +client|setinfo +client|id
+user dispute_api on >$(cat $S/redis/password) ~bff:* resetchannels +@all -@admin -@dangerous +info +client|setname +client|setinfo +client|id
 "
 
 echo "bootstrap: waiting for vault"
@@ -37,11 +37,11 @@ done
 
 if ! vault status -format=json 2>/dev/null | grep -q '"initialized": *true'; then
   echo "bootstrap: initialising vault (1 key share: local development only)"
-  vault operator init -key-shares=1 -key-threshold=1 > /tmp/init.txt
   mkdir -p "$S/vault"
-  sed -n 's/^Unseal Key 1: //p' /tmp/init.txt | tr -d '\n' > "$S/vault/unseal_key"
-  sed -n 's/^Initial Root Token: //p' /tmp/init.txt | tr -d '\n' > "$S/vault/root_token"
-  rm -f /tmp/init.txt
+  # Persist the raw init output first, so a crash between `init` and the key files never loses the unseal key.
+  vault operator init -key-shares=1 -key-threshold=1 > "$S/vault/init.txt"
+  sed -n 's/^Unseal Key 1: //p' "$S/vault/init.txt" | tr -d '\n' > "$S/vault/unseal_key"
+  sed -n 's/^Initial Root Token: //p' "$S/vault/init.txt" | tr -d '\n' > "$S/vault/root_token"
 fi
 if vault status -format=json 2>/dev/null | grep -q '"sealed": *true'; then
   echo "bootstrap: unsealing vault"
@@ -64,6 +64,8 @@ for r in api migrate; do
   put "approle/$r/role_id" "$(vault read -field=role_id "auth/approle/role/dispute-$r/role-id")"
   put "approle/$r/secret_id" "$(vault write -f -field=secret_id "auth/approle/role/dispute-$r/secret-id")"
 done
+# Each `up` issues fresh secret_ids; drop the expired and orphaned ones so they do not pile up.
+vault write -f auth/approle/tidy/secret-id >/dev/null 2>&1 || true
 
 # Readable by the service users that mount the sub-directories read-only. The CIDR binding and TTL are the control.
 find "$S" -type d -exec chmod 0555 {} +

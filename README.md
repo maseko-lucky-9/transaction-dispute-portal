@@ -34,6 +34,10 @@ Demo users (local-only, imported from `deploy/keycloak/`):
 | `sipho` | `Sipho-Demo-2026!` | customer |
 | `agent` | `Agent-Demo-2026!` | dispute-agent |
 
+The two internal networks use `10.231.28.0/24` (data) and `10.231.29.0/24` (app); set `DATA_SUBNET` / `APP_SUBNET` if
+they clash with a VPN or another Docker network. Compose never gives `web` (the internet-facing container) a route to
+Postgres, Redis or Vault.
+
 Reset everything (secrets, Vault, database): `docker compose down -v`. The secrets and the Postgres volume must be
 reset together, because the database roles take their passwords from the secrets volume on first start.
 
@@ -43,6 +47,7 @@ reset together, because the database roles take their passwords from the secrets
 dotnet build DisputePortal.slnx -warnaserror
 dotnet test  tests/DisputePortal.UnitTests
 dotnet test  tests/DisputePortal.IntegrationTests     # Testcontainers: needs Docker
-npm --prefix web ci --ignore-scripts && npm --prefix web run lint typecheck test:coverage build
+npm --prefix web ci --ignore-scripts && npm --prefix web run lint && npm --prefix web run typecheck \
+  && npm --prefix web run test:coverage && npm --prefix web run build
 docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test   # E2E against the real stack
 ```

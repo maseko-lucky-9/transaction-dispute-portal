@@ -9,6 +9,7 @@ BEGIN
     CREATE ROLE dispute_app LOGIN;
   END IF;
   EXECUTE format('ALTER DATABASE %I OWNER TO dispute_owner', current_database());
+  EXECUTE format('REVOKE CONNECT, TEMP ON DATABASE %I FROM PUBLIC', current_database());
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO dispute_app', current_database());
 END
 $$;

@@ -11,7 +11,7 @@ x-vault-env: &vault-env
 
 services:
   vault:
-    image: hashicorp/vault:1.20
+    image: hashicorp/vault:1.20@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
     command: ["server"]
     environment:
       SKIP_SETCAP: "true"
@@ -23,24 +23,26 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
-    networks: [backend]
+    networks: [data]
 
   bootstrap:
-    image: hashicorp/vault:1.20
+    image: hashicorp/vault:1.20@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10
     entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
     depends_on: [vault]
     environment:
       VAULT_ADDR: http://vault:8200
-      BACKEND_CIDR: 172.28.0.0/16
+      # The `data` network: the AppRoles are bound to it, so the internet-facing `web` container (not on it) cannot log in.
+      BACKEND_CIDR: ${DATA_SUBNET:-10.231.28.0/24}
     volumes:
       - secrets:/secrets
       - ./deploy/bootstrap:/bootstrap:ro
       - ./deploy/vault/policies:/policies:ro
+    <<: *hardened
     restart: "no"
-    networks: [backend]
+    networks: [data]
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     depends_on:
       bootstrap: { condition: service_completed_successfully }
     environment:
@@ -57,10 +59,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [backend]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    networks: [data]
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     depends_on:
       bootstrap: { condition: service_completed_successfully }
     command: ["redis-server", "--aclfile", "/run/redis/users.acl", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
@@ -72,10 +77,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [backend]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    networks: [data]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.4
+    image: quay.io/keycloak/keycloak:26.4@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
     depends_on:
       postgres: { condition: service_healthy }
       bootstrap: { condition: service_completed_successfully }
@@ -107,7 +115,8 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
-    networks: [backend]
+    <<: *hardened
+    networks: [app, data]
 
   migrate:
     build: { context: ., target: api }
@@ -125,7 +134,7 @@ services:
     <<: *hardened
     read_only: true
     restart: "no"
-    networks: [backend]
+    networks: [data]
 
   api:
     image: dispute-portal-api:local
@@ -140,7 +149,7 @@ services:
       Public__BaseUrl: http://localhost:${APP_PORT:-8080}
       Keycloak__Authority: http://localhost:${AUTH_PORT:-8180}/realms/dispute-portal
       Keycloak__MetadataAddress: http://keycloak:8080/realms/dispute-portal/.well-known/openid-configuration
-      Forwarded__KnownNetwork: 172.28.0.0/16
+      Forwarded__KnownNetwork: ${APP_SUBNET:-10.231.29.0/24}
       AllowedHosts: localhost
       ASPNETCORE_ENVIRONMENT: Production
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-}
@@ -154,7 +163,7 @@ services:
       start_period: 15s
     <<: *hardened
     read_only: true
-    networks: [backend]
+    networks: [app, data]
 
   web:
     build: { context: ., target: web }
@@ -173,14 +182,14 @@ services:
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
-    networks: [edge, backend]
+    networks: [edge, app]
 
   # docker compose --profile observability up   (set OTEL_ENDPOINT=http://lgtm:4317 for the api)
   lgtm:
     profiles: [observability]
-    image: grafana/otel-lgtm:latest
+    image: grafana/otel-lgtm:latest@sha256:4c8056c9c05fcb3c8fd93800e85334bfd79b4d0271b47a54a121a64af41fe1fe
     ports: ["127.0.0.1:3000:3000"]
-    networks: [edge, backend]
+    networks: [edge, app]
 
 volumes:
   secrets:
@@ -188,10 +197,19 @@ volumes:
   pgdata:
   redisdata:
 
+# Three networks, so a compromised edge container cannot reach the data stores or Vault:
+#   edge  - the published ports            web
+#   app   - internal; edge to the app tier web, api, keycloak (the API trusts X-Forwarded-* only from this subnet)
+#   data  - internal; stores and Vault     vault, bootstrap, postgres, redis, migrate, api, keycloak (AppRoles are bound to this subnet)
 networks:
   edge: {}
-  backend:
+  app:
     internal: true
     ipam:
       config:
-        - subnet: 172.28.0.0/16
+        - subnet: ${APP_SUBNET:-10.231.29.0/24}
+  data:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${DATA_SUBNET:-10.231.28.0/24}
