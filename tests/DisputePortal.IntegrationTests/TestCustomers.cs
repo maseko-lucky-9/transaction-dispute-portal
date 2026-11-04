@@ -31,9 +31,10 @@ public sealed record TestCustomer(IdpUser User, Guid CustomerId, Guid AccountId)
         VALUES (@id, NULL, 'Submitted', 'Customer', @subject);
         """;
 
-    public static async Task<TestCustomer> CreateAsync(ApiFactory api)
+    /// <param name="displayName">What the back office sees; set it to something unmistakable to prove it does not reach a log.</param>
+    public static async Task<TestCustomer> CreateAsync(ApiFactory api, string displayName = "Test Customer")
     {
-        TestCustomer customer = new(new IdpUser("test-" + Guid.NewGuid().ToString("N"), "Test Customer", [Roles.Customer]), Guid.NewGuid(), Guid.NewGuid());
+        TestCustomer customer = new(new IdpUser("test-" + Guid.NewGuid().ToString("N"), displayName, [Roles.Customer]), Guid.NewGuid(), Guid.NewGuid());
         await using NpgsqlConnection connection = new(api.AdminConnectionString);
         await connection.OpenAsync();
         await using NpgsqlCommand command = new(InsertCustomerSql, connection);

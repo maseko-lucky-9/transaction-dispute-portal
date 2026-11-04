@@ -15,7 +15,7 @@ public sealed class TransitionRequestValidator : AbstractValidator<TransitionReq
         RuleFor(request => request.ToStatus).NotEmpty().WithMessage("toStatus is required.");
         RuleFor(request => request.ToStatus).IsEnumName(typeof(DisputeStatus), caseSensitive: false)
             .When(request => !string.IsNullOrEmpty(request.ToStatus))
-            .WithMessage("toStatus must be UnderReview, Accepted or Rejected.");
+            .WithMessage(UnknownTargetStatusException.FieldMessage);
         RuleFor(request => request.Note).Must(note => !string.IsNullOrWhiteSpace(note))
             .When(request => IsResolution(request.ToStatus))
             .WithMessage("note is required to accept or reject a dispute.");

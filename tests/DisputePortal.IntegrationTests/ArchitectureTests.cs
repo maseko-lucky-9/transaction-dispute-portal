@@ -106,6 +106,29 @@ public sealed partial class ArchitectureTests
         Assert.Empty(Offenders(probe, DirectNpgsqlAccess(), DirectNpgsqlAllowedIn));
     }
 
+    // Agents see every dispute, so their 404 is a missing id and not a probe: only the customer slices count bola_404.
+    [Fact]
+    public void TheAgentFeatureNeverCountsBola404()
+    {
+        string[] offenders = [.. RepositoryFiles.ApiSources()
+            .Where(file => file.Path.StartsWith(AgentFeature, StringComparison.Ordinal))
+            .Where(file => CountsBola404().IsMatch(file.Text))
+            .Select(file => file.Path)];
+
+        Assert.Empty(offenders);
+    }
+
+    [Theory]
+    [InlineData("securityMetrics.Record(SecurityMetrics.Bola404);")]
+    [InlineData("throw DisputeNotFound.ToCustomer(securityMetrics);")]
+    [InlineData("throw DisputeNotFound . ToCustomer( securityMetrics );")]
+    public void TheBola404RuleCatchesTheCountingCalls(string code) =>
+        Assert.Matches(CountsBola404(), code);
+
+    [Fact]
+    public void TheBola404RuleAllowsTheAgentsUncountedAnswer() =>
+        Assert.DoesNotMatch(CountsBola404(), "throw DisputeNotFound.ToAgent();");
+
     [Fact]
     public void TheDomainReferencesNeitherEfCoreNorAspNetCore()
     {
@@ -153,6 +176,9 @@ public sealed partial class ArchitectureTests
 
     [GeneratedRegex(@"\bNpgsql(?:DataSource(?:Builder)?|Connection|Command|Batch)\b")]
     private static partial Regex DirectNpgsqlAccess();
+
+    [GeneratedRegex(@"\bBola404\b|\bDisputeNotFound\s*\.\s*ToCustomer\b")]
+    private static partial Regex CountsBola404();
 
     [GeneratedRegex(@"\b(?:FromSqlRaw|ExecuteSqlRaw(?:Async)?|SqlQueryRaw)\s*(?:<[^>]*>)?\(\s*(?:\$|""[^""]*""\s*\+)")]
     private static partial Regex UnsafeRawSql();

@@ -31,7 +31,21 @@ public sealed class Bola404MetricTests(ApiFactory api)
         // Only the type: an id in a tag would be an unbounded series and a customer's data in the metrics.
         KeyValuePair<string, object?> tag = Assert.Single(sample.Tags);
         Assert.Equal(("type", "bola_404"), (tag.Key, tag.Value));
-        Assert.DoesNotContain(theirs.ToString(), string.Join(' ', sample.Tags.Values), StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The other half of the counter: a customer acting on their own dispute is never a probe, whatever the verb.
+    [Fact]
+    public async Task ACustomersOwnSuccessfulWithdrawCountsNoBola404()
+    {
+        (Guid mine, BrowserSession owner) = await SeedDisputeWithOwnerAsync();
+        using MeasurementProbe<long> probe = MeasurementProbe<long>.On(api, SecurityMetrics.MeterName, SecurityEvents);
+        HttpResponseMessage read = await AgentApi.SendAsync(api, owner.Request(HttpMethod.Get, $"{DisputeRequests.Disputes}/{mine}"));
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+
+        HttpResponseMessage withdrawn = await AgentApi.SendAsync(api, DisputeRequests.Withdraw(owner, mine, DisputeRequests.ETagOf(read)));
+
+        Assert.Equal(HttpStatusCode.OK, withdrawn.StatusCode);
+        Assert.Empty(probe.Samples);
     }
 
     [Theory]
@@ -75,6 +89,19 @@ public sealed class Bola404MetricTests(ApiFactory api)
         using MeasurementProbe<long> probe = MeasurementProbe<long>.On(api, SecurityMetrics.MeterName, SecurityEvents);
 
         HttpResponseMessage response = await AgentApi.SendAsync(api, agent.Request(HttpMethod.Get, AgentRequests.Detail(Guid.NewGuid())));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(probe.Samples);
+    }
+
+    // The command path: a transition on an id nobody has is the same 404 an agent's read gets, and equally uncounted.
+    [Fact]
+    public async Task AnAgentsNotFoundOnATransitionIsNotCounted()
+    {
+        (_, BrowserSession agent) = await new AgentApi(api).NewAgentAsync();
+        using MeasurementProbe<long> probe = MeasurementProbe<long>.On(api, SecurityMetrics.MeterName, SecurityEvents);
+
+        HttpResponseMessage response = await AgentApi.SendAsync(api, AgentRequests.Transition(agent, Guid.NewGuid(), "\"1\"", "UnderReview"));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Empty(probe.Samples);
