@@ -15,20 +15,34 @@ public sealed partial class CreateDisputeRequestValidator : AbstractValidator<Cr
         RuleFor(request => request.Id).Must(BeANonEmptyUuid).WithMessage("id must be a non-empty UUID.");
         RuleFor(request => request.TransactionId).Must(BeANonEmptyUuid).WithMessage("transactionId must be a non-empty UUID.");
         RuleFor(request => request.ReasonCode).NotEmpty().WithMessage("reasonCode is required.");
+        RuleFor(request => request.ReasonCode).Must(code => !SensitiveNumberDetector.ContainsInvalidCharacters(code))
+            .WithMessage(InvalidCharactersMessage("reasonCode"))
+            .WithState(_ => new ProblemCode(SensitiveNumberDetector.InvalidCharactersCode));
+        // Only a clean, bounded code is looked up: PostgreSQL refuses a NUL in text.
         RuleFor(request => request.ReasonCode)
             .MustAsync((code, cancellationToken) => reasons.ExistsAsync(code!, cancellationToken))
-            .When(request => !string.IsNullOrEmpty(request.ReasonCode))
+            .When(request => request.ReasonCode is { Length: > 0 and <= DisputeReasonEntry.CodeMaxLength }
+                && !SensitiveNumberDetector.ContainsInvalidCharacters(request.ReasonCode))
             .WithMessage("reasonCode is not a known reason; GET /api/v1/dispute-reasons lists them.");
         RuleFor(request => request.Description)
             .Must(description => description?.Trim().Length is >= DescriptionMinLength and <= Dispute.DescriptionMaxLength)
             .WithMessage($"description must be {DescriptionMinLength} to {Dispute.DescriptionMaxLength} characters.");
+        // Rule A before rule B: a description with control characters is not scanned for numbers.
+        RuleFor(request => request.Description).Must(description => !SensitiveNumberDetector.ContainsInvalidCharacters(description))
+            .WithMessage(InvalidCharactersMessage("description"))
+            .WithState(_ => new ProblemCode(SensitiveNumberDetector.InvalidCharactersCode));
         RuleFor(request => request.Description)
             .Must(description => !SensitiveNumberDetector.ContainsSensitiveNumber(description))
+            .When(request => request.Description is { Length: <= SensitiveNumberDetector.MaxScanLength }
+                && !SensitiveNumberDetector.ContainsInvalidCharacters(request.Description))
             .WithMessage("description must not contain a card or ID number; describe the problem without it.")
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.Code));
         RuleFor(request => request.Amount).Matches(AmountPattern()).When(request => request.Amount is not null)
             .WithMessage("amount must be a decimal string with at most two decimals, e.g. \"125.50\".");
     }
+
+    private static string InvalidCharactersMessage(string field) =>
+        $"{field} must not contain control characters (tab and line breaks are fine).";
 
     // The canonical form only ("D"), as the OpenAPI document's format: uuid says.
     private static bool BeANonEmptyUuid(string? value) => Guid.TryParseExact(value, "D", out Guid id) && id != Guid.Empty;

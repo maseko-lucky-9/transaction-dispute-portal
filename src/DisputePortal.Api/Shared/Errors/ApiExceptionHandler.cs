@@ -35,6 +35,8 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
     private static ProblemDetails Describe(Exception exception) => exception switch
     {
         ApiException api => api.ToProblem(),
+        // A query the database refused as data (a save is translated by the unit of work): 400, not 500.
+        PostgresException postgres when DbErrorTranslator.Translate(postgres) is { } refusal => refusal.ToProblem(),
         // An illegal move conflicts with the dispute's current state (ADR-007): 409, not a rule violation.
         InvalidTransitionException transition => Problem(StatusCodes.Status409Conflict, transition.Code, transition.Message),
         DomainException domain => Problem(StatusCodes.Status422UnprocessableEntity, domain.Code, domain.Message),

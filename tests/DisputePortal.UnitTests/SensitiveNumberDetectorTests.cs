@@ -22,18 +22,36 @@ public sealed class SensitiveNumberDetectorTests
         return data;
     }
 
-    // The same 22 cases the web form runs: both sides refuse exactly the same descriptions.
+    // Every case the web form runs, both rules: the two sides refuse exactly the same descriptions with the same code.
     [Theory]
     [MemberData(nameof(SharedCases))]
     public void AgreesWithTheWebFormOnEverySharedCase(string name, string input, bool valid, string? code)
     {
-        Assert.Equal(!valid, SensitiveNumberDetector.ContainsSensitiveNumber(input));
-        Assert.Equal(valid ? null : SensitiveNumberDetector.Code, code);
+        Assert.Equal(code, SensitiveNumberDetector.ProblemCodeFor(input));
+        Assert.Equal(valid, code is null);
         Assert.False(string.IsNullOrEmpty(name));
     }
 
     [Fact]
-    public void TheSharedCasesFileHasAll22Cases() => Assert.Equal(22, SharedCases().Count);
+    public void TheSharedCasesFileHasAll45CasesCoveringBothRules()
+    {
+        TheoryData<string, string, bool, string?> cases = SharedCases();
+
+        Assert.Equal(45, cases.Count);
+        Assert.Contains(cases, row => (string?)row[3] == SensitiveNumberDetector.InvalidCharactersCode);
+        Assert.Contains(cases, row => (string?)row[3] == SensitiveNumberDetector.Code);
+    }
+
+    // Rule A: control characters other than tab, line feed and carriage return; checked before rule B.
+    [Theory]
+    [InlineData("tab\there", null)]
+    [InlineData("lines\r\nhere", null)]
+    [InlineData("nul\0here", SensitiveNumberDetector.InvalidCharactersCode)]
+    [InlineData("delete\u007Fhere", SensitiveNumberDetector.InvalidCharactersCode)]
+    [InlineData("c1\u0085here", SensitiveNumberDetector.InvalidCharactersCode)]
+    [InlineData("4111 1111 1111 1111\u0001", SensitiveNumberDetector.InvalidCharactersCode)]
+    public void ControlCharactersAreInvalidAndCheckedFirst(string text, string? code) =>
+        Assert.Equal(code, SensitiveNumberDetector.ProblemCodeFor(text));
 
     // Only 13 to 19 digits count, whatever the Luhn result.
     [Theory]
@@ -73,15 +91,34 @@ public sealed class SensitiveNumberDetectorTests
     [InlineData("4111111111111112", false)]
     public void LuhnMatchesKnownVectors(string digits, bool valid) => Assert.Equal(valid, SensitiveNumberDetector.PassesLuhn(digits));
 
+    // Runs of 1 to 4 separators join groups (two spaces used to slip through); five end the chain.
     [Theory]
-    [InlineData("4111  1111 1111 1111")]
-    [InlineData("4111_1111_1111_1111")]
-    [InlineData("4111.1111.1111.1111")]
-    public void OnlyASingleSpaceHyphenOrLineBreakJoinsGroups(string text) => Assert.False(SensitiveNumberDetector.ContainsSensitiveNumber(text));
+    [InlineData("4111  1111 1111 1111", true)]
+    [InlineData("4111_1111_1111_1111", true)]
+    [InlineData("4111.1111.1111.1111", true)]
+    [InlineData("4111 -/ 1111(1111)1111", true)]
+    [InlineData("4111    1111 1111 1111", true)]
+    [InlineData("4111     1111 1111 1111", false)]
+    [InlineData("4111 : 1111 1111 1111", false)]
+    public void UpToFourSeparatorsJoinGroups(string text, bool sensitive) => Assert.Equal(sensitive, SensitiveNumberDetector.ContainsSensitiveNumber(text));
 
-    // Arabic-Indic digits are not ASCII digits; the web's \d agrees.
+    // Digits of any script count after normalisation, and invisible characters cannot split a number.
+    [Theory]
+    [InlineData("٤١١١١١١١١١١١١١١١")]
+    [InlineData("४१११११११११११११११")]
+    [InlineData("\U0001D7D2\U0001D7CF\U0001D7CF\U0001D7CF 1111 1111 1111")]
+    [InlineData("4111\u00AD1111\uFEFF1111\u200D1111")]
+    [InlineData("\u2074\u00B9\u00B9\u00B9 \u2460\u2460\u2460\u2460 1111 1111")]
+    [InlineData("4111 1111 1111 111\U000E00311")]
+    public void LookAlikeDigitsAndInvisibleCharactersCannotHideACard(string text) =>
+        Assert.True(SensitiveNumberDetector.ContainsSensitiveNumber(text));
+
     [Fact]
-    public void OnlyAsciiDigitsCount() => Assert.False(SensitiveNumberDetector.ContainsSensitiveNumber("٤١١١١١١١١١١١١١١١"));
+    public void TheScanIsBoundedToMaxScanLength()
+    {
+        Assert.False(SensitiveNumberDetector.ContainsSensitiveNumber(new string('9', SensitiveNumberDetector.MaxScanLength)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SensitiveNumberDetector.ContainsSensitiveNumber(new string('a', SensitiveNumberDetector.MaxScanLength + 1)));
+    }
 
     private static string LuhnValid(int length)
     {
