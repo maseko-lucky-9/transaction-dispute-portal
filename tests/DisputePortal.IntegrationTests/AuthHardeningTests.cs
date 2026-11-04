@@ -222,24 +222,4 @@ public sealed class AuthHardeningTests : IDisposable
         request.Headers.Add("X-Forwarded-For", forwardedFor);
         return request;
     }
-
-    /// <summary>TestServer has no socket peer; this sets one per request, before the app's forwarded-headers middleware.</summary>
-    private sealed class PeerAddressFilter : IStartupFilter
-    {
-        public const string HeaderName = "X-Test-Peer";
-
-        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
-        {
-            app.Use((context, nextMiddleware) =>
-            {
-                if (context.Request.Headers.TryGetValue(HeaderName, out StringValues peer))
-                {
-                    context.Connection.RemoteIpAddress = IPAddress.Parse(peer.ToString());
-                }
-
-                return nextMiddleware(context);
-            });
-            next(app);
-        };
-    }
 }

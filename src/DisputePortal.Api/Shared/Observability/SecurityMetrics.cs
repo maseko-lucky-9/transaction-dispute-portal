@@ -3,7 +3,8 @@ using System.Diagnostics.Metrics;
 namespace DisputePortal.Api.Shared.Observability;
 
 /// <summary>
-/// <c>security.events{type}</c>: the counter the runbook alerts on when refusals spike. <c>audit.events{action}</c>:
+/// <c>security.events{type}</c>: the counter the runbook alerts on when refusals spike; <c>type</c> is always one of the
+/// constants below, so the series stay bounded. <c>audit.events{action}</c>:
 /// privileged access (an agent viewing the queue or a dispute, or moving a dispute), with a small fixed set of action values.
 /// </summary>
 public sealed class SecurityMetrics
@@ -25,6 +26,15 @@ public sealed class SecurityMetrics
     public const string RateLimited = "rate_limited";
     public const string SessionRefreshFailed = "session_refresh_failed";
 
+    /// <summary>
+    /// Keycloak ended a session and a verified back-channel logout token removed its tickets: one event per token, however
+    /// many tickets it removed (none, for a session that had already ended here).
+    /// </summary>
+    public const string BackchannelLogout = "backchannel_logout";
+
+    /// <summary>A back-channel logout token failed verification: a Keycloak misconfiguration (issuer, keys) or a forged or replayed token.</summary>
+    public const string BackchannelLogoutRejected = "backchannel_logout_rejected";
+
     /// <summary>One event per queue request, not per row: the queue shows every customer's display name and masked account number.</summary>
     public const string AgentQueueViewed = "agent_queue_viewed";
 
@@ -44,7 +54,7 @@ public sealed class SecurityMetrics
     public SecurityMetrics(IMeterFactory meterFactory)
     {
         Meter meter = meterFactory.Create(MeterName);
-        events = meter.CreateCounter<long>("security.events", unit: "{event}", description: "Security-relevant refusals by type.");
+        events = meter.CreateCounter<long>("security.events", unit: "{event}", description: "Security-relevant refusals and session revocations by type.");
         audits = meter.CreateCounter<long>("audit.events", unit: "{event}", description: "Privileged access to customer data, by action.");
     }
 
