@@ -1,0 +1,100 @@
+using DisputePortal.Api.Features.Bff;
+using DisputePortal.Api.Features.Me;
+using DisputePortal.Api.Shared.Errors;
+using DisputePortal.Api.Shared.Health;
+using DisputePortal.Api.Shared.Hosting;
+using DisputePortal.Api.Shared.Observability;
+using DisputePortal.Api.Shared.OpenApi;
+using DisputePortal.Api.Shared.Persistence;
+using DisputePortal.Api.Shared.Secrets;
+using DisputePortal.Api.Shared.Security;
+using FluentValidation;
+using Microsoft.AspNetCore.Http.Timeouts;
+
+// The chiseled image has no curl: the container's healthcheck runs this binary with --healthcheck.
+if (args.Contains(RunModes.HealthCheck))
+{
+    return await ManagementProbe.RunAsync();
+}
+
+bool migrate = args.Contains(RunModes.Migrate);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+// Catch captive dependencies and missing registrations at startup, in every environment.
+builder.Host.UseDefaultServiceProvider(options =>
+{
+    options.ValidateScopes = true;
+    options.ValidateOnBuild = true;
+});
+
+// JSON logs; scopes carry the trace and span ids. Bodies, tokens and SQL parameters are never logged.
+builder.Logging.ClearProviders().AddJsonConsole(options =>
+{
+    options.IncludeScopes = true;
+    options.UseUtcTimestamp = true;
+});
+
+try
+{
+    builder.Configuration.AddVaultSecrets(migrate);
+}
+catch (VaultUnavailableException exception)
+{
+    using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
+    startupLogging.CreateLogger("Startup").LogCritical("{Reason}; " + DependencyGate.StartStackHint, exception.Message);
+    return 1;
+}
+
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddPersistence(migrate ? DatabaseSettings.OwnerSection : DatabaseSettings.AppSection);
+builder.Services.AddDataProtectionKeyRing();
+
+if (migrate)
+{
+    // EF probes the history table before it exists and logs that expected miss as an error; real failures still
+    // surface through MigrationRunner's single line.
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
+    await using WebApplication migrator = builder.Build();
+    return await MigrationRunner.RunAsync(migrator.Services, CancellationToken.None);
+}
+
+builder.ConfigurePorts();
+builder.AddTelemetry();
+builder.Services.AddTrustedProxy(builder.Configuration);
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ErrorCodes.Complete);
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+builder.Services.AddSessionStore();
+builder.Services.AddReadinessChecks();
+builder.Services.AddBffAuthentication();
+builder.Services.AddPortalAuthorization();
+builder.Services.AddPerSubjectRateLimiter(builder.Configuration);
+builder.Services.AddRequestTimeouts(options => options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(30) });
+builder.Services.AddApiDocumentation();
+builder.Services.AddSingleton<IValidator<LoginRequest>, LoginRequestValidator>();
+
+WebApplication app = builder.Build();
+
+// First, so everything after it (the rate limiter above all) sees the client's address, not nginx's.
+app.UseForwardedHeaders();
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+// After the status-code pages, so their 404s and the CSRF 403 carry a Problem Details body.
+app.UseMiddleware<ManagementPortMiddleware>();
+app.UseMiddleware<NoStoreMiddleware>();
+app.UseMiddleware<CsrfMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
+app.UseRequestTimeouts();
+app.MapHealthEndpoints();
+app.MapBffEndpoints();
+app.MapMeEndpoints();
+app.MapApiDocumentation();
+
+if (!await DependencyGate.WaitAsync(app.Services, app.Logger, CancellationToken.None))
+{
+    return 1;
+}
+
+await app.RunAsync();
+return 0;
