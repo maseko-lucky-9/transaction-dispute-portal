@@ -9,7 +9,7 @@
 export interface User {
   /** Display name from the ID token. */
   name: string;
-  /** Realm roles, e.g. "customer" or "dispute_agent". Display only: the API enforces them. */
+  /** Realm roles, e.g. "customer" or "dispute-agent". Display only: the API enforces them. */
   roles: string[];
   /**
    * Same-origin URL for RP-initiated logout (`/bff/logout?sid=...`). Navigate to it with a
