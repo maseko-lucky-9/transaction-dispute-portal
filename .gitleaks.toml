@@ -1,0 +1,6 @@
+title = "dispute-portal gitleaks"
+[extend]
+useDefault = true
+[allowlist]
+description = "Documented local-only demo credentials for the imported Keycloak users"
+paths = ['''deploy/keycloak/dispute-portal-users-0\.json''', '''README\.md''', '''docs/.*''']

@@ -1,0 +1,15 @@
+**/bin
+**/obj
+**/node_modules
+**/TestResults
+**/coverage
+.git
+.github
+.env
+.env.*
+.claude
+.specify
+specs
+docs
+e2e
+StrykerOutput
