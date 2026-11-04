@@ -53,7 +53,7 @@ concern and is not tested.
 | T | Redis write access forges a session | Tickets are DataProtection-encrypted and the keys are in Postgres, not Redis; Redis ACL user limited to `~bff:*` (`bootstrap.sh`) | Someone with Postgres read access to the keys plus Redis write could forge a ticket; keys are unencrypted at rest (README "Known limits") |
 | T | SQL injection | EF Core parameterisation; architecture rule banning interpolated raw SQL (`ArchitectureTests.NoRawSqlCallIsBuiltFromAnInterpolatedOrConcatenatedString`) | |
 | T | App credential rewrites history | `dispute_app` has INSERT only on history, with `occurred_at` excluded (`DatabasePrivilegeTests.TheAppRoleCannotWriteOrAlterWhatItShouldNot`) | The app role can still change a dispute's own columns without a history row (README "Known limits") |
-| R | Agent denies viewing or deciding | `agent.dispute.viewed` and `agent.dispute.transitioned` logged with ids and subject; `audit.events` counter; transitions stored with actor (`AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`) | Log retention and tamper-resistance are the log platform's job, not provided here |
+| R | Agent denies viewing or deciding | `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` (one per queue page read, with filter and counts, no customer data; `AgentQueueAuditTests`) logged with ids and subject; `audit.events` counter; transitions stored with actor (`AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`) | Log retention and tamper-resistance are the log platform's job, not provided here |
 | I | Credentials, tokens or text in logs/traces | Ticket holds only id and refresh tokens; `url.query` dropped from server spans; note text never logged (`AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes`) | Logs contain dispute, transaction and agent-subject identifiers (pseudonymous, see POPIA below) |
 | I | Cursor tampering or reuse across users | DataProtection-protected cursors bound to user and filters (`TransactionsTests.ATamperedCursorIs400InvalidCursor`, `AnotherCustomersCursorIs400InvalidCursor`) | |
 | D | Dependency outage or slow query | Fail closed with 503 codes; Postgres `statement_timeout` 5 s; bounded Vault retry; resilience handler on the Keycloak client (`WhenRedisIsDownLoginAndSessionValidationFailClosedWith503`, `AnUnreachableIdpDuringRefreshIs503AndKeepsTheSession`) | Single instances of every store locally; no HA |
@@ -77,8 +77,8 @@ concern and is not tested.
 
 gitleaks (hook and CI), `restore --locked-mode`, vulnerable-package check, `npm ci --ignore-scripts`, `npm audit
 --audit-level=high`, Trivy on fixable CRITICAL, digest-pinned base images (`scripts/check-image-pins.sh`), SHA-pinned
-Actions with a `contents: read` default token, SBOM and provenance on `main` images, Dependabot. Not present: CodeQL
-(default setup reports `not-configured`), image signing (cosign), a ZAP baseline scan.
+Actions with a `contents: read` default token, SBOM and provenance on `main` images, Dependabot. CodeQL default setup (enabled 2026-11-04 for C#, JavaScript/TypeScript and Actions; the first analysis found 0, 1 and 0 results, the one being a CSP build-guard regex fixed in the same change). Not present: image
+signing (cosign), a ZAP baseline scan.
 
 ## 4. POPIA mapping
 
@@ -110,7 +110,7 @@ conditions. It is not legal advice and has not been reviewed by counsel or an in
 | Logs and metrics carry no PII | Free text and note content are not logged (`TheNoteTextIsNeverLoggedOnlyIdsAndCodes`); metric tags are bounded codes, never ids (`SecurityMetrics.cs`) | Log lines carry dispute id, transaction id and agent subject (pseudonymous identifiers that become personal information when joined to the database). nginx logs carry IP and user agent. No automated test scans logs for personal data beyond the two tests named |
 | Retention | Design only: regulator-driven period, history never deleted by the app role, deletion by a separately privileged process (system design 5.5) | **No retention job, schedule or period exists in code.** The period is an open assumption |
 | Data-subject access and correction | A signed-in customer can read all their disputes and timelines (`GET /api/v1/disputes`, detail) | No export endpoint, no correction workflow, no erasure endpoint. Erasure vs audit conflict is resolved only on paper: pseudonymise the display name, keep structural records, subject to legal review |
-| Agent access to personal information | Agent views are logged (`agent.dispute.viewed`) and counted | Logs are not tamper-evident; no periodic access review |
+| Agent access to personal information | Agent views of a dispute and of the queue are logged (`agent.dispute.viewed`, `agent.queue.viewed`) and counted | Logs are not tamper-evident; no periodic access review |
 | Breach notification | A runbook step (Section 8 of [runbook.md](runbook.md)) tells the operator where to look | No notification procedure, regulator contact or timeline is defined. [UNVERIFIED for any legal deadline] |
 | Cross-border transfer | None in the local stack. A cloud deployment would need a review | Not assessed |
 
@@ -123,4 +123,4 @@ conditions. It is not legal advice and has not been reviewed by counsel or an in
 5. Retention, erasure, subject access export and breach notification are documented intentions, not features.
 6. The history table is append-only for the app role but not hash-chained, and the app role can edit a dispute row in place.
 7. The sensitive-number detector is a guard against accidents.
-8. No CodeQL scan is configured, and no penetration test or ZAP scan has been run.
+8. No penetration test or ZAP scan has been run (CodeQL static analysis is enabled).

@@ -35,6 +35,10 @@ public sealed class DisputeMetricsTests
         Assert.Equal(60, exported.Bounds[0]);
         Assert.Contains(86_400d, exported.Bounds);
         Assert.Contains(1_209_600d, exported.Bounds);
+        // 90 minutes is past the one-hour bound and within the four-hour one (a bucket holds values up to and including its bound).
+        (double upper, long inBucket) = Assert.Single(exported.Buckets, bucket => bucket.Count > 0);
+        Assert.Equal((14_400d, 1L), (upper, inBucket));
+        Assert.Equal(3_600d, exported.Bounds[exported.Bounds.IndexOf(upper) - 1]);
         Assert.Equal(("to", "Accepted"), Assert.Single(exported.Tags));
     }
 
@@ -51,6 +55,8 @@ public sealed class DisputeMetricsTests
 
         public List<double> Bounds { get; } = [];
 
+        public List<(double Bound, long Count)> Buckets { get; } = [];
+
         public List<(string Key, string? Value)> Tags { get; } = [];
 
         public override ExportResult Export(in Batch<Metric> batch)
@@ -66,6 +72,7 @@ public sealed class DisputeMetricsTests
                     foreach (HistogramBucket bucket in point.GetHistogramBuckets())
                     {
                         Bounds.Add(bucket.ExplicitBound);
+                        Buckets.Add((bucket.ExplicitBound, bucket.BucketCount));
                     }
 
                     foreach (KeyValuePair<string, object?> tag in point.Tags)

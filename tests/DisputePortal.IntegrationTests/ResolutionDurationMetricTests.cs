@@ -91,8 +91,14 @@ public sealed class ResolutionDurationMetricTests(ApiFactory api)
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.PreconditionFailed);
+        // Whichever agent won, the measurement is tagged with the decision that was stored, not the one that lost.
+        string winning = responses[0].StatusCode == HttpStatusCode.OK ? "Accepted" : "Rejected";
+        string stored = (await agents.OkAsync(first, AgentRequests.Detail(id))).GetProperty("status").GetString()!;
+        Assert.Equal(winning, stored);
         MeasurementProbe<double>.Sample sample = Assert.Single(probe.Samples);
         Assert.Equal(Elapsed.TotalSeconds, sample.Value);
+        KeyValuePair<string, object?> tag = Assert.Single(sample.Tags);
+        Assert.Equal(("to", winning), (tag.Key, tag.Value));
     }
 
     // A dispute that was reviewed first has been touched since it was created: the duration still runs from creation.

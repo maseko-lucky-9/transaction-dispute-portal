@@ -123,12 +123,16 @@ public sealed class ProductionAuthStackTests : IDisposable
     public async Task TheSessionTicketInRedisIsEncryptedAndExpiresWithTheAbsoluteLifetime()
     {
         IdpUser user = Thandi();
-        await BrowserSession.SignInAsync(api, user);
         IConnectionMultiplexer redis = api.Services.GetRequiredService<IConnectionMultiplexer>();
         IServer server = redis.GetServer(redis.GetEndPoints().Single());
 
-        RedisKey[] keys = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
-        Assert.NotEmpty(keys);
+        // Redis is shared with the other tests of this fixture: assert only on the ticket THIS sign-in created, not on
+        // whichever other key SCAN happens to list last (their lifetimes and plaintext differ).
+        HashSet<RedisKey> before = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
+        await BrowserSession.SignInAsync(api, user);
+
+        RedisKey[] keys = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*").Where(key => !before.Contains(key))];
+        Assert.Single(keys);
         foreach (RedisKey key in keys)
         {
             byte[] payload = (byte[])(await redis.GetDatabase().StringGetAsync(key))!;

@@ -38,7 +38,7 @@ Custom meters (source: `src/DisputePortal.Api/Shared/Observability/`):
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|
 | `security.events` | counter | `type` | `authz_denied`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
-| `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned` | `DisputePortal.Security` |
+| `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
 | `disputes.submitted` | counter | `reason` | reason code | `DisputePortal.Disputes` |
 | `disputes.transitions` | counter | `to` | status name | `DisputePortal.Disputes` |
 | `disputes.eligibility_rejections` | counter | `rule` | rule code | `DisputePortal.Disputes` |
@@ -55,8 +55,8 @@ Traces: ASP.NET Core, HttpClient and Npgsql, plus a `DisputePortal.Api` activity
 server spans; client spans keep the URL without its query. Health endpoints are not traced. Telemetry is exported only
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`Telemetry.cs`).
 
-Logs: JSON console. Structured events of note: `agent.dispute.viewed` and `agent.dispute.transitioned` (ids and agent
-subject only), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`.
+Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` (ids, filter, counts and agent
+subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`.
 
 ## 4. Alerts
 
@@ -84,10 +84,23 @@ OTEL_ENDPOINT=http://lgtm:4317 docker compose --profile observability up -d --wa
 
 - `OTEL_ENDPOINT` feeds the API's `OTEL_EXPORTER_OTLP_ENDPOINT` (`docker-compose.yml`). If the `api` container was
   already running, `up -d` recreates it with the new variable.
-- Grafana is published on `127.0.0.1:3000`. The image is `grafana/otel-lgtm` (digest-pinned in the compose file).
-- Contradiction with the plan: the plan says the profile generates a Grafana admin password. The compose file does
-  not set one, so the image's default credentials apply (not checked for this image [UNVERIFIED]; change them before exposing the
-  port beyond loopback). The port is bound to loopback only.
+- Grafana is published on `127.0.0.1:3000` only. The image is `grafana/otel-lgtm` (digest-pinned in the compose file).
+- Sign in as `admin` with a generated password. `bootstrap` creates it in the `secrets` volume at
+  `grafana/admin_password` only when the file is missing (so a second `up` does not rotate it, and it is never printed),
+  and `lgtm` mounts that directory read-only and has Grafana read it through `$__file{}`. Read it with a one-off
+  container (the volume is `<project>_secrets`, so `dispute-portal_secrets` for the default project):
+
+  ```
+  docker run --rm -v dispute-portal_secrets:/s:ro alpine cat /s/grafana/admin_password
+  ```
+
+- Anonymous access is switched off (`GF_AUTH_ANONYMOUS_ENABLED=false`). The image's own default is anonymous with the
+  Admin role, which would make the password irrelevant.
+- Grafana applies the admin password only when it creates its database, and `lgtm` has no data volume. To apply a
+  changed password, recreate the container: `docker compose --profile observability rm -sf lgtm`, then `up -d` again.
+- `GF_SECURITY_ADMIN_PASSWORD__FILE` does not work with this image: the `__FILE` suffix is handled by the official
+  `grafana/grafana` image's `run.sh`, and `otel-lgtm` starts `./bin/grafana server` directly. With it, `admin`/`admin`
+  still logged in (observed 2026-11-04), hence the `$__file{}` form.
 - Verified once on a clean clone (2026-11-04): after one dispute submit, Prometheus had `disputes_submitted_total` and
   `security_events_total{type="csrf_rejected"|"authz_denied"}`, and Tempo had a trace for `POST /api/v1/disputes/` with
   a redis `session.retrieve` span and 9 Npgsql spans. No dashboard was built or screenshotted.
@@ -190,7 +203,7 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 1. Revoke sessions: rotate DataProtection keys (Section 7) so every ticket becomes unreadable, or flush the `bff:*` keys in Redis.
 2. Disable the user in Keycloak; their access token lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
 3. Rotate the secrets that may have leaked (Section 7).
-4. Review `agent.dispute.viewed` and `agent.dispute.transitioned` log lines and `audit.events` for the affected agent subject.
+4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
 
 **Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`); redeploy the previous sha. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]

@@ -4,6 +4,7 @@ using System.Text.Json;
 using DisputePortal.Api.Features.Agent;
 using DisputePortal.Api.Shared.Security;
 using DisputePortal.Domain.Disputes;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -144,6 +145,24 @@ public sealed class AgentTransitionTests(ApiFactory factory)
         Assert.Equal("UnderReview", await StatusAsync(id));
     }
 
+    // The command guards the status itself (UnknownTargetStatusException); over HTTP the validator answers first, and the two
+    // must stay one answer, so adding the guard changed nothing a client sees.
+    [Fact]
+    public async Task AnUnknownStatusIsTheSameBadRequestFromTheValidatorAsFromTheCommandsOwnGuard()
+    {
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
+        (_, BrowserSession agent) = await api.NewAgentAsync();
+        string etag = await api.ETagAsync(agent, id);
+        HttpValidationProblemDetails guard = Assert.IsType<HttpValidationProblemDetails>(new UnknownTargetStatusException().ToProblem());
+
+        Problem problem = await api.ProblemAsync(AgentRequests.Transition(agent, id, etag, "nonsense", "Checked."), HttpStatusCode.BadRequest);
+
+        Assert.Equal(guard.Extensions["code"], problem.Code);
+        Assert.Equal(guard.Detail, problem.Detail);
+        Assert.Equal(guard.Errors, ErrorsOf(problem));
+        Assert.Equal("UnderReview", await StatusAsync(id));
+    }
+
     // The padding bypass: a note over the 10 000-character scan cap on paper, a card number once trimmed.
     [Fact]
     public async Task APaddedCardNumberIsStillSensitiveData()
@@ -261,6 +280,10 @@ public sealed class AgentTransitionTests(ApiFactory factory)
             && entry.Message.Contains(id.ToString(), StringComparison.OrdinalIgnoreCase)
             && entry.Message.Contains(user.Subject, StringComparison.Ordinal));
     }
+
+    private static Dictionary<string, string[]> ErrorsOf(Problem problem) =>
+        problem.Body.GetProperty("errors").EnumerateObject()
+            .ToDictionary(field => field.Name, field => field.Value.EnumerateArray().Select(message => message.GetString()!).ToArray());
 
     private async Task<string> StatusAsync(Guid id) =>
         (await AdminSql.ListAsync(factory.AdminConnectionString, "SELECT status FROM disputes WHERE id = @id", reader => reader.GetString(0), ("id", id))).Single();

@@ -24,7 +24,9 @@ put() { # put <relative path> <value>: always rewritten (derived files)
   printf '%s' "$2" > "$S/$1"
 }
 
-for p in pg/superuser pg/owner pg/app pg/keycloak redis/password keycloak/admin_password keycloak/db_password keycloak/client_secret; do gen "$p"; done
+# grafana/admin_password is read only by the optional `lgtm` service (observability profile), via Grafana's $__file{} expansion.
+# It is generated here regardless of the profile, so enabling the profile later needs no extra step. Never echoed.
+for p in pg/superuser pg/owner pg/app pg/keycloak redis/password keycloak/admin_password keycloak/db_password keycloak/client_secret grafana/admin_password; do gen "$p"; done
 put keycloak/db_password "$(cat $S/pg/keycloak)"
 put redis/users.acl "user default off
 user dispute_api on >$(cat $S/redis/password) ~bff:* resetchannels +@all -@admin -@dangerous +info +client|setname +client|setinfo +client|id

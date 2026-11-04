@@ -120,6 +120,12 @@ export function AgentDisputePage() {
 
 const NOTE_ID = "transition-note";
 
+/** A decision that asks for confirmation, with the ETag of the version it was chosen on. */
+interface PendingDecision {
+  option: TransitionOption;
+  etag: string | null;
+}
+
 interface TransitionFormProps {
   id: string;
   current: AgentDisputeWithEtag;
@@ -135,16 +141,17 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
   const options = NEXT_TRANSITIONS[status];
   const required = noteIsRequired(status);
   const [noteError, setNoteError] = useState<string | undefined>();
-  const [pending, setPending] = useState<TransitionOption | null>(null);
+  // A decision waiting for its confirmation keeps the version the agent chose it on.
+  const [pending, setPending] = useState<PendingDecision | null>(null);
 
   const detailKey = agentKeys.detail(id);
   const mutation = useMutation({
     mutationKey: ["agent", "transition", id],
-    // Read the ETag at call time: the latest one the cache holds.
-    mutationFn: (variables: { to: TransitionTarget; note: string }) => {
-      const cached = queryClient.getQueryData<AgentDisputeWithEtag>(detailKey) ?? current;
-      return transitionDispute(id, cached.etag, variables.to, variables.note);
-    },
+    // Strict If-Match: send the version the agent was SHOWN when they decided, passed in by the
+    // caller. Never re-read the cache here: a refetch that landed since would send a newer ETag
+    // and silently overwrite a change the agent never saw. A stale one is a 412 and a reload.
+    mutationFn: (variables: { to: TransitionTarget; note: string; etag: string | null }) =>
+      transitionDispute(id, variables.etag, variables.to, variables.note),
     onSuccess: async (result) => {
       queryClient.setQueryData(detailKey, result);
       setPending(null);
@@ -197,13 +204,13 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
     setNoteError(undefined);
     setMessage(null);
     mutation.reset();
-    if (option.confirm) setPending(option);
-    else send(option);
+    if (option.confirm) setPending({ option, etag: current.etag });
+    else send(option, current.etag);
   }
 
-  function send(option: TransitionOption) {
+  function send(option: TransitionOption, etag: string | null) {
     if (queryClient.isMutating({ mutationKey: ["agent", "transition", id] }) > 0) return;
-    mutation.mutate({ to: option.to, note: note.trim() });
+    mutation.mutate({ to: option.to, note: note.trim(), etag });
   }
 
   const error = mutation.error;
@@ -261,14 +268,14 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
 
         {pending ? (
           <div role="group" aria-label="Confirm decision" className="flex flex-col gap-3">
-            <p className="font-medium">Do you want to {pending.verb} this dispute?</p>
+            <p className="font-medium">Do you want to {pending.option.verb} this dispute?</p>
             <div className="flex gap-2">
               <Button
                 type="button"
                 aria-disabled={mutation.isPending ? true : undefined}
-                onClick={() => send(pending)}
+                onClick={() => send(pending.option, pending.etag)}
               >
-                {mutation.isPending ? "Saving..." : `Yes, ${pending.label.toLowerCase()}`}
+                {mutation.isPending ? "Saving..." : `Yes, ${pending.option.label.toLowerCase()}`}
               </Button>
               <Button type="button" variant="outline" onClick={() => setPending(null)}>
                 Cancel

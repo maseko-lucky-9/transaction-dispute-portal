@@ -18,3 +18,4 @@ StrykerOutput/
 docker-compose.override.yml
 .vscode/
 *.dump
+.claude/worktrees/

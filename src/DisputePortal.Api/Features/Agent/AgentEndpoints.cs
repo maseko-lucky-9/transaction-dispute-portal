@@ -53,13 +53,12 @@ public static class AgentEndpoints
 
     private static async Task<Ok<AgentQueueResponse>> QueueAsync(
         [AsParameters] AgentQueueRequest request, AgentQueries queries, HttpContext httpContext, CancellationToken cancellationToken) =>
-        TypedResults.Ok(await queries.QueueAsync(request, SessionPrincipal.Subject(httpContext.User), cancellationToken));
+        TypedResults.Ok(await queries.QueueAsync(request, SessionPrincipal.Subject(httpContext.User), TraceId(httpContext), cancellationToken));
 
-    private static async Task<Ok<AgentDisputeDetail>> GetAsync(Guid id, AgentQueries queries, HttpContext httpContext, CancellationToken cancellationToken)
-    {
-        string traceId = Activity.Current?.Id ?? httpContext.TraceIdentifier;
-        return TypedResults.Ok(WithETag(httpContext, await queries.GetAsync(id, SessionPrincipal.Subject(httpContext.User), traceId, cancellationToken)));
-    }
+    private static async Task<Ok<AgentDisputeDetail>> GetAsync(Guid id, AgentQueries queries, HttpContext httpContext, CancellationToken cancellationToken) =>
+        TypedResults.Ok(WithETag(httpContext, await queries.GetAsync(id, SessionPrincipal.Subject(httpContext.User), TraceId(httpContext), cancellationToken)));
+
+    private static string TraceId(HttpContext httpContext) => Activity.Current?.Id ?? httpContext.TraceIdentifier;
 
     private static async Task<IResult> TransitionAsync(
         Guid id,

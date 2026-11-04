@@ -28,17 +28,8 @@ public sealed class DisputeQueries(
     }
 
     /// <exception cref="NotFoundException">Missing or another customer's (counted as <see cref="SecurityMetrics.Bola404"/>).</exception>
-    public async Task<VersionedDispute> GetAsync(Guid id, CancellationToken cancellationToken)
-    {
-        VersionedDispute? dispute = await disputes.GetDetailAsync(id, cancellationToken);
-        if (dispute is null)
-        {
-            securityMetrics.Record(SecurityMetrics.Bola404);
-            throw DisputeCommands.DisputeNotFound();
-        }
-
-        return dispute;
-    }
+    public async Task<VersionedDispute> GetAsync(Guid id, CancellationToken cancellationToken) =>
+        await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeNotFound.ToCustomer(securityMetrics);
 
     public Task<IReadOnlyList<DisputeReason>> ReasonsAsync(CancellationToken cancellationToken) => reasons.ListAsync(cancellationToken);
 }

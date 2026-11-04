@@ -60,24 +60,26 @@ docker compose up -d --wait --build && (cd e2e && npm ci && npx playwright insta
 
 ## Measured results
 
-Raw summary lines from this branch's parent, commit `15c3b67` (run 2026-11-04, macOS, `dotnet test ... --no-build`, `vitest run --coverage`):
+Raw summary lines from the hardening-pass branch (run 2026-11-04 on macOS: `scripts/coverage.sh`, `npm run test:coverage`, `dotnet tool run dotnet-stryker`):
 
 ```
-Unit        Passed!  - Failed:     0, Passed:   475, Skipped:     0, Total:   475, Duration: 252 ms - DisputePortal.UnitTests.dll (net10.0)
-Integration Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 19 s - DisputePortal.IntegrationTests.dll (net10.0)
+Unit        Passed!  - Failed:     0, Passed:   507, Skipped:     0, Total:   507, Duration: 240 ms - DisputePortal.UnitTests.dll (net10.0)
+Integration Passed!  - Failed:     0, Passed:   320, Skipped:     0, Total:   320, Duration: 16 s - DisputePortal.IntegrationTests.dll (net10.0)
+Backend     line coverage, unit + integration merged: 91.12% (gate: scripts/coverage.sh fails below 80%)
 Web         Test Files  40 passed (40)
-                 Tests  1045 passed (1045)
-            Lines : 99.53% ( 858/862 )   Branches : 95.2% ( 715/751 )   (vitest v8 coverage; floor 80% in web/vite.config.ts)
+                 Tests  1046 passed (1046)
+            Lines : 99.53% ( 857/861 )   Branches : 95.46% ( 715/749 )   (vitest v8 coverage; floor 80% in web/vite.config.ts)
 Build       dotnet build DisputePortal.slnx -warnaserror: 0 Warning(s), 0 Error(s)
 ```
 
-Not re-run for this docs change (taken from earlier runs on the same commit `15c3b67`, not measured again here):
+Measured by CI and earlier local runs, not re-run in the same session as the lines above:
 
 | Figure | Value | Where it is gated or reported |
 |---|---|---|
-| E2E (Playwright, full compose stack, real Keycloak) | 17 tests (the `test(` count in `e2e/tests/*.spec.ts`: auth 6, transactions 5, disputes 4, agent 2) | CI job `e2e` |
-| Backend line coverage, unit + integration merged | 91.01% | `scripts/coverage.sh` fails below 80% (the script's own comment records 2572 of 2826 lines) |
-| Stryker.NET mutation score, `DisputePortal.Domain` | 86.80% | CI job `stryker`, report only (`tests/DisputePortal.UnitTests/stryker-config.json` has `break: 0`) |
+| E2E (Playwright, full compose stack, real Keycloak) | 18 tests (auth 6, transactions 5, disputes 5, agent 2); 18 passed twice locally on an isolated stack | CI job `e2e` |
+| Stryker.NET mutation score, `DisputePortal.Domain` | 86.80% (171 killed, 25 survived, 1 not covered; reproduced locally this session) | CI job `stryker`, report only (`tests/DisputePortal.UnitTests/stryker-config.json` has `break: 0`) |
+| Manual mutation checks (window rule, Owner filter, If-Match, plus CSRF, Luhn, 23505, partial unique index, concurrency) | 14 mutations all caught, 1 probe survived (likely an equivalent mutant) | [docs/mutation-checks.md](docs/mutation-checks.md) with raw output |
+| CodeQL (C#, JavaScript/TypeScript, Actions) | first analysis: 0, 1, 0 results; the one finding (a regex in the CSP build guard) is fixed | GitHub code scanning (default setup) |
 
 No latency or load figure has been measured: there is no k6 or other load test in the repository, so the SLOs in the
 [runbook](docs/runbook.md) are targets, not results.

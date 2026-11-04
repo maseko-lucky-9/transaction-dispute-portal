@@ -79,13 +79,7 @@ public sealed class DisputeCommands(
     /// </summary>
     public async Task<VersionedDispute> WithdrawAsync(Guid id, string? ifMatch, string subject, CancellationToken cancellationToken)
     {
-        Dispute? dispute = await disputes.FindAsync(id, cancellationToken);
-        if (dispute is null)
-        {
-            securityMetrics.Record(SecurityMetrics.Bola404);
-            throw DisputeNotFound();
-        }
-
+        Dispute dispute = await disputes.FindAsync(id, cancellationToken) ?? throw DisputeNotFound.ToCustomer(securityMetrics);
         if (ifMatch is null)
         {
             throw new PreconditionRequiredException();
@@ -111,8 +105,6 @@ public sealed class DisputeCommands(
         logger.LogInformation("Dispute {DisputeId} withdrawn by the customer", id);
         return await DetailAsync(id, cancellationToken);
     }
-
-    public static NotFoundException DisputeNotFound() => new("dispute_not_found", "No dispute with this id.");
 
     private void EnsureEligible(TransactionSnapshot transaction, Money amount, SubmissionFacts facts)
     {
@@ -163,8 +155,9 @@ public sealed class DisputeCommands(
         throw DisputeConflictException.IdTaken();
     }
 
+    // A dispute the customer's own command just found, wrote or replayed that is no longer visible to them: still a customer 404, so counted.
     private async Task<VersionedDispute> DetailAsync(Guid id, CancellationToken cancellationToken) =>
-        await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeNotFound();
+        await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeNotFound.ToCustomer(securityMetrics);
 
     private Guid CustomerId() =>
         currentCustomer.CustomerId ?? throw new InvalidOperationException("The customer scope filter did not run.");

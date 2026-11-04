@@ -44,6 +44,8 @@ export interface FakeAgentApi {
   readonly transitionCalls: { id: string; ifMatch: string | null; body: TransitionRequest }[];
   /** Another agent acts: the ETag moves on. */
   otherAgentActs(id: string, to: DisputeStatus): void;
+  /** The version moves on but the status does not: a refetch brings a newer ETag, same page. */
+  versionMovesOn(id: string): void;
 }
 
 const etagOf = (version: number) => `"v${version}"`;
@@ -58,6 +60,9 @@ export function fakeAgentApi(initial: AgentDisputeDetail[]) {
     transitionCalls: [],
     otherAgentActs(id, to) {
       apply(id, to, "Handled elsewhere");
+    },
+    versionMovesOn(id) {
+      versions.set(id, (versions.get(id) ?? 1) + 1);
     },
   };
 
