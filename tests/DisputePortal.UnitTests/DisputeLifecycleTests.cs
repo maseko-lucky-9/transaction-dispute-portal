@@ -51,6 +51,8 @@ public sealed class DisputeLifecycleTests
             Assert.Equal((from, to, actor), (last.From!.Value, last.To, last.ActorType));
             Assert.Equal(at, dispute.UpdatedAt);
             Assert.Equal(to is DisputeStatus.Accepted or DisputeStatus.Rejected or DisputeStatus.Withdrawn, dispute.ResolvedAt == at);
+            // As ck_disputes_resolution_note: a resolution note exactly for Accepted and Rejected, never for a withdrawal.
+            Assert.Equal(to is DisputeStatus.Accepted or DisputeStatus.Rejected, dispute.ResolutionNote is not null);
         }
         else
         {

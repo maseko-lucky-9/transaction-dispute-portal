@@ -44,6 +44,19 @@ public sealed class DisputeEligibilityPolicyTests
         Assert.Equal([DisputeWindowRule.Code], Codes(Policy(firstMinuteOfDay121).Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, lateEvening, Amount))));
     }
 
+    // The window counts UTC days whatever offset core banking sent: 01:00 at +02:00 on 1 March is still 28 February in
+    // UTC, so day 121 (UTC) falls on 29 June, while counting the local date would wrongly allow it.
+    [Fact]
+    public void TheWindowCountsUtcDaysEvenForATransactionWithAnOffset()
+    {
+        DateTimeOffset justAfterLocalMidnight = new(2026, 3, 1, 1, 0, 0, TimeSpan.FromHours(2));
+        TransactionSnapshot transaction = new(TransactionStatus.Posted, TransactionDirection.Debit, justAfterLocalMidnight, Amount);
+        DateTimeOffset utcDayZero = new(2026, 2, 28, 0, 0, 0, TimeSpan.Zero);
+
+        Assert.Empty(Policy(new FixedClock(utcDayZero.AddDays(120).AddHours(12))).Evaluate(transaction));
+        Assert.Equal([DisputeWindowRule.Code], Codes(Policy(new FixedClock(utcDayZero.AddDays(121).AddHours(12))).Evaluate(transaction)));
+    }
+
     [Fact]
     public void EveryViolationIsReportedTogetherInRuleOrder() =>
         Assert.Equal(

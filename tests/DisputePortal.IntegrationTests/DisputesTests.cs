@@ -163,6 +163,9 @@ public sealed class DisputesTests(ApiFactory api)
     [InlineData("negative-amount", "amount", "validation_failed")]
     [InlineData("card-number", "description", "sensitive_data")]
     [InlineData("sa-id-number", "description", "sensitive_data")]
+    [InlineData("two-space-card", "description", "sensitive_data")]
+    [InlineData("nul-description", "description", "invalid_characters")]
+    [InlineData("nul-reason", "reasonCode", "invalid_characters")]
     public async Task InvalidBodiesAre400WithTheFieldNamed(string invalid, string field, string code)
     {
         (_, Guid transactionId, BrowserSession session) = await EligibleAsync();
@@ -179,6 +182,9 @@ public sealed class DisputesTests(ApiFactory api)
             "three-decimals" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = DisputeRequests.Description, amount = "12.345" },
             "negative-amount" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = DisputeRequests.Description, amount = "-5.00" },
             "card-number" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "My card 4111 1111 1111 1111 was charged twice" },
+            "two-space-card" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "paid with 4111  1111  1111  1111 twice" },
+            "nul-description" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "Charged twice\u0000 for one order." },
+            "nul-reason" => new { id, transactionId = tx, reasonCode = "other\u0000", description = DisputeRequests.Description },
             _ => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "My ID number is 800101 5009 087, please check" },
         };
 
@@ -187,6 +193,52 @@ public sealed class DisputesTests(ApiFactory api)
         Assert.Equal(code, problem.Code);
         Assert.True(problem.Body.GetProperty("errors").TryGetProperty(field, out _), "errors." + field);
         Assert.Equal(0, await CountAsync("SELECT count(*) FROM disputes WHERE transaction_id = @id", transactionId));
+    }
+
+    // A lone surrogate cannot be stored as UTF-8; the JSON reader refuses it before anything reaches the database.
+    [Fact]
+    public async Task ALoneSurrogateIs400NotA500()
+    {
+        (_, Guid transactionId, BrowserSession session) = await EligibleAsync();
+        string json = $$"""{"id":"{{Guid.NewGuid()}}","transactionId":"{{transactionId}}","reasonCode":"other","description":"Charged twice \ud800 for one order."}""";
+
+        HttpResponseMessage response = await SendAsync(DisputeRequests.SubmitJson(session, json));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await Problem.ReadAsync(response);
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM disputes WHERE transaction_id = @id", transactionId));
+    }
+
+    // Disputes created at the same instant are ordered by id: walking them across every page boundary loses and repeats nothing.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task DisputesWithIdenticalCreatedAtArePagedWithoutDuplicatesOrGaps(int limit)
+    {
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        DateTimeOffset tied = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        for (int index = 0; index < 4; index++)
+        {
+            await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), DisputeStatus.Withdrawn, tied);
+        }
+
+        await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), DisputeStatus.Submitted, tied.AddDays(-1));
+        BrowserSession session = await BrowserSession.SignInAsync(api, customer.User);
+        List<Guid> expected = await AdminSql.ListAsync(api.AdminConnectionString,
+            "SELECT id FROM disputes WHERE customer_id = @customer ORDER BY created_at DESC, id DESC", reader => reader.GetGuid(0), ("customer", customer.CustomerId));
+
+        List<Guid> walked = [];
+        string? cursor = null;
+        do
+        {
+            JsonElement page = await OkAsync(session, $"{DisputeRequests.Disputes}?limit={limit}" + (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor)));
+            walked.AddRange(page.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+            cursor = page.GetProperty("nextCursor").GetString();
+        }
+        while (cursor is not null);
+
+        Assert.Equal(5, expected.Count);
+        Assert.Equal(expected, walked);
     }
 
     // Unknown fields are refused, so a client typo ("ammount") surfaces instead of disputing the whole amount.

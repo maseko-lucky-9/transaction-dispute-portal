@@ -13,6 +13,19 @@ public sealed class DisputeSecurityTests(ApiFactory api)
 {
     private const string SomeDispute = DisputeRequests.Disputes + "/c0570000-0000-4000-8000-000000000001";
 
+    // Ownership before preconditions: a foreign or missing id is 404 even without If-Match, so 428 cannot probe for ids.
+    [Fact]
+    public async Task WithdrawingAForeignOrMissingIdWithoutIfMatchIs404Not428()
+    {
+        (_, Guid theirs, _, _) = await SubmittedAsync();
+        (_, _, _, BrowserSession intruder) = await SubmittedAsync();
+
+        Problem foreign = await ProblemAsync(DisputeRequests.Withdraw(intruder, theirs, ifMatch: null), HttpStatusCode.NotFound);
+        Problem missing = await ProblemAsync(DisputeRequests.Withdraw(intruder, Guid.NewGuid(), ifMatch: null), HttpStatusCode.NotFound);
+
+        Assert.Equal((missing.Code, missing.Detail), (foreign.Code, foreign.Detail));
+    }
+
     [Fact]
     public async Task WithdrawingWithoutIfMatchIs428()
     {
