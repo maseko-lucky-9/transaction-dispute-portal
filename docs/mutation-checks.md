@@ -1184,3 +1184,75 @@ thing keeping history private. None of the M-series mutations survived.
 **Not covered by this exercise:** the frontend (Vitest) and E2E (Playwright) suites were not mutated; the Stryker score
 is a separate artifact; the "drop the whole 120-day rule" variant was not run separately (the two boundary mutations M1 and M1b
 cover the rule's edges).
+
+## Back-channel logout (ADR-011), branch `feat/backchannel-logout`
+
+Same idea, run by a script (kept outside the repo) instead of by hand: each mutation is an exact-once text replacement
+in one source file, the tests that should catch it run (`dotnet test` with a filter on the named test classes, not the
+full suites), and the original text is written back in a `finally` block. `git status` was clean on `src/` and `tests/`
+after every batch. Date 2026-11-04, same machine as above, against the code of commit `4ddb4be` (the M3 to M5, I1 and
+I23 reruns: the code of `a18a2f0`). "N of M red" is
+the summary line of the filtered run (V and M rows: `LogoutTokenValidatorTests`, `ManagementPortMiddlewareTests`,
+`CsrfRuleTests`; I rows: `BackchannelLogoutTests`, plus `SessionStoreTests`, `OpenApiTests`, `ProductionAuthStackTests`
+or `AuthHardeningTests` where the row's code is shared with them).
+
+| Id | Mutation | File | Verdict | Filtered run |
+|---|---|---|---|---|
+| V1 | signature never checked | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V2 | alg pre-check removed | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V3 | typ logout+jwt not required | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V4 | iss not checked | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V5 | aud not checked | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| V6 | exp ignored | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| V7 | iat in the future accepted | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V8 | stale iat accepted | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V9 | iat optional | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| V10 | events not checked | `LogoutTokenValidator.cs` | CAUGHT | 4 of 41 red |
+| V11 | nonce allowed | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| V12 | jti optional | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V13 | sid optional | `LogoutTokenValidator.cs` | CAUGHT | 2 of 41 red |
+| V14 | replay ignored | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| V15 | no token size limit | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| M1 | marked endpoint served on public port | `ManagementPortMiddleware.cs` | CAUGHT | 4 of 24 red |
+| M2 | internal host accepted on public port | `ManagementPortMiddleware.cs` | CAUGHT | 2 of 24 red |
+| M3 | any peer on the management port | `ManagementPortMiddleware.cs` | CAUGHT | 4 of 25 red |
+| M4 | loopback (the container's own probe) refused | `ManagementPortMiddleware.cs` | CAUGHT | 3 of 25 red |
+| C1 | CSRF exemption without the port check | `CsrfMiddleware.cs` | CAUGHT | 1 of 15 red |
+| M5 | a missing peer address admitted | `ManagementPortMiddleware.cs` | CAUGHT | 1 of 25 red |
+| I1 | no CSRF exemption on the management port | `CsrfMiddleware.cs` | CAUGHT | 23 of 33 red |
+| I2 | endpoint not served on the management port | `ManagementPortMiddleware.cs` | CAUGHT | 27 of 33 red |
+| I3 | endpoint served on the public port | `ManagementPortMiddleware.cs` | CAUGHT | 4 of 33 red |
+| I4 | internal host on public port | `ManagementPortMiddleware.cs` | CAUGHT | 2 of 33 red |
+| I5 | peer network unchecked | `ManagementPortMiddleware.cs` | CAUGHT | 1 of 33 red |
+| I6 | X-Forwarded-For honoured on management port | `Program.cs` | CAUGHT | 1 of 33 red |
+| I7 | endpoint not anonymous | `BackchannelLogoutEndpoint.cs` | CAUGHT | 23 of 33 red |
+| I8 | no rate limit | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 33 red |
+| I9 | route in the OpenAPI document | `BackchannelLogoutEndpoint.cs` | CAUGHT | 2 of 37 red |
+| I10 | any content type | `BackchannelLogoutEndpoint.cs` | CAUGHT | 3 of 33 red |
+| I11 | duplicate logout_token accepted | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 33 red |
+| I12 | valid token deletes nothing | `BackchannelLogoutEndpoint.cs` | CAUGHT | 4 of 33 red |
+| I13 | unknown sid is 400 | `BackchannelLogoutEndpoint.cs` | CAUGHT | 2 of 33 red |
+| I14 | sid in the log | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 33 red |
+| I15 | accepted token not counted | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 33 red |
+| I16 | refusal body names the rule (oracle) | `BackchannelLogoutEndpoint.cs` | CAUGHT | 6 of 33 red |
+| I17 | jti claim is not exclusive | `RedisLogoutTokenReplayCache.cs` | CAUGHT | 3 of 33 red |
+| I18 | ticket not indexed | `RedisTicketStore.cs` | CAUGHT | 11 of 78 red |
+| I19 | index not cleaned on removal | `RedisTicketStore.cs` | CAUGHT | 2 of 42 red |
+| I20 | index left after back-channel delete | `RedisTicketStore.cs` | CAUGHT | 3 of 42 red |
+| I21 | renewal resurrects a removed ticket | `RedisTicketStore.cs` | CAUGHT | 2 of 9 red |
+| I22 | index without TTL | `RedisTicketStore.cs` | CAUGHT | 1 of 33 red |
+| I23 | no body size bound (form limits remain) | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 33 red |
+| I24 | host filtering opened to any host | `HostingRegistration.cs` | CAUGHT | 1 of 46 red |
+| N1 | nginx `location ~* ^/bff/backchannel-logout` removed (web image rebuilt) | `web/nginx/default.conf` | CAUGHT | e2e `edge: ...` red: `Expected substring: "text/html"`, `Received string: "application/problem+json"` (the request reached the API, whose public port still answered 404) |
+| E1 | Keycloak's client `backchannel.logout.url` pointed at a wrong path (kcadm, at runtime) | realm client | CAUGHT | both tests in `e2e/tests/backchannel-logout.spec.ts` red: `Expected: 401`, `Received: 200`; URL restored and both green again |
+
+Notes:
+- M4 first ran as "IPv4-mapped peer not normalised" and **survived**: on .NET 10, `IPAddress.IsLoopback` and
+  `IPNetwork.Contains` already match `::ffff:a.b.c.d` (checked with a scratch program), so the normalisation was an
+  equivalent mutant. It was deleted from the code; the unit tests keep `::ffff:` cases (including `::ffff:127.0.0.1`,
+  the container's own probe) to pin the behaviour, and M4/M5 above were re-run on the simplified code.
+- I23 first **survived**: the oversized-body test padded one field past the form's value limit, so the second layer
+  caught it. The test now sends a valid token plus fields that each pass the form limits; only the declared-length bound
+  refuses it, and the rerun is red.
+- I1 first did not build (removing the condition left a constructor parameter unread, a warning as error); it was
+  re-run as "the exemption compares against the public port" and is red.

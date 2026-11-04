@@ -15,8 +15,9 @@ Browser ──(1)── nginx ──(2)── API ──(3)── Keycloak / Vau
 ```
 
 Compose networks: `edge` (nginx only; also `lgtm` while `--profile observability` is on), `app` (nginx, API, Keycloak), `data` (stores, Vault, API, Keycloak). nginx has no
-route to Postgres, Redis or Vault (`docker-compose.yml`). Everything runs over plain HTTP locally; TLS is a deployment
-concern and is not tested.
+route to Postgres, Redis or Vault (`docker-compose.yml`). Keycloak calls the API's unpublished management port over
+`data` only (alias `api-mgmt`) for back-channel logout ([ADR-011](decisions/011-backchannel-logout.md)). Everything
+runs over plain HTTP locally; TLS is a deployment concern and is not tested.
 
 ## 2. STRIDE
 
@@ -37,10 +38,10 @@ concern and is not tested.
 
 | | Threat | Mitigation | Residual |
 |---|---|---|---|
-| S | Spoofed client address or host (`X-Forwarded-For`, `Host`) | `KnownNetwork` is the app subnet, `ForwardLimit 1`, `AllowedHosts=localhost` (`Shared/Hosting/HostingRegistration.cs`; `AuthHardeningTests.UnderTheDefaultConfigurationAForeignHostIs400`, `TheRateLimitPartitionUsesTheForwardedClientOnlyBehindTheTrustedProxy`) | Anyone on the `app` network can impersonate nginx |
+| S | Spoofed client address or host (`X-Forwarded-For`, `Host`) | `KnownNetwork` is the app subnet, `ForwardLimit 1`, `AllowedHosts=localhost`; forwarded headers apply on the public port only; the internal name `api-mgmt` is admitted for the management port and answered 400 on the public one (`Shared/Hosting/HostingRegistration.cs`; `AuthHardeningTests.UnderTheDefaultConfigurationAForeignHostIs400`, `TheRateLimitPartitionUsesTheForwardedClientOnlyBehindTheTrustedProxy`; `BackchannelLogoutTests.TheInternalHostIsRefusedOnThePublicPort`) | Anyone on the `app` network can impersonate nginx on the public port |
 | T | Tampered request in transit | Internal network, plain HTTP | No mTLS or TLS inside the stack |
 | R | Cannot trace a request | `$request_id` in nginx JSON log forwarded as `X-Request-ID`; `traceId` in every problem body | Request-id to API log correlation relies on the API logging it; not asserted by a test |
-| I | Management/health exposure | Health only on port 8081, not published, not served on the public port (`ManagementPortTests.HealthIsNotReachableOnThePublicPort`, `TheManagementPortDoesNotServeTheApi`); OpenAPI not served in production (`OpenApiTests.AProductionHostDoesNotServeTheDocument`) | None known |
+| I | Management/health exposure | Health and the back-channel logout only on port 8081, not published, not served on the public port in any path spelling, and (compose) only to loopback and the data network, which nginx is not on (`ManagementPortTests.HealthIsNotReachableOnThePublicPort`, `TheManagementPortDoesNotServeTheApi`; `BackchannelLogoutTests.TheEndpointIsNotServedOnThePublicPort`, `OnlyPeersOnTheDataNetworkReachTheEndpointAndForwardedForIsIgnoredThere`; `ManagementPortMiddlewareTests`); nginx itself answers 404 for `/bff/backchannel-logout` (e2e `edge: ...`); OpenAPI not served in production (`OpenApiTests.AProductionHostDoesNotServeTheDocument`) | None known |
 | D | Slow or oversized requests | 64k body cap, 30 s request timeout (`Program.cs`) | No per-connection limits beyond nginx defaults |
 | E | n/a at this hop beyond the above | | |
 
@@ -50,6 +51,8 @@ concern and is not tested.
 |---|---|---|---|
 | S | A rogue service obtains credentials | AppRole per service, CIDR-bound to the `data` network, `secret_id` TTL 24 h, policies split (`deploy/vault/policies/*.hcl`: API cannot read the owner credentials; `VaultConfigurationProviderTests.MigrateReadsOnlyTheOwnerPath`) | "Secret zero": `bootstrap` delivers the files, and anyone who can read the `secrets` volume owns the stack. One Vault key share, root token on the volume. Local only (ADR-005) |
 | S | Forged ID token on refresh | Refreshed ID token validated; unknown signing key ends the session (`AuthHardeningTests.ARefreshedIdTokenSignedWithAnUnknownKeyEndsTheSessionAndRemovesTheTicket`) | |
+| S | A session ended at Keycloak (admin, timeout, logout elsewhere) stays usable in the app | **Revocation is now immediate**: Keycloak's back-channel logout deletes every ticket of that Keycloak session (sid index in Redis), and the next request is 401 (`ProductionAuthStackTests.ABackchannelLogoutFromKeycloakEndsTheSessionOnTheNextRequest`, `BackchannelLogoutTests.*`; e2e `a logout at Keycloak itself, not through the app, ends the app session on the next request`, `an admin ending the session in Keycloak ends the app session on the next request`) | Keycloak does not retry a failed call: one lost to an API or Redis outage (503), a 429 in a mass logout, or a key rotation not yet seen falls back to the 5-minute refresh bound. A sign-in that completes in the same instant its Keycloak session ends can keep a ticket until its next refresh. Disabling a user without ending their sessions sends no logout |
+| S, T | Forged or replayed back-channel logout token ends someone's session | Verified per Back-Channel Logout 1.0 section 2.6 against the login handler's own configuration: RS256 only (never `none`), signature by a realm key, `typ` `logout+jwt`, `iss`, `aud`, fresh `iat`, `exp`, `events`, no `nonce`, `sid` and `jti` required, `jti` claimed once in Redis across replicas (`LogoutTokenValidatorTests`, one negative test per rule; `BackchannelLogoutTests.AReplayedTokenIs400TheSecondTime`, `AReplayToAnotherReplicaIsRefusedToo`) | Whoever holds the realm signing key can end any session (and also mint ID tokens). A token is replay-protected for 3 minutes, past which its `iat` is refused anyway |
 | T | Redis write access forges a session | Tickets are DataProtection-encrypted and the keys are in Postgres, not Redis; Redis ACL user limited to `~bff:*` (`bootstrap.sh`) | Someone with Postgres read access to the keys plus Redis write could forge a ticket; keys are unencrypted at rest (README "Known limits") |
 | T | SQL injection | EF Core parameterisation; architecture rule banning interpolated raw SQL (`ArchitectureTests.NoRawSqlCallIsBuiltFromAnInterpolatedOrConcatenatedString`) | |
 | T | App credential rewrites history | `dispute_app` has INSERT only on history, with `occurred_at` excluded (`DatabasePrivilegeTests.TheAppRoleCannotWriteOrAlterWhatItShouldNot`) | The app role can still change a dispute's own columns without a history row (README "Known limits") |
@@ -58,6 +61,7 @@ concern and is not tested.
 | I | Cursor tampering or reuse across users | DataProtection-protected cursors bound to user and filters (`TransactionsTests.ATamperedCursorIs400InvalidCursor`, `AnotherCustomersCursorIs400InvalidCursor`) | |
 | D | Dependency outage or slow query | Fail closed with 503 codes; Postgres `statement_timeout` 5 s; bounded Vault retry; resilience handler on the Keycloak client (`WhenRedisIsDownLoginAndSessionValidationFailClosedWith503`, `AnUnreachableIdpDuringRefreshIs503AndKeepsTheSession`) | Single instances of every store locally; no HA |
 | D | Refresh-token stampede across replicas | Redis lock, one replica refreshes (`ParallelRefreshesAcrossTwoReplicasRedeemOnceAndKeepTheSession`, `RefreshSingleFlightTests`) | |
+| D, I | The unauthenticated back-channel endpoint as a DoS lever or an oracle | Management port and data network only; 60 a minute per socket peer per replica; 9 KB declared body, 8 KB token; Redis touched only after a valid signature; every refusal the same 400 body; logs carry a reason name or a count, never a token, sid, sub or jti (`BackchannelLogoutTests.TheEndpointIsRateLimitedPerPeerAndCountsTheRefusal`, `ARefusedTokenIs400WithTheSameGenericBodyAndTheSessionSurvives`, `AnythingButOneLogoutTokenInASmallUrlEncodedFormIs400`, `TheLogsCarryAReasonOrACountButNoTokenSidSubOrJti`) | A data-network peer can still cost one RSA verification per request within the limit; the timing of a refusal shows which stage failed, which tells a forger nothing they do not know |
 | E | Postgres role abuse | `dispute_app` is DML-only on named columns; schema owner is a separate role used only by `migrate` | |
 
 ### Boundary 4: agent versus customer (authorization inside the API)
@@ -96,7 +100,7 @@ conditions. It is not legal advice and has not been reviewed by counsel or an in
 | Dispute reason, free-text description, amount, resolution note | `disputes` | Free text may contain anything the customer types |
 | Actor type and id per status change | `dispute_status_changes` | Agent ids are Keycloak subjects |
 | Client IP address and user agent | nginx access log (`remote_addr`, `ua`; `$uri` is logged without the query string) | Personal information in many readings; retention is the log platform's |
-| Session tickets | Redis, encrypted, expire in 8 hours | |
+| Session tickets | Redis, encrypted, expire in 8 hours. The Keycloak-session index holds ticket ids under a hashed sid | |
 
 **Conditions, as implemented**
 
@@ -120,6 +124,7 @@ conditions. It is not legal advice and has not been reviewed by counsel or an in
 2. Secret zero and single-share Vault are local-only designs; production needs platform identity.
 3. DataProtection keys unencrypted in Postgres; a database-read plus Redis-write compromise could forge a session.
 4. Per-replica rate limits and soft caps.
+4a. Back-channel logout is best effort on Keycloak's side (no retry); a lost call falls back to the 5-minute refresh bound.
 5. Retention, erasure, subject access export and breach notification are documented intentions, not features.
 6. The history table is append-only for the app role but not hash-chained, and the app role can edit a dispute row in place.
 7. The sensitive-number detector is a guard against accidents.
