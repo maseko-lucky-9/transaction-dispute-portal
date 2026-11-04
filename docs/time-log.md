@@ -20,8 +20,9 @@ commit, commits since the merge-base with `main`). All times are 2026-11-04, UTC
 
 Notes
 - #16: GitHub's PR commit list (`gh pr view 16 --json commits`) reports 4 commits with the last at 17:35:54, while the
-  branch ref in `origin` gave 3 commits ending 17:29:53. The difference is unexplained here (possibly a later amend or
-  force-push); the merge time is the same in both.
+  branch ref in `origin` gave 3 commits ending 17:29:53. The fourth commit is the merge commit made by
+  `gh pr update-branch` (`936f20e`) to bring `main` (docs PR #15) into the branch, which branch protection requires
+  before merging; it adds no code.
 - The merge-to-merge order is not the order of first commits: #8 (docs) started before #1 finished, as the plan intended.
 - Everything on this table happened inside one calendar day. The plan scheduled the work across 2026-11-04 to 11-10;
   PR7 (this change, T060) is not in the table because it is not merged.

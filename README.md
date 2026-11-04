@@ -25,7 +25,9 @@ then the API and nginx start.
 | <http://localhost:8180> | Keycloak login pages only (a separate origin; everything else returns 404) |
 
 Port clash? `APP_PORT=9090 AUTH_PORT=9190 docker compose up --build`. Every redirect URI and issuer derives from
-those two variables. Use Chromium or Firefox for the local demo (Safari's handling of `Secure` cookies on
+those two variables, but the realm is imported only into an empty database: on a stack that already has data, run
+`docker compose down -v` first (this deletes the local demo data) or login fails with `invalid_request: redirect_uri`
+(verified). Use Chromium or Firefox for the local demo (Safari's handling of `Secure` cookies on
 `http://localhost` is unverified).
 
 Demo users (local-only, imported from `deploy/keycloak/`):
@@ -53,7 +55,7 @@ dotnet build DisputePortal.slnx -c Release && scripts/coverage.sh   # both suite
 dotnet tool restore && (cd tests/DisputePortal.UnitTests && dotnet tool run dotnet-stryker)   # mutation score of Domain, report only
 npm --prefix web ci --ignore-scripts && npm --prefix web run lint && npm --prefix web run typecheck \
   && npm --prefix web run test:coverage && npm --prefix web run build
-docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test   # E2E against the real stack
+docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test -c e2e   # E2E against the real stack
 ```
 
 ## Measured results
@@ -79,6 +81,23 @@ Not re-run for this docs change (taken from earlier runs on the same commit `15c
 
 No latency or load figure has been measured: there is no k6 or other load test in the repository, so the SLOs in the
 [runbook](docs/runbook.md) are targets, not results.
+
+## Verified on a clean clone
+
+A fresh clone of `main` at `15c3b67` was brought up with `docker compose -p dp-verify up --build -d` (no `.env`, no make),
+isolated from any other stack. Raw observations from that run (2026-11-04):
+
+| Check | Result |
+|---|---|
+| Startup | api, web, postgres, redis, keycloak healthy in 38.6 s with cached layers; `bootstrap` and `migrate` exit 0 |
+| No cookie | `GET /api/v1/disputes` with `X-CSRF: 1` is `401 application/problem+json`, no redirect |
+| No `X-CSRF` | `403 csrf_required`. CSRF is checked before authentication, so a bare `curl` with no headers gets 403, not 401 |
+| `--scale api=3` | 24 requests on one session cookie all 200, spread 9 / 9 / 8 across the three replicas (nginx upstream log) |
+| `APP_PORT=9090` | login works end to end on fresh volumes; fails after a plain `down` (see "Run it") |
+| Headers | `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP and a strict CSP on every app location; `no-store` on `/api` and `/bff`; auth origin `/admin` and `/realms/master` return 404 |
+| E2E | `17 passed (15.4s)` |
+| Observability | with `OTEL_ENDPOINT` set: `disputes_submitted_total{reason=...} = 1`, `security_events_total{type="csrf_rejected"} = 1`, `{type="authz_denied"} = 1`; one Tempo trace for the submit with redis and 9 Npgsql spans. No Grafana screenshot taken |
+| GHCR | `dispute-portal-api` and `dispute-portal-web` tags `15c3b67a4dec50a4de892c31deadff8b64bcb650` and `latest` return 200 with the same digest |
 
 ## Criteria → evidence
 
