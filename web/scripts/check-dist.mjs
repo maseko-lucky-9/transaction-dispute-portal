@@ -7,11 +7,14 @@ const dist = new URL("../dist/", import.meta.url).pathname;
 const html = readFileSync(join(dist, "index.html"), "utf8");
 const problems = [];
 
-for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
-  const [, attrs, body] = match;
+// An end tag may carry junk before ">" (</script foo>, </script/>): match it loosely, and fail on any <script that
+// the loose match did not consume (an unclosed tag would otherwise slip past).
+const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)];
+for (const [, attrs, body] of scripts) {
   if (!/\bsrc\s*=/.test(attrs)) problems.push("inline <script> (blocked by script-src 'self')");
   else if (body.trim()) problems.push("<script src> with an inline body");
 }
+if ((html.match(/<script\b/gi) ?? []).length !== scripts.length) problems.push("<script> without a closing tag");
 if (/\son[a-z]+\s*=/i.test(html)) problems.push("inline event handler attribute");
 if (/\bjavascript:/i.test(html)) problems.push("javascript: URL");
 for (const match of html.matchAll(/\b(?:src|href)\s*=\s*"([^"]+)"/gi)) {
