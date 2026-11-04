@@ -25,7 +25,8 @@ public sealed class TransitionRequestValidator : AbstractValidator<TransitionReq
             .WithMessage("note must not contain control characters (tab and line breaks are fine).")
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.InvalidCharactersCode));
         RuleFor(request => request.Note).Must(note => !SensitiveNumberDetector.ContainsSensitiveNumber(note!.Trim()))
-            .When(request => request.Note is { Length: <= SensitiveNumberDetector.MaxScanLength }
+            .When(request => request.Note is not null
+                && request.Note.Trim().Length <= SensitiveNumberDetector.MaxScanLength
                 && !SensitiveNumberDetector.ContainsInvalidCharacters(request.Note))
             .WithMessage("note must not contain a card or ID number.")
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.Code));

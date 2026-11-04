@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { fakeAgentApi, makeAgentDispute } from "@/test/agent";
 import { alice, bob, carol, signedIn } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
@@ -185,5 +186,31 @@ describe("pages open to every role", () => {
     server.use(signedIn(user));
     renderApp("/does-not-exist");
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+  });
+});
+
+describe("an agent in the back-office", () => {
+  it("gets the real queue, not the refusal, and the queue makes its request", async () => {
+    const { handlers } = fakeAgentApi([makeAgentDispute()]);
+    server.use(signedIn(bob), ...handlers);
+    renderApp("/agent");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Review queue" })).toBeVisible();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("This area is for back-office agents")).not.toBeInTheDocument();
+  });
+
+  it("normalises a hand-edited queue URL instead of crashing", async () => {
+    const { api, handlers } = fakeAgentApi([makeAgentDispute()]);
+    server.use(signedIn(bob), ...handlers);
+    const { router } = renderApp("/agent?status=bogus&limit=999");
+
+    await screen.findByRole("table");
+    expect(screen.getByLabelText("Status")).toHaveValue("open");
+    expect(Object.fromEntries(api.queueRequests.at(-1)?.searchParams ?? [])).toEqual({
+      limit: "25",
+    });
+    // The defaults are not kept on the URL.
+    expect(router.state.location.search).toEqual({});
   });
 });
