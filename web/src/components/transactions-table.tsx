@@ -137,7 +137,7 @@ function DisputeAction({ item }: { item: TransactionItem }) {
         <Link
           to="/disputes/$disputeId"
           params={{ disputeId: item.dispute.id }}
-          aria-label={`View the dispute for ${item.merchantName}, ${formatDate(item.transactionDate)}`}
+          aria-label={`View dispute for ${item.merchantName}, ${formatDate(item.transactionDate)}`}
           className="text-xs underline underline-offset-4"
         >
           View dispute
