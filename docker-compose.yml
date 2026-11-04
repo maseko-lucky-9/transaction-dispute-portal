@@ -105,6 +105,9 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       PUBLIC_URL: http://localhost:${APP_PORT:-8080}
+      # Realm placeholder: back-channel logout goes to the API's unpublished management port over the data network,
+      # never through nginx (ADR-011).
+      BACKCHANNEL_LOGOUT_URL: http://api-mgmt:8081/bff/backchannel-logout
     volumes:
       - { type: volume, source: secrets, target: /run/kc, read_only: true, volume: { subpath: keycloak } }
       - ./deploy/keycloak/dispute-portal-realm.json:/opt/keycloak/data/import/dispute-portal-realm.json:ro
@@ -151,6 +154,9 @@ services:
       Keycloak__MetadataAddress: http://keycloak:8080/realms/dispute-portal/.well-known/openid-configuration
       Forwarded__KnownNetwork: ${APP_SUBNET:-10.231.29.0/24}
       AllowedHosts: localhost
+      # Keycloak's back-channel logout: the alias below, accepted on the management port only, from the data network only.
+      Ports__InternalHost: api-mgmt
+      Ports__InternalNetwork: ${DATA_SUBNET:-10.231.28.0/24}
       ASPNETCORE_ENVIRONMENT: Production
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-}
     volumes:
@@ -163,7 +169,11 @@ services:
       start_period: 15s
     <<: *hardened
     read_only: true
-    networks: [app, data]
+    networks:
+      app: {}
+      data:
+        # Every replica answers to it, so Docker's DNS round-robins Keycloak's call across them (state is in Redis).
+        aliases: [api-mgmt]
 
   web:
     build: { context: ., target: web }
@@ -213,7 +223,8 @@ volumes:
 # Three networks, so a compromised edge container cannot reach the data stores or Vault:
 #   edge  - the published ports            web
 #   app   - internal; edge to the app tier web, api, keycloak (the API trusts X-Forwarded-* only from this subnet)
-#   data  - internal; stores and Vault     vault, bootstrap, postgres, redis, migrate, api, keycloak (AppRoles are bound to this subnet)
+#   data  - internal; stores and Vault     vault, bootstrap, postgres, redis, migrate, api, keycloak (AppRoles are bound to this subnet;
+#           Keycloak's back-channel logout reaches the api's management port here, as api-mgmt)
 networks:
   edge: {}
   app:
