@@ -142,12 +142,13 @@ public sealed class LogoutTokenValidatorTests
         await AssertRefusedBeforeRedisAsync(Sign(Claims(("iat", Seconds(-60)), ("exp", Seconds(-31)))), LogoutTokenFailure.Expired);
 
     [Fact]
-    public async Task ATokenWithoutExpIsAccepted()
+    // exp is REQUIRED in a logout token (spec section 2.4); Keycloak always sends it.
+    public async Task AMissingExpIsRefused()
     {
         Dictionary<string, object> claims = Claims();
         claims.Remove("exp");
 
-        Assert.True((await ValidateAsync(Sign(claims))).IsAccepted);
+        await AssertRefusedBeforeRedisAsync(Sign(claims), LogoutTokenFailure.Expired);
     }
 
     // Rule 3: iat is present and recent (30 s of skew either way, at most two minutes old).

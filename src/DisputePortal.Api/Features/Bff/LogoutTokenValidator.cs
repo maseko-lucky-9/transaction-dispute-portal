@@ -94,7 +94,7 @@ public sealed class LogoutTokenValidator(IOptionsMonitor<OpenIdConnectOptions> o
         }
     }
 
-    // Lifetime is checked below, with the app's clock: exp is optional for a logout token, iat is mandatory.
+    // Lifetime is checked below, with the app's clock: exp, iat (bounded age) and an optional nbf.
     private static TokenValidationParameters Parameters(OpenIdConnectOptions oidc, OpenIdConnectConfiguration configuration) => new()
     {
         ValidIssuer = oidc.TokenValidationParameters.ValidIssuer,
@@ -156,7 +156,8 @@ public sealed class LogoutTokenValidator(IOptionsMonitor<OpenIdConnectOptions> o
             return LogoutTokenFailure.IssuedAt;
         }
 
-        if (!TryNumericDate(payload, "exp", required: false, out DateTimeOffset? expires) || expires <= now - ClockSkew)
+        // Required by the spec (section 2.4) and always sent by Keycloak (iat + 120 s).
+        if (!TryNumericDate(payload, "exp", required: true, out DateTimeOffset? expires) || expires <= now - ClockSkew)
         {
             return LogoutTokenFailure.Expired;
         }
