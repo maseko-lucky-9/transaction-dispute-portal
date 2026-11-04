@@ -20,11 +20,29 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
     [InlineData("SELECT count(*) FROM \"__EFMigrationsHistory\"")]
     [InlineData("CREATE TABLE intruder (id int)")]
     [InlineData("TRUNCATE customers")]
+    [InlineData("INSERT INTO accounts (id, customer_id, masked_number, currency) VALUES (gen_random_uuid(), 'c0570000-0000-4000-8000-000000000001', '**** 0000', 'ZAR')")]
+    [InlineData("UPDATE accounts SET masked_number = '**** 0000'")]
+    [InlineData("DELETE FROM accounts")]
+    [InlineData("INSERT INTO transactions (id, account_id, customer_id, reference, merchant_name, category, amount, currency, direction, status, transaction_date, posted_at) SELECT gen_random_uuid(), account_id, customer_id, 'X' || reference, merchant_name, category, amount, currency, direction, status, transaction_date, posted_at FROM transactions LIMIT 1")]
+    [InlineData("UPDATE transactions SET amount = 1")]
+    [InlineData("DELETE FROM transactions")]
+    [InlineData("TRUNCATE transactions")]
     public async Task TheAppRoleCannotWriteOrAlterWhatItShouldNot(string sql)
     {
         PostgresException refused = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsAppAsync(sql));
 
         Assert.Equal(InsufficientPrivilege, refused.SqlState);
+    }
+
+    // The read model is readable by the app (the Owner filter does the scoping in EF), never writable.
+    [Fact]
+    public async Task TheAppRoleCanReadAccountsAndTransactions()
+    {
+        await using NpgsqlConnection connection = new(api.AppConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlCommand read = new("SELECT (SELECT count(*) FROM accounts) + (SELECT count(*) FROM transactions)", connection);
+
+        Assert.True((long)(await read.ExecuteScalarAsync())! > 0);
     }
 
     [Fact]
@@ -51,9 +69,11 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
         await using AsyncServiceScope scope = api.Services.CreateAsyncScope();
         DisputePortalDbContext db = scope.ServiceProvider.GetRequiredService<DisputePortalDbContext>();
 
-        List<string> subjects = await db.Customers.OrderBy(customer => customer.DisplayName).Select(customer => customer.KeycloakSubject).ToListAsync();
+        // Other tests add their own customers to the shared database; the seeded two must be among them.
+        List<string> subjects = await db.Customers.Select(customer => customer.KeycloakSubject).ToListAsync();
 
-        Assert.Equal([Seeder.SiphoSubject, Seeder.ThandiSubject], subjects);
+        Assert.Contains(Seeder.ThandiSubject, subjects);
+        Assert.Contains(Seeder.SiphoSubject, subjects);
         Assert.NotEmpty(await db.DataProtectionKeys.ToListAsync());
     }
 

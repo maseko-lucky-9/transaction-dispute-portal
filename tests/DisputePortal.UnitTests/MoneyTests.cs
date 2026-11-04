@@ -75,4 +75,12 @@ public sealed class MoneyTests
     [Fact]
     public void ToStringIsInvariantWithAtLeastTwoDecimals() =>
         Assert.Equal("1234.50 ZAR", Money.Of(1234.5m, "ZAR").ToString());
+
+    [Theory]
+    [InlineData("5", "5.00")]
+    [InlineData("123.4", "123.40")]
+    [InlineData("4500.00", "4500.00")]
+    [InlineData("0.1234", "0.1234")]
+    public void TheWireFormIsAnInvariantDecimalStringWithAtLeastTwoPlaces(string amount, string expected) =>
+        Assert.Equal(expected, Money.FormatAmount(decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture)));
 }

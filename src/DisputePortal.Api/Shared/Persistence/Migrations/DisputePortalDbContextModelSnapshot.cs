@@ -50,6 +50,131 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                     b.ToTable("customers", (string)null);
                 });
 
+            modelBuilder.Entity("DisputePortal.Api.Features.Transactions.Account", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("MaskedNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("masked_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounts");
+
+                    b.HasAlternateKey("Id", "CustomerId")
+                        .HasName("ak_accounts_id_customer_id");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_accounts_customer_id");
+
+                    b.ToTable("accounts", (string)null);
+                });
+
+            modelBuilder.Entity("DisputePortal.Api.Features.Transactions.Transaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("account_id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("direction");
+
+                    b.Property<string>("MerchantName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("merchant_name");
+
+                    b.Property<DateTimeOffset?>("PostedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("posted_at");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("reference");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("TransactionDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("transaction_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_transactions");
+
+                    b.HasIndex("Reference")
+                        .IsUnique()
+                        .HasDatabaseName("ix_transactions_reference");
+
+                    b.HasIndex("AccountId", "CustomerId")
+                        .HasDatabaseName("ix_transactions_account_id_customer_id");
+
+                    b.HasIndex("CustomerId", "TransactionDate", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_transactions_customer_id_transaction_date_id");
+
+                    b.ToTable("transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_transactions_amount_positive", "amount > 0");
+
+                            t.HasCheckConstraint("ck_transactions_direction", "direction IN ('Debit', 'Credit')");
+
+                            t.HasCheckConstraint("ck_transactions_posted_at", "(status = 'Pending') = (posted_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_transactions_status", "status IN ('Pending', 'Posted', 'Reversed')");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
                 {
                     b.Property<int>("Id")
@@ -71,6 +196,34 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                         .HasName("pk_data_protection_keys");
 
                     b.ToTable("data_protection_keys", (string)null);
+                });
+
+            modelBuilder.Entity("DisputePortal.Api.Features.Transactions.Account", b =>
+                {
+                    b.HasOne("DisputePortal.Api.Features.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounts_customers_customer_id");
+                });
+
+            modelBuilder.Entity("DisputePortal.Api.Features.Transactions.Transaction", b =>
+                {
+                    b.HasOne("DisputePortal.Api.Features.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_transactions_customers_customer_id");
+
+                    b.HasOne("DisputePortal.Api.Features.Transactions.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId", "CustomerId")
+                        .HasPrincipalKey("Id", "CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_transactions_accounts_account_id_customer_id");
                 });
 #pragma warning restore 612, 618
         }
