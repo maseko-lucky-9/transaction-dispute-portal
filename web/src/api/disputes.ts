@@ -37,9 +37,18 @@ export const disputeKeys = {
 };
 export const disputeReasonsKey = ["dispute-reasons"] as const;
 
+/** What a spec lists by name, without the `[name: string]: unknown` every response type carries. */
+type Named<T> = { [K in keyof T as string extends K ? never : K]: T[K] };
+
+// The header names are checked against the generated types: if the spec renames or drops one,
+// this stops compiling (and contract.test.ts pins that the spec documents them).
+const ETAG = "ETag" satisfies keyof Named<operations["GetDispute"]["responses"][200]["headers"]>;
+const IF_MATCH = "If-Match" satisfies keyof operations["WithdrawDispute"]["parameters"]["header"];
+type WithdrawHeaders = operations["WithdrawDispute"]["parameters"]["header"];
+
 const withEtag = (response: { data: DisputeDetail; headers: Headers }): DisputeWithEtag => ({
   dispute: response.data,
-  etag: response.headers.get("ETag"),
+  etag: response.headers.get(ETAG),
 });
 
 /** `GET /api/v1/dispute-reasons`: the catalogue the form's select is built from. */
@@ -122,10 +131,12 @@ export const disputeDetailOptions = (id: string) =>
  * all: the server answers 428, which the page treats as a bug rather than guessing a value.
  */
 export async function withdrawDispute(id: string, etag: string | null): Promise<DisputeWithEtag> {
+  // The spec requires If-Match; Partial only lets the "no ETag was ever read" case send none.
+  const headers: Partial<WithdrawHeaders> = etag ? { [IF_MATCH]: etag } : {};
   return withEtag(
     await apiRequest<DisputeDetail>(`/api/v1/disputes/${encodeURIComponent(id)}/withdraw`, {
       method: "POST",
-      headers: etag ? { "If-Match": etag } : {},
+      headers,
     }),
   );
 }

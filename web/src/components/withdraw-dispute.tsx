@@ -37,7 +37,16 @@ export function WithdrawDispute({ id, current }: { id: string; current: DisputeW
       queryClient.invalidateQueries({ queryKey: ["transactions"] }),
     ]);
 
+  const withdrawKey = ["disputes", "withdraw", id] as const;
+  // Ask the cache, not `mutation.isPending`: that only changes after a render, so two fast
+  // activations (a double click, Enter held down) both still see "not pending" and both send.
+  const startWithdraw = () => {
+    if (queryClient.isMutating({ mutationKey: withdrawKey }) > 0) return;
+    mutation.mutate();
+  };
+
   const mutation = useMutation({
+    mutationKey: withdrawKey,
     // Read the ETag at call time, not render time: it is the latest one the cache holds.
     mutationFn: () => {
       const cached = queryClient.getQueryData<DisputeWithEtag>(detailKey) ?? current;
@@ -102,7 +111,7 @@ export function WithdrawDispute({ id, current }: { id: string; current: DisputeW
         <ErrorState
           error={error}
           title="We could not withdraw this dispute"
-          onRetry={() => mutation.mutate()}
+          onRetry={startWithdraw}
         />
       ) : null}
 
@@ -125,9 +134,7 @@ export function WithdrawDispute({ id, current }: { id: string; current: DisputeW
       {canWithdraw && confirming && !isStale ? (
         <ConfirmWithdraw
           pending={mutation.isPending}
-          onConfirm={() => {
-            if (!mutation.isPending) mutation.mutate();
-          }}
+          onConfirm={startWithdraw}
           onCancel={() => {
             setConfirming(false);
             // Put focus back where the user came from.

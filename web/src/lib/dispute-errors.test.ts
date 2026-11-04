@@ -56,6 +56,46 @@ describe("classifyCreateError", () => {
     });
   });
 
+  it("reads invalid_characters as a description message in our words, with or without a field", () => {
+    const expected = {
+      kind: "fields",
+      fields: { description: "Please remove control or non-printing characters" },
+      other: [],
+    };
+    expect(
+      classifyCreateError(
+        api(400, { code: "invalid_characters", errors: { description: ["Remove."] } }),
+      ),
+    ).toEqual(expected);
+    expect(classifyCreateError(api(400, { code: "invalid_characters" }))).toEqual(expected);
+  });
+
+  it("keeps the server's words when invalid_characters is about the reason code, not the description", () => {
+    expect(
+      classifyCreateError(
+        api(400, {
+          code: "invalid_characters",
+          errors: { reasonCode: ["Remove control characters."] },
+        }),
+      ),
+    ).toEqual({ kind: "fields", fields: { reasonCode: "Remove control characters." }, other: [] });
+    expect(
+      classifyCreateError(
+        api(400, {
+          code: "invalid_characters",
+          errors: { reasonCode: ["Bad."], description: ["Also bad."] },
+        }),
+      ),
+    ).toEqual({
+      kind: "fields",
+      fields: {
+        reasonCode: "Bad.",
+        description: "Please remove control or non-printing characters",
+      },
+      other: [],
+    });
+  });
+
   it.each([
     {},
     { errors: {} },

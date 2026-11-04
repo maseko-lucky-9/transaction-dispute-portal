@@ -16,5 +16,7 @@ declare module "@tanstack/history" {
   /** One-shot messages carried in history state (never in the URL, so a reload clears them). */
   interface HistoryState {
     disputeSubmitted?: boolean;
+    /** The create was answered by a replay whose stored details differ from what was just sent. */
+    earlierDetailsKept?: boolean;
   }
 }

@@ -4,6 +4,8 @@ import {
   DESCRIPTION_MAX,
   describeRemaining,
   disputeFormSchema,
+  INVALID_CHARACTERS_MESSAGE,
+  keptEarlierDetails,
   SENSITIVE_MESSAGE,
 } from "./dispute-form";
 import cases from "./validation-cases.json";
@@ -15,12 +17,14 @@ const schema = disputeFormSchema({
 });
 const valid = { reasonCode: "duplicate", description: "Charged twice for one order.", amount: "" };
 
-function messages(values: Partial<typeof valid>) {
+/** The FIRST message per field, which is the one the form shows. */
+function messages(values: Partial<typeof valid>): Record<string, string> {
   const result = schema.safeParse({ ...valid, ...values });
-  if (result.success) return {};
-  return Object.fromEntries(
-    result.error.issues.map((issue) => [String(issue.path[0]), issue.message]),
-  );
+  const first: Record<string, string> = {};
+  if (!result.success) {
+    for (const issue of result.error.issues) first[String(issue.path[0])] ??= issue.message;
+  }
+  return first;
 }
 
 describe("disputeFormSchema", () => {
@@ -58,15 +62,40 @@ describe("disputeFormSchema", () => {
     );
   });
 
-  it.each(cases.map((c) => [c.name, c.input, c.valid] as const))(
-    "sensitive-number rule, shared case: %s",
-    (_name, input, ok) => {
+  it.each(cases.map((c) => [c.name, c.input, c.code] as const))(
+    "free-text rules, shared case: %s",
+    (_name, input, code) => {
       // Padding keeps the length rule out of the way; it has no digits, so it cannot join a chain.
       const description = `Problem with my order. ${input}`;
-      const message = messages({ description })["description"];
-      expect(message === SENSITIVE_MESSAGE).toBe(!ok);
+      const expected =
+        code === "sensitive_data"
+          ? SENSITIVE_MESSAGE
+          : code === "invalid_characters"
+            ? INVALID_CHARACTERS_MESSAGE
+            : undefined;
+      expect(messages({ description })["description"]).toBe(expected);
     },
   );
+
+  it("checks control characters on the text as typed, before trimming can hide them", () => {
+    // A vertical tab or form feed at the edge would be trimmed away; it is still refused.
+    expect(messages({ description: "A long enough text.\u000b" })["description"]).toBe(
+      INVALID_CHARACTERS_MESSAGE,
+    );
+    expect(messages({ description: "\u000cA long enough text." })["description"]).toBe(
+      INVALID_CHARACTERS_MESSAGE,
+    );
+    expect(messages({ description: "A long enough text.\n\t " })["description"]).toBeUndefined();
+  });
+
+  it("reports a control character before the length, and before a card number", () => {
+    expect(messages({ description: "short\u0000" })["description"]).toBe(
+      INVALID_CHARACTERS_MESSAGE,
+    );
+    expect(messages({ description: "4111 1111 1111 1111\u0007" })["description"]).toBe(
+      INVALID_CHARACTERS_MESSAGE,
+    );
+  });
 
   it.each([
     ["", true],
@@ -127,5 +156,48 @@ describe("describeRemaining", () => {
     [5000, "Over the limit"],
   ])("at %i characters: %j", (length, expected) => {
     expect(describeRemaining(length)).toBe(expected);
+  });
+});
+
+describe("keptEarlierDetails", () => {
+  const stored = {
+    description: "Charged twice for one order.",
+    reasonCode: "duplicate",
+    amount: "50.00",
+    transaction: { amount: "123.45" },
+  };
+  const sent = {
+    description: "Charged twice for one order.",
+    reasonCode: "duplicate",
+    amount: "50.00",
+  };
+
+  it("is false when the same things were sent", () => {
+    expect(keptEarlierDetails(stored, sent)).toBe(false);
+  });
+
+  it("ignores whitespace around the text and the scale of the amount", () => {
+    expect(
+      keptEarlierDetails(stored, {
+        ...sent,
+        description: "  Charged twice for one order.\n",
+        amount: "50",
+      }),
+    ).toBe(false);
+    expect(keptEarlierDetails({ ...stored, amount: "50.0000" }, sent)).toBe(false);
+  });
+
+  it.each([
+    ["the text", { description: "Something else entirely." }],
+    ["the reason", { reasonCode: "unauthorised" }],
+    ["the amount", { amount: "60.00" }],
+  ])("is true when %s differs", (_what, change) => {
+    expect(keptEarlierDetails(stored, { ...sent, ...change })).toBe(true);
+  });
+
+  it("reads an omitted amount as the whole transaction", () => {
+    const withoutAmount = { description: sent.description, reasonCode: sent.reasonCode };
+    expect(keptEarlierDetails(stored, withoutAmount)).toBe(true); // 50.00 stored, 123.45 meant
+    expect(keptEarlierDetails({ ...stored, amount: "123.45" }, withoutAmount)).toBe(false);
   });
 });

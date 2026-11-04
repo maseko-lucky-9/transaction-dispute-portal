@@ -1,11 +1,11 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { CreateDisputeRequest } from "@/api/disputes";
 import type { TransactionItem } from "@/api/transactions";
-import { SENSITIVE_MESSAGE } from "@/lib/dispute-form";
+import { INVALID_CHARACTERS_MESSAGE, SENSITIVE_MESSAGE } from "@/lib/dispute-form";
 import cases from "@/lib/validation-cases.json";
 import { fakeDisputesApi, makeDisputeDetail } from "@/test/disputes";
 import { problem, signedIn } from "@/test/handlers";
@@ -18,12 +18,16 @@ const GOOD_TEXT = "I was charged twice for the same order.";
 
 type FakeOptions = NonNullable<Parameters<typeof fakeDisputesApi>[0]>;
 
-async function openForm(overrides: Partial<TransactionItem> = {}, options: FakeOptions = {}) {
+async function openForm(
+  overrides: Partial<TransactionItem> = {},
+  options: FakeOptions = {},
+  { strict = false }: { strict?: boolean } = {},
+) {
   const tx = makeTransaction({ merchantName: "Netflix", amount: "123.45", ...overrides });
   const transactions = fakeTransactionsApi([tx]);
   const disputes = fakeDisputesApi({ transactions: [tx], ...options });
   server.use(signedIn(), ...transactions.handlers, ...disputes.handlers);
-  const view = renderApp(`/transactions/${tx.id}/dispute`);
+  const view = renderApp(`/transactions/${tx.id}/dispute`, { strict });
   await screen.findByRole("form", { name: "Dispute this transaction" });
   return { tx, api: disputes.api, ...view, user: userEvent.setup() };
 }
@@ -325,21 +329,32 @@ describe("dispute form page: validation", () => {
     expect(screen.getByText("2001 / 2000")).toHaveClass("text-destructive");
   });
 
-  it.each(cases.map((c) => [c.name, c.input, c.valid] as const))(
-    "description, shared sensitive-number case: %s",
-    async (_name, input, valid) => {
+  const MESSAGE_FOR_CODE: Record<string, string> = {
+    sensitive_data: SENSITIVE_MESSAGE,
+    invalid_characters: INVALID_CHARACTERS_MESSAGE,
+  };
+
+  it.each(cases.map((c) => [c.name, c.input, c.code] as const))(
+    "description, shared free-text case: %s",
+    async (_name, input, code) => {
       const { api, user } = await openForm();
       await user.selectOptions(reasonSelect(), "duplicate");
       // Padding keeps the length rule out of the way; it has no digits, so it cannot join a chain.
-      await write(user, descriptionBox(), `Problem with my order. ${input}`);
+      await user.click(descriptionBox()); // so that tabbing away is a blur
+      fireEvent.change(descriptionBox(), { target: { value: `Problem with my order. ${input}` } });
       await user.tab();
 
-      if (valid) {
+      if (code === null) {
         await user.click(submitButton());
         await waitFor(() => expect(api.createBodies).toHaveLength(1));
-        expect(screen.queryByText(SENSITIVE_MESSAGE)).not.toBeInTheDocument();
+        for (const message of Object.values(MESSAGE_FOR_CODE)) {
+          expect(screen.queryByText(message)).not.toBeInTheDocument();
+        }
       } else {
-        expect(await screen.findByText(SENSITIVE_MESSAGE)).toBeInTheDocument();
+        const message = MESSAGE_FOR_CODE[code] ?? "";
+        expect(await screen.findByText(message)).toBeInTheDocument();
+        expect(errorText(descriptionBox())).toBe(message);
+        expect(descriptionBox()).toHaveAttribute("aria-invalid", "true");
         await user.click(submitButton());
         expect(api.createBodies).toHaveLength(0);
         expect(descriptionBox()).toHaveFocus();
@@ -638,6 +653,34 @@ describe("dispute form page: one id per opened form", () => {
     expect(sent(api, 1).id).not.toBe(sent(api, 0).id);
   });
 
+  it("keeps ONE id across a failed submit and its retry under React.StrictMode", async () => {
+    // StrictMode double-invokes state initialisers and re-runs effects: an id made anywhere but
+    // once per mounted form would show up here as two different ids.
+    const made = vi.spyOn(crypto, "randomUUID");
+    try {
+      let fail = true;
+      const { api, user } = await openForm(
+        {},
+        { interceptCreate: () => (fail ? problem(503, { traceId: "trace-strict" }) : undefined) },
+        { strict: true },
+      );
+      expect(made.mock.calls.length).toBeGreaterThan(1); // StrictMode really did call it twice
+      await fillValid(user);
+
+      await user.click(submitButton());
+      expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-strict");
+      fail = false;
+      await user.click(submitButton());
+
+      await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+      expect(api.createBodies).toHaveLength(2);
+      expect(sent(api, 1).id).toBe(sent(api, 0).id);
+      expect(sent(api, 0).id).toMatch(UUID);
+    } finally {
+      made.mockRestore();
+    }
+  });
+
   it("makes a different id for each opened form", async () => {
     const ids = new Set<string>();
     for (let i = 0; i < 3; i++) {
@@ -649,6 +692,100 @@ describe("dispute form page: one id per opened form", () => {
       unmount();
     }
     expect(ids.size).toBe(3);
+  });
+});
+
+describe("dispute form page: a replay that kept the earlier details", () => {
+  const NOTE = /We had already received your request, so we kept what you sent the first time/;
+  const EDITED = "A completely different and corrected description.";
+
+  /** The server stores the first attempt, but its answer is lost on the way back. */
+  const loseTheFirstAnswer = () => {
+    let first = true;
+    return () => {
+      if (!first) return undefined;
+      first = false;
+      return HttpResponse.error();
+    };
+  };
+
+  const banner = () => screen.getByText(/Your dispute was submitted/).closest('[role="status"]');
+
+  it("tells the customer when the text they edited was not stored, and shows the stored text", async () => {
+    const { api, user } = await openForm({}, { afterCreate: loseTheFirstAnswer() });
+    await fillValid(user);
+    await user.click(submitButton());
+    await screen.findByRole("alert"); // network failure: the form keeps what was typed
+    await user.clear(descriptionBox());
+    await write(user, descriptionBox(), EDITED);
+
+    await user.click(submitButton());
+
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(sent(api, 1).id).toBe(sent(api, 0).id);
+    expect(sent(api, 1).description).toBe(EDITED);
+    expect(api.store).toHaveLength(1);
+    expect(banner()).toHaveTextContent(NOTE);
+    expect(banner()).toHaveTextContent("withdraw this dispute and raise a new one");
+    expect(banner()).toHaveFocus(); // one live region, announced whole
+    expect(screen.getByText(GOOD_TEXT)).toBeInTheDocument(); // the first text is what is stored
+    expect(screen.queryByText(EDITED)).not.toBeInTheDocument();
+  });
+
+  it("keeps the plain banner when the replay stored exactly what was sent", async () => {
+    const { user } = await openForm({}, { afterCreate: loseTheFirstAnswer() });
+    await fillValid(user);
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    await user.click(submitButton()); // nothing edited
+
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(banner()).toHaveTextContent("Your dispute was submitted.");
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+  });
+
+  it("ignores whitespace around the text when comparing", async () => {
+    const { user } = await openForm({}, { afterCreate: loseTheFirstAnswer() });
+    await fillValid(user);
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+    await write(user, descriptionBox(), "   "); // only padding added
+
+    await user.click(submitButton());
+
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["another reason", { reason: "unauthorised" }, { reason: "duplicate" }],
+    ["a smaller amount where the whole was first sent", { amount: "10" }, {}],
+    ["the whole amount where a smaller one was first sent", {}, { amount: "10" }],
+  ])("also says so when the retry changed %s", async (_what, retry, first) => {
+    const { user } = await openForm({}, { afterCreate: loseTheFirstAnswer() });
+    await fillValid(user, first);
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+
+    if ("reason" in retry) await user.selectOptions(reasonSelect(), retry.reason);
+    if ("amount" in retry) await write(user, amountBox(), retry.amount);
+    if (!("amount" in retry) && "amount" in first) await user.clear(amountBox());
+    await user.click(submitButton());
+
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(banner()).toHaveTextContent(NOTE);
+  });
+
+  it("is never shown for a first-time submit", async () => {
+    const { user } = await openForm();
+    await fillValid(user);
+
+    await user.click(submitButton());
+
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(banner()).toHaveTextContent("Your dispute was submitted.");
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
   });
 });
 
@@ -723,6 +860,22 @@ describe("dispute form page: server errors", () => {
 
     expect(await screen.findByText(SENSITIVE_MESSAGE)).toBeInTheDocument();
     expect(errorText(descriptionBox())).toBe(SENSITIVE_MESSAGE);
+    expect(descriptionBox()).toHaveFocus();
+    expect(screen.getByText(TRACE)).toBeInTheDocument();
+  });
+
+  it("400 invalid_characters from the server lands on the description, in our words", async () => {
+    await submitWith({
+      interceptCreate: () =>
+        problem(400, {
+          code: "invalid_characters",
+          traceId: TRACE,
+          errors: { description: ["Remove control characters."] },
+        }),
+    });
+
+    expect(await screen.findByText(INVALID_CHARACTERS_MESSAGE)).toBeInTheDocument();
+    expect(errorText(descriptionBox())).toBe(INVALID_CHARACTERS_MESSAGE);
     expect(descriptionBox()).toHaveFocus();
     expect(screen.getByText(TRACE)).toBeInTheDocument();
   });

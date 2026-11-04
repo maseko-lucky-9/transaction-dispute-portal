@@ -7,7 +7,7 @@ import type {
   DisputeStatus,
 } from "@/api/disputes";
 import type { TransactionItem } from "@/api/transactions";
-import { containsSensitiveNumber } from "@/lib/validation";
+import { freeTextProblem } from "@/lib/validation";
 
 import { problem } from "./handlers";
 
@@ -159,19 +159,17 @@ export function fakeDisputesApi(options: FakeDisputesOptions = {}) {
     const intercepted = await options.interceptCreate?.(body);
     if (intercepted) return intercepted;
 
-    // Idempotent replay: the same id returns the original, unless the body differs.
+    // Idempotent replay (ADR-007): the same id for the same transaction returns the dispute as it
+    // is now, whatever the body says (an edited text is NOT stored: the first one is kept); the
+    // same id for another transaction is 409 idempotency_key_reuse.
     const existing = store.find((d) => d.id === body.id);
     if (existing) {
-      const same =
-        existing.transactionId === body.transactionId &&
-        existing.reasonCode === body.reasonCode &&
-        existing.description === body.description.trim();
-      return same
+      return existing.transactionId === body.transactionId
         ? HttpResponse.json(existing, { status: 200, headers: detailHeaders(existing.id) })
         : problem(409, {
             title: "Conflict",
-            code: "dispute_id_conflict",
-            detail: "That id was used for a different request.",
+            code: "idempotency_key_reuse",
+            detail: "That id was used for a different transaction.",
           });
     }
 
@@ -192,7 +190,16 @@ export function fakeDisputesApi(options: FakeDisputesOptions = {}) {
         errors,
       });
     }
-    if (containsSensitiveNumber(description)) {
+    // The same two rules, in the same order, as the shared validation-cases.json describes.
+    const rule = freeTextProblem(body.description);
+    if (rule === "invalid_characters") {
+      return problem(400, {
+        title: "Invalid characters",
+        code: "invalid_characters",
+        errors: { description: ["Remove control characters."] },
+      });
+    }
+    if (rule === "sensitive_data") {
       return problem(400, {
         title: "Sensitive data",
         code: "sensitive_data",

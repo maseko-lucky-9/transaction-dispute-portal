@@ -1,6 +1,6 @@
 import { isApiError } from "@/api/problem";
 import { describeViolation } from "@/lib/dispute-reasons";
-import { SENSITIVE_MESSAGE } from "@/lib/dispute-form";
+import { INVALID_CHARACTERS_MESSAGE, SENSITIVE_MESSAGE } from "@/lib/dispute-form";
 
 export type DisputeField = "reasonCode" | "description" | "amount";
 
@@ -74,8 +74,16 @@ export function classifyCreateError(error: unknown): CreateFailure {
   switch (status) {
     case 400: {
       const failure = readFieldErrors(problem["errors"]);
-      // The sensitive-data rule is about the description even if the server sends no field.
+      // These two rules are about the description even if the server sends no field.
       if (problem.code === "sensitive_data") failure.fields.description = SENSITIVE_MESSAGE;
+      // invalid_characters can also be about the reason code; that keeps the server's own words,
+      // and the description only gets ours when it is the one flagged (or nothing is named).
+      if (
+        problem.code === "invalid_characters" &&
+        (failure.fields.reasonCode === undefined || failure.fields.description !== undefined)
+      ) {
+        failure.fields.description = INVALID_CHARACTERS_MESSAGE;
+      }
       const empty = Object.keys(failure.fields).length === 0 && failure.other.length === 0;
       return empty ? { kind: "failed" } : failure;
     }

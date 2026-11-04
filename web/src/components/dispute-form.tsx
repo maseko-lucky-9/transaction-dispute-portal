@@ -19,6 +19,7 @@ import {
   DESCRIPTION_MIN,
   describeRemaining,
   disputeFormSchema,
+  keptEarlierDetails,
   type DisputeFormValues,
 } from "@/lib/dispute-form";
 import { classifyCreateError, type CreateFailure, type DisputeField } from "@/lib/dispute-errors";
@@ -87,7 +88,7 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
   const mutation = useMutation({
     mutationKey: CREATE_KEY,
     mutationFn: createDispute,
-    onSuccess: async ({ dispute, etag }) => {
+    onSuccess: async ({ dispute, etag, replayed }, sent) => {
       // The detail page opens on this (it revalidates in the background) and keeps the ETag
       // it will need to withdraw.
       queryClient.setQueryData(disputeKeys.detail(dispute.id), { dispute, etag });
@@ -96,7 +97,11 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
       await navigate({
         to: "/disputes/$disputeId",
         params: { disputeId: dispute.id },
-        state: { disputeSubmitted: true },
+        state: {
+          disputeSubmitted: true,
+          // Only a replay can hold older details than the ones just sent.
+          ...(replayed && keptEarlierDetails(dispute, sent) ? { earlierDetailsKept: true } : {}),
+        },
       });
     },
     onError: (error) => {

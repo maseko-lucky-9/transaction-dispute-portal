@@ -23,6 +23,9 @@ function focusOnMount(element: HTMLElement | null) {
 export function DisputeDetailPage() {
   const { disputeId } = route.useParams();
   const justSubmitted = useLocation({ select: (location) => location.state.disputeSubmitted });
+  const earlierDetailsKept = useLocation({
+    select: (location) => location.state.earlierDetailsKept,
+  });
   const validId = isGuid(disputeId);
   // A malformed id cannot be a dispute: no request, same page as an unknown id.
   const query = useQuery({ ...disputeDetailOptions(disputeId), enabled: validId });
@@ -60,14 +63,24 @@ export function DisputeDetailPage() {
       <title>Dispute - Transactions Dispute Portal</title>
 
       {justSubmitted ? (
-        <p
+        // One live region, focused, so the whole message is heard at once.
+        <div
           role="status"
           tabIndex={-1}
           ref={focusOnMount}
-          className="rounded-md border bg-muted/50 px-4 py-2 text-sm font-medium outline-none"
+          className="flex flex-col gap-1 rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
         >
-          Your dispute was submitted. We will review it and update the timeline below.
-        </p>
+          <p className="font-medium">
+            Your dispute was submitted. We will review it and update the timeline below.
+          </p>
+          {earlierDetailsKept ? (
+            <p>
+              We had already received your request, so we kept what you sent the first time. A
+              submitted dispute cannot be edited: if the text, reason or amount below is not what
+              you meant, withdraw this dispute and raise a new one.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex flex-col gap-2">

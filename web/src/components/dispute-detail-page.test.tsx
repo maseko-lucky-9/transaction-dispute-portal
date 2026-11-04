@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
@@ -290,6 +290,48 @@ describe("dispute detail: withdraw", () => {
 
     await waitFor(() => expect(statusRegion()).toHaveTextContent("Dispute withdrawn."));
     expect(api.withdrawCalls).toHaveLength(1);
+  });
+});
+
+describe("dispute detail: withdraw double activation", () => {
+  it("sends one request when Yes, withdraw is activated twice in the same instant", async () => {
+    const { api } = await openDispute(makeDisputeDetail(), {
+      interceptWithdraw: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return undefined;
+      },
+    });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Withdraw dispute" }));
+
+    const confirm = screen.getByRole("button", { name: "Yes, withdraw" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm); // before React has rendered "pending": the button still looks live
+
+    await waitFor(() => expect(statusRegion()).toHaveTextContent("Dispute withdrawn."));
+    expect(api.withdrawCalls).toHaveLength(1);
+  });
+
+  it("sends one request when Try again is activated twice in the same instant", async () => {
+    let fail = true;
+    const { api } = await openDispute(makeDisputeDetail(), {
+      interceptWithdraw: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return fail ? problem(503, { traceId: "trace-503" }) : undefined;
+      },
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Withdraw dispute" }));
+    await user.click(screen.getByRole("button", { name: "Yes, withdraw" }));
+    await screen.findByRole("alert");
+    expect(api.withdrawCalls).toHaveLength(1);
+
+    fail = false;
+    const retry = screen.getByRole("button", { name: "Try again" });
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(statusRegion()).toHaveTextContent("Dispute withdrawn."));
+    expect(api.withdrawCalls).toHaveLength(2); // the first failure, and exactly one retry
   });
 });
 

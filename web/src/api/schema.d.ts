@@ -716,6 +716,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -725,6 +727,10 @@ export interface operations {
             /** @description Created */
             201: {
                 headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
+                    /** @description The new dispute: /api/v1/disputes/{id}. */
+                    Location: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -810,6 +816,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -848,8 +856,9 @@ export interface operations {
     WithdrawDispute: {
         parameters: {
             query?: never;
-            header?: {
-                "If-Match"?: string;
+            header: {
+                /** @description The ETag of the version being withdrawn. Missing: 428; stale, weak or *: 412. */
+                "If-Match": string;
             };
             path: {
                 id: string;
@@ -861,6 +870,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -906,6 +917,8 @@ export interface operations {
             /** @description Precondition Failed */
             412: {
                 headers: {
+                    /** @description The current version, when the dispute still exists: reload, then retry with it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {

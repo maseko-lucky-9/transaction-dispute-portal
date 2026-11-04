@@ -31,8 +31,12 @@ interface SchemaProperty {
   maxLength?: number;
   pattern?: string;
 }
+interface Operation {
+  parameters?: { name: string; in?: string; required?: boolean; schema: ParameterSchema }[];
+  responses?: Record<string, { headers?: Record<string, unknown> }>;
+}
 interface OpenApiSubset {
-  paths: Record<string, { get?: { parameters?: { name: string; schema: ParameterSchema }[] } }>;
+  paths: Record<string, { get?: Operation; post?: Operation }>;
   components: {
     schemas: Record<string, { enum?: string[]; properties?: Record<string, SchemaProperty> }>;
   };
@@ -114,5 +118,29 @@ describe.skipIf(specText == null)("dispute constants match docs/openapi.json", (
     expect(normalizeAmount("10000000000000")).toBeNull();
     expect(pattern.test("1.234")).toBe(false);
     expect(normalizeAmount("1.234")).toBeNull();
+  });
+
+  describe("the headers the client reads and sends are documented", () => {
+    const post = spec.paths["/api/v1/disputes"]?.post;
+    const get = spec.paths["/api/v1/disputes/{id}"]?.get;
+    const withdraw = spec.paths["/api/v1/disputes/{id}/withdraw"]?.post;
+
+    it("create answers with the ETag (200 replay and 201) and, for 201, the Location", () => {
+      expect(Object.keys(post?.responses?.["200"]?.headers ?? {})).toContain("ETag");
+      expect(Object.keys(post?.responses?.["201"]?.headers ?? {}).sort()).toEqual([
+        "ETag",
+        "Location",
+      ]);
+    });
+
+    it("the detail and the withdraw answer with the ETag the next withdraw needs", () => {
+      expect(Object.keys(get?.responses?.["200"]?.headers ?? {})).toContain("ETag");
+      expect(Object.keys(withdraw?.responses?.["200"]?.headers ?? {})).toContain("ETag");
+    });
+
+    it("withdraw requires If-Match as a header", () => {
+      const ifMatch = withdraw?.parameters?.find((p) => p.name === "If-Match");
+      expect(ifMatch).toMatchObject({ in: "header", required: true });
+    });
   });
 });
