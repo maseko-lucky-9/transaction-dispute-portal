@@ -25,7 +25,7 @@ public sealed class SeederIntegrationTests(ApiFactory api)
         Assert.Equal(2, await AdminSql.CountAsync(admin, "SELECT count(*) FROM customers"));
         Assert.Equal(0, await AdminSql.CountAsync(admin, "SELECT count(*) FROM transactions WHERE transaction_date > @now OR transaction_date < @earliest",
             ("now", Now), ("earliest", Now.AddDays(-152))));
-        Assert.Equal(18, await AdminSql.CountAsync(admin, "SELECT count(*) FROM transactions WHERE transaction_date::date < (@now::timestamptz AT TIME ZONE 'UTC')::date - 120",
+        Assert.Equal(18, await AdminSql.CountAsync(admin, "SELECT count(*) FROM transactions WHERE (transaction_date AT TIME ZONE 'UTC')::date < (@now::timestamptz AT TIME ZONE 'UTC')::date - 120",
             ("now", Now)));
         Assert.Equal(new[] { "Credit", "Debit" }, await AdminSql.ListAsync(admin, "SELECT DISTINCT direction FROM transactions ORDER BY 1", reader => reader.GetString(0)));
         Assert.Equal(new[] { "Pending", "Posted", "Reversed" }, await AdminSql.ListAsync(admin, "SELECT DISTINCT status FROM transactions ORDER BY 1", reader => reader.GetString(0)));

@@ -35,7 +35,13 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
         builder.HasIndex(transaction => new { transaction.CustomerId, transaction.TransactionDate, transaction.Id })
             .IsDescending(false, true, true)
             .HasDatabaseName(KeysetIndexName);
-        builder.HasOne<Account>().WithMany().HasForeignKey(transaction => transaction.AccountId).OnDelete(DeleteBehavior.Restrict);
+        // Composite, so a transaction can only point at an account of its own customer: the Owner filter authorises on
+        // transactions.customer_id alone, and this keeps that column honest. Creates UNIQUE (id, customer_id) on accounts.
+        builder.HasOne<Account>()
+            .WithMany()
+            .HasForeignKey(transaction => new { transaction.AccountId, transaction.CustomerId })
+            .HasPrincipalKey(account => new { account.Id, account.CustomerId })
+            .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Customer>().WithMany().HasForeignKey(transaction => transaction.CustomerId).OnDelete(DeleteBehavior.Restrict);
     }
 }

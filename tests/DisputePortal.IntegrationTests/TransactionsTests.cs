@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
+using DisputePortal.Domain.Transactions;
 
 namespace DisputePortal.IntegrationTests;
 
@@ -65,6 +66,16 @@ public sealed partial class TransactionsTests(ApiFactory api)
     [InlineData("?from=2026-03-02&to=2026-03-01", "to")]
     [InlineData("?from=2025-01-01&to=2026-01-03", "to")]
     [InlineData("?status=Settled", "status")]
+    [InlineData("?limit=abc", "limit")]
+    [InlineData("?limit=1e2", "limit")]
+    [InlineData("?limit=99999999999", "limit")]
+    // ToExclusive adds a day: the last representable date used to throw (500 internal_error).
+    [InlineData("?to=9999-12-31", "to")]
+    [InlineData("?from=9999-12-31&to=9999-12-31", "from")]
+    [InlineData("?from=9999-12-31&to=9999-12-31", "to")]
+    [InlineData("?from=0001-01-01", "from")]
+    [InlineData("?from=1899-12-31", "from")]
+    [InlineData("?to=2101-01-01", "to")]
     public async Task OutOfBoundsFiltersAre400WithTheFieldNamed(string query, string field)
     {
         BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
@@ -76,6 +87,50 @@ public sealed partial class TransactionsTests(ApiFactory api)
         Problem problem = await Problem.ReadAsync(response);
         Assert.Equal("validation_failed", problem.Code);
         Assert.True(problem.Body.GetProperty("errors").TryGetProperty(field, out _), "errors." + field);
+    }
+
+    // A form that serialises an empty field must not be told its cursor is invalid: empty means the first page.
+    [Fact]
+    public async Task AnEmptyCursorIsTheFirstPage()
+    {
+        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
+
+        JsonElement first = await OkAsync(session, List);
+        JsonElement empty = await OkAsync(session, List + "?cursor=");
+
+        Assert.Equal(25, empty.GetProperty("items").GetArrayLength());
+        Assert.Equal(first.GetProperty("items").GetRawText(), empty.GetProperty("items").GetRawText());
+    }
+
+    // Ties on transaction_date are broken by id: walking identical dates across every page boundary loses and repeats nothing.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task RowsWithIdenticalDatesArePagedWithoutDuplicatesOrGaps(int limit)
+    {
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        DateTimeOffset tied = new(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
+        for (int index = 0; index < 5; index++)
+        {
+            await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, tied);
+        }
+
+        await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, tied.AddDays(-1));
+        List<Guid> expected = await AdminSql.ListAsync(api.AdminConnectionString, CustomerIdsByKeysetSql, reader => reader.GetGuid(0), ("customer", customer.CustomerId));
+        BrowserSession session = await BrowserSession.SignInAsync(api, customer.User);
+
+        List<Guid> walked = [];
+        string? cursor = null;
+        do
+        {
+            JsonElement page = await OkAsync(session, $"{List}?limit={limit}" + (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor)));
+            walked.AddRange(page.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+            cursor = page.GetProperty("nextCursor").GetString();
+        }
+        while (cursor is not null);
+
+        Assert.Equal(6, expected.Count);
+        Assert.Equal(expected, walked);
     }
 
     [Fact]
@@ -91,23 +146,23 @@ public sealed partial class TransactionsTests(ApiFactory api)
         Assert.All(page.GetProperty("items").EnumerateArray(), item => Assert.Equal("Pending", item.GetProperty("status").GetString()));
     }
 
+    // Fixed instants, not the clock: from and to are whole UTC days, both inclusive, to the millisecond.
     [Fact]
     public async Task TheDateFilterKeepsWholeUtcDaysInclusive()
     {
-        BrowserSession session = await BrowserSession.SignInAsync(api, Thandi());
-        DateOnly to = DateOnly.FromDateTime(DateTime.UtcNow);
-        DateOnly from = to.AddDays(-30);
-        long expected = await AdminSql.CountAsync(api.AdminConnectionString,
-            "SELECT count(*) FROM transactions WHERE customer_id = @customer AND transaction_date >= @from AND transaction_date < @to",
-            ("customer", Seeder.ThandiCustomerId),
-            ("from", new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)),
-            ("to", new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)));
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        TimeSpan utc = TimeSpan.Zero;
+        Guid firstMomentOfFrom = await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, new(2026, 3, 1, 0, 0, 0, utc));
+        Guid lastMomentOfTo = await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, new(2026, 3, 31, 23, 59, 59, 999, utc));
+        await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, new(2026, 4, 1, 0, 0, 0, utc));
+        await customer.AddTransactionAsync(api, TransactionStatus.Posted, TransactionDirection.Debit, new(2026, 2, 28, 23, 59, 59, 999, utc));
+        BrowserSession session = await BrowserSession.SignInAsync(api, customer.User);
 
-        JsonElement page = await OkAsync(session, $"{List}?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}&limit=100");
+        JsonElement page = await OkAsync(session, List + "?from=2026-03-01&to=2026-03-31");
 
-        Assert.Equal(expected, page.GetProperty("items").GetArrayLength());
-        Assert.All(page.GetProperty("items").EnumerateArray(), item =>
-            Assert.InRange(DateOnly.FromDateTime(item.GetProperty("transactionDate").GetDateTimeOffset().UtcDateTime), from, to));
+        Assert.Equal(
+            [lastMomentOfTo, firstMomentOfFrom],
+            page.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ToArray());
     }
 
     [Fact]
@@ -193,6 +248,20 @@ public sealed partial class TransactionsTests(ApiFactory api)
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal("forbidden", (await Problem.ReadAsync(response)).Code);
+    }
+
+    [Theory]
+    [InlineData(List)]
+    [InlineData(List + "/c0570000-0000-4000-8000-000000000001")]
+    public async Task ADualRoleSessionIs403RoleConflictOnEveryCustomerEndpoint(string path)
+    {
+        BrowserSession both = await BrowserSession.SignInAsync(api, new IdpUser(Seeder.ThandiSubject, "Thandi Nkosi", [Roles.Customer, Roles.DisputeAgent]));
+        using HttpClient browser = api.CreateBrowserClient();
+
+        HttpResponseMessage response = await browser.SendAsync(both.Request(HttpMethod.Get, path));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(SingleRoleRequirement.Code, (await Problem.ReadAsync(response)).Code);
     }
 
     [Theory]

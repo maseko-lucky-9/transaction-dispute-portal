@@ -19,8 +19,8 @@ public sealed class TransactionQueries(
     {
         Guid customerId = CustomerId();
         TransactionFilter filter = TransactionFilter.Parse(request);
-        TransactionKey? after = request.Cursor is null ? null : cursors.Unprotect(request.Cursor, customerId, filter);
-        int limit = request.Limit ?? DefaultLimit;
+        TransactionKey? after = string.IsNullOrEmpty(request.Cursor) ? null : cursors.Unprotect(request.Cursor, customerId, filter);
+        int limit = TransactionListRequestValidator.TryParseLimit(request.Limit, out int requested) ? requested : DefaultLimit;
         // One extra row says whether a next page exists, without a count query.
         IReadOnlyList<TransactionRow> rows = await repository.ListAsync(filter, after, limit + 1, cancellationToken);
         string? nextCursor = rows.Count > limit
@@ -53,7 +53,8 @@ public sealed class TransactionQueries(
             row.Status,
             row.TransactionDate,
             row.PostedAt,
-            new TransactionAccount(row.MaskedNumber),
+            new TransactionAccount(row.MaskedNumber
+                ?? throw new InvalidOperationException($"Transaction {row.Id} has no account owned by its customer.")),
             violations.Count == 0,
             [.. violations.Select(violation => violation.Code)],
             Dispute: null);

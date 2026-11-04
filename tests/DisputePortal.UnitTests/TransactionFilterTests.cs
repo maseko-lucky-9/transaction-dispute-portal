@@ -14,6 +14,11 @@ public sealed class TransactionFilterTests
         Assert.Equal(new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero), filter.ToExclusive);
     }
 
+    // Safe on its own, not only behind the validator: there is no next day after the last one, so no upper bound.
+    [Fact]
+    public void TheLastRepresentableDayHasNoExclusiveUpperBound() =>
+        Assert.Null(new TransactionFilter(null, DateOnly.MaxValue, null).ToExclusive);
+
     [Fact]
     public void ParsingIsCaseInsensitiveOnStatus() =>
         Assert.Equal(TransactionStatus.Reversed, TransactionFilter.Parse(new TransactionListRequest(null, null, null, null, "reversed")).Status);

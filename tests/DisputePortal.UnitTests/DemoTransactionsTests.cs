@@ -9,7 +9,7 @@ public sealed class DemoTransactionsTests
     private static readonly DateTimeOffset Now = new(2026, 11, 4, 10, 30, 0, TimeSpan.Zero);
 
     private static IReadOnlyList<Transaction> Thandi() =>
-        DemoTransactions.For(1, Seeder.ThandiCustomerId, [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.ThandiCustomerId)], Now);
+        DemoTransactions.For(1, Seeder.ThandiCustomerId, [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.ThandiCustomerId)], Now, 120);
 
     [Fact]
     public void ACustomerGets75TransactionsWithTheIntendedMix()
@@ -48,7 +48,7 @@ public sealed class DemoTransactionsTests
     [Fact]
     public void ReferencesAndIdsAreUniqueAcrossCustomers()
     {
-        IReadOnlyList<Transaction> sipho = DemoTransactions.For(2, Seeder.SiphoCustomerId, [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.SiphoCustomerId)], Now);
+        IReadOnlyList<Transaction> sipho = DemoTransactions.For(2, Seeder.SiphoCustomerId, [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.SiphoCustomerId)], Now, 120);
         List<Transaction> all = [.. Thandi(), .. sipho];
 
         Assert.Equal(all.Count, all.Select(transaction => transaction.Reference).Distinct().Count());
@@ -62,6 +62,17 @@ public sealed class DemoTransactionsTests
         HashSet<Guid> accounts = [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.ThandiCustomerId).Select(account => account.Id)];
 
         Assert.All(Thandi(), transaction => Assert.Contains(transaction.AccountId, accounts));
+    }
+
+    // The window comes from DisputePolicyOptions, not a constant: a 30-day policy dates the old rows past 30 days.
+    [Fact]
+    public void TheOldTransactionsFollowTheConfiguredWindow()
+    {
+        IReadOnlyList<Transaction> transactions = DemoTransactions.For(
+            1, Seeder.ThandiCustomerId, [.. Seeder.Accounts.Where(account => account.CustomerId == Seeder.ThandiCustomerId)], Now, windowDays: 30);
+
+        Assert.Equal(9, transactions.Count(transaction => AgeDays(transaction) > 30));
+        Assert.All(transactions, transaction => Assert.InRange(AgeDays(transaction), 0, 61));
     }
 
     private static int AgeDays(Transaction transaction) =>

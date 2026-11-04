@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using DisputePortal.Api.Shared.Eligibility;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -45,6 +46,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public RedisContainer Redis => redis;
 
     public string AppConnectionString => RoleConnectionString(AppRole, appPassword);
+
+    /// <summary>The role that owns the schema (what migrations and a core-banking feed would write as).</summary>
+    public string OwnerConnectionString => RoleConnectionString(OwnerRole, ownerPassword);
 
     /// <summary>The container's superuser on the app database: test-data setup only, never what the API connects as.</summary>
     public string AdminConnectionString => postgres.GetConnectionString();
@@ -145,6 +149,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         services.AddSingleton(clock);
         services.AddPersistence(DatabaseUse.Migrations);
         services.AddDataProtectionKeyRing();
+        services.AddDisputeEligibility();
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
         return await MigrationRunner.RunAsync(provider, CancellationToken.None);
     }

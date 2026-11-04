@@ -1,5 +1,6 @@
 using DisputePortal.Api.Features.Customers;
 using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Domain.Eligibility;
 using Microsoft.EntityFrameworkCore;
 
 namespace DisputePortal.Api.Shared.Persistence;
@@ -35,7 +36,8 @@ public static class Seeder
         new() { Id = Guid.Parse("acc00000-0000-4000-8000-000000000021"), CustomerId = SiphoCustomerId, MaskedNumber = "**** 3356", Currency = Rand },
     ];
 
-    public static async Task SeedAsync(DbContext context, CurrentCustomer currentCustomer, TimeProvider time, CancellationToken cancellationToken)
+    public static async Task SeedAsync(
+        DbContext context, CurrentCustomer currentCustomer, TimeProvider time, DisputePolicyOptions policy, CancellationToken cancellationToken)
     {
         await SeedCustomersAsync(context, cancellationToken);
         DateTimeOffset now = time.GetUtcNow();
@@ -51,7 +53,7 @@ public static class Seeder
             List<Account> accounts = [.. Accounts.Where(account => account.CustomerId == customerId)];
             List<Guid> existingAccounts = await context.Set<Account>().Select(account => account.Id).ToListAsync(cancellationToken);
             context.Set<Account>().AddRange(accounts.Where(account => !existingAccounts.Contains(account.Id)).Select(Copy));
-            context.Set<Transaction>().AddRange(DemoTransactions.For(ordinal + 1, customerId, accounts, now));
+            context.Set<Transaction>().AddRange(DemoTransactions.For(ordinal + 1, customerId, accounts, now, policy.WindowDays));
             await context.SaveChangesAsync(cancellationToken);
         }
     }

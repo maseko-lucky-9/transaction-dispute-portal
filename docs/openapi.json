@@ -171,18 +171,18 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32",
+              "default": 25
             }
           },
           {
             "name": "cursor",
             "in": "query",
             "schema": {
+              "maxLength": 1024,
               "type": "string"
             }
           },
@@ -190,20 +190,27 @@
             "name": "from",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "date"
             }
           },
           {
             "name": "to",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "date"
             }
           },
           {
             "name": "status",
             "in": "query",
             "schema": {
+              "enum": [
+                "Pending",
+                "Posted",
+                "Reversed"
+              ],
               "type": "string"
             }
           }

@@ -11,12 +11,19 @@ public sealed class TransactionListRequestValidatorTests
     public void NoFiltersAtAllIsValid() => Assert.True(Validate(new TransactionListRequest(null, null, null, null, null)).IsValid);
 
     [Theory]
-    [InlineData(1, true)]
-    [InlineData(100, true)]
-    [InlineData(0, false)]
-    [InlineData(101, false)]
-    [InlineData(-5, false)]
-    public void TheLimitIsBetween1And100(int limit, bool valid) => AssertField(new(limit, null, null, null, null), "Limit", valid);
+    [InlineData("1", true)]
+    [InlineData("100", true)]
+    [InlineData("0", false)]
+    [InlineData("101", false)]
+    [InlineData("-5", false)]
+    [InlineData("abc", false)]
+    [InlineData("1e2", false)]
+    [InlineData("0x10", false)]
+    [InlineData("+5", false)]
+    [InlineData(" 5", false)]
+    [InlineData("", false)]
+    [InlineData("99999999999", false)]
+    public void TheLimitIsAWholeNumberBetween1And100(string limit, bool valid) => AssertField(new(limit, null, null, null, null), "Limit", valid);
 
     [Theory]
     [InlineData("2026-01-31", true)]
@@ -28,6 +35,29 @@ public sealed class TransactionListRequestValidatorTests
     {
         AssertField(new(null, null, date, null, null), "From", valid);
         AssertField(new(null, null, null, date, null), "To", valid);
+    }
+
+    // ToExclusive adds a day, so DateOnly.MaxValue once threw (500); the bounds keep every date well inside the range.
+    [Theory]
+    [InlineData("1900-01-01", true)]
+    [InlineData("2100-12-31", true)]
+    [InlineData("1899-12-31", false)]
+    [InlineData("2101-01-01", false)]
+    [InlineData("0001-01-01", false)]
+    [InlineData("9999-12-31", false)]
+    public void DatesLieBetween1900And2100(string date, bool valid)
+    {
+        AssertField(new(null, null, date, null, null), "From", valid);
+        AssertField(new(null, null, null, date, null), "To", valid);
+    }
+
+    [Fact]
+    public void BothBoundsAtTheMaximumDateAreRefused()
+    {
+        ValidationResult result = Validate(new(null, null, "9999-12-31", "9999-12-31", null));
+
+        Assert.Contains(result.Errors, error => error.PropertyName == "From");
+        Assert.Contains(result.Errors, error => error.PropertyName == "To");
     }
 
     [Fact]

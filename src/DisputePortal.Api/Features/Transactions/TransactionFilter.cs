@@ -10,6 +10,11 @@ public sealed record TransactionFilter(DateOnly? From, DateOnly? To, Transaction
 {
     public const string DateFormat = "yyyy-MM-dd";
 
+    /// <summary>The accepted date window. Wide enough for any real statement, narrow enough that no edge arithmetic overflows.</summary>
+    public static readonly DateOnly EarliestDate = new(1900, 1, 1);
+
+    public static readonly DateOnly LatestDate = new(2100, 12, 31);
+
     /// <summary>Parses a request that already passed <see cref="TransactionListRequestValidator"/>.</summary>
     public static TransactionFilter Parse(TransactionListRequest request) => new(
         ParseDate(request.From),
@@ -21,7 +26,10 @@ public sealed record TransactionFilter(DateOnly? From, DateOnly? To, Transaction
 
     public DateTimeOffset? FromInclusive => From is { } from ? new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
 
-    public DateTimeOffset? ToExclusive => To is { } to ? new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null;
+    /// <summary>The instant after the last included day. Safe on its own: the last representable day has no upper bound to apply.</summary>
+    public DateTimeOffset? ToExclusive => To is { } to && to < DateOnly.MaxValue
+        ? new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+        : null;
 
     /// <summary>Binds a cursor to the filters it was issued for: a cursor reused with other filters is refused.</summary>
     public string Fingerprint()

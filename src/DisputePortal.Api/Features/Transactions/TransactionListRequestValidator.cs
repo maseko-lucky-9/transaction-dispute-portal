@@ -1,3 +1,4 @@
+using System.Globalization;
 using DisputePortal.Domain.Transactions;
 using FluentValidation;
 
@@ -11,12 +12,10 @@ public sealed class TransactionListRequestValidator : AbstractValidator<Transact
 
     public TransactionListRequestValidator()
     {
-        RuleFor(request => request.Limit).InclusiveBetween(1, MaxLimit).When(request => request.Limit is not null)
-            .WithMessage($"limit must be between 1 and {MaxLimit}.");
-        RuleFor(request => request.From).Must(BeADate).When(request => request.From is not null)
-            .WithMessage("from must be a date in yyyy-MM-dd form.");
-        RuleFor(request => request.To).Must(BeADate).When(request => request.To is not null)
-            .WithMessage("to must be a date in yyyy-MM-dd form.");
+        RuleFor(request => request.Limit).Must(limit => TryParseLimit(limit, out _)).When(request => request.Limit is not null)
+            .WithMessage($"limit must be a whole number between 1 and {MaxLimit}.");
+        RuleFor(request => request.From).Must(BeADate).When(request => request.From is not null).WithMessage(DateMessage("from"));
+        RuleFor(request => request.To).Must(BeADate).When(request => request.To is not null).WithMessage(DateMessage("to"));
         RuleFor(request => request.To).Must((request, to) => Span(request) >= 0).When(BothDatesValid)
             .WithMessage("to must not be before from.");
         RuleFor(request => request.To).Must((request, to) => Span(request) <= MaxRangeDays).When(BothDatesValid)
@@ -26,7 +25,15 @@ public sealed class TransactionListRequestValidator : AbstractValidator<Transact
         RuleFor(request => request.Cursor).MaximumLength(MaxCursorLength);
     }
 
-    private static bool BeADate(string? value) => TransactionFilter.TryParseDate(value, out _);
+    /// <summary>Digits only (no sign, spaces, exponent or hex), within 1 to <see cref="MaxLimit"/>.</summary>
+    public static bool TryParseLimit(string? value, out int limit) =>
+        int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out limit) && limit is >= 1 and <= MaxLimit;
+
+    private static string DateMessage(string field) =>
+        $"{field} must be a date in yyyy-MM-dd form between {TransactionFilter.EarliestDate:yyyy-MM-dd} and {TransactionFilter.LatestDate:yyyy-MM-dd}.";
+
+    private static bool BeADate(string? value) =>
+        TransactionFilter.TryParseDate(value, out DateOnly date) && date >= TransactionFilter.EarliestDate && date <= TransactionFilter.LatestDate;
 
     private static bool BothDatesValid(TransactionListRequest request) => BeADate(request.From) && BeADate(request.To);
 

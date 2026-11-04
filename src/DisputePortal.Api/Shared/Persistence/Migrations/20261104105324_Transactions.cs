@@ -23,6 +23,7 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_accounts", x => x.id);
+                    table.UniqueConstraint("ak_accounts_id_customer_id", x => new { x.id, x.customer_id });
                     table.ForeignKey(
                         name: "fk_accounts_customers_customer_id",
                         column: x => x.customer_id,
@@ -56,10 +57,10 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                     table.CheckConstraint("ck_transactions_posted_at", "(status = 'Pending') = (posted_at IS NULL)");
                     table.CheckConstraint("ck_transactions_status", "status IN ('Pending', 'Posted', 'Reversed')");
                     table.ForeignKey(
-                        name: "fk_transactions_accounts_account_id",
-                        column: x => x.account_id,
+                        name: "fk_transactions_accounts_account_id_customer_id",
+                        columns: x => new { x.account_id, x.customer_id },
                         principalTable: "accounts",
-                        principalColumn: "id",
+                        principalColumns: new[] { "id", "customer_id" },
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "fk_transactions_customers_customer_id",
@@ -75,9 +76,9 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                 column: "customer_id");
 
             migrationBuilder.CreateIndex(
-                name: "ix_transactions_account_id",
+                name: "ix_transactions_account_id_customer_id",
                 table: "transactions",
-                column: "account_id");
+                columns: new[] { "account_id", "customer_id" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_transactions_customer_id_transaction_date_id",

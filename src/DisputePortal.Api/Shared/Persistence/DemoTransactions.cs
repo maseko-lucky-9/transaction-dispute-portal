@@ -5,8 +5,8 @@ namespace DisputePortal.Api.Shared.Persistence;
 
 /// <summary>
 /// Deterministic demo transactions for one seeded customer, dated relative to <c>now</c>: mostly posted debits inside
-/// the 120-day window, plus credits, pending, reversed and about 12% older than the window. A fixed seed per customer
-/// keeps every run (and every test) identical for the same clock.
+/// the dispute window (DisputePolicyOptions.WindowDays), plus credits, pending, reversed and about 12% older than the
+/// window. A fixed seed per customer keeps every run (and every test) identical for the same clock and window.
 /// </summary>
 public static class DemoTransactions
 {
@@ -19,8 +19,9 @@ public static class DemoTransactions
     public const decimal MaxAmount = 4500.00m;
 
     private const int Seed = 20261104;
-    private const int SpreadDays = 150;
-    private const int WindowDays = 120;
+
+    /// <summary>How far past the window the old transactions reach.</summary>
+    private const int DaysBeyondWindow = 30;
 
     private static readonly (string Merchant, string Category, decimal Min, decimal Max)[] Debits =
     [
@@ -48,13 +49,13 @@ public static class DemoTransactions
         Debit,
     }
 
-    public static IReadOnlyList<Transaction> For(int customerOrdinal, Guid customerId, IReadOnlyList<Account> accounts, DateTimeOffset now)
+    public static IReadOnlyList<Transaction> For(int customerOrdinal, Guid customerId, IReadOnlyList<Account> accounts, DateTimeOffset now, int windowDays)
     {
         Random random = new(Seed + customerOrdinal);
         List<Transaction> transactions = new(PerCustomer);
         foreach ((Kind kind, int index) in Plan().Select((kind, index) => (kind, index)))
         {
-            transactions.Add(Create(random, kind, index, customerOrdinal, customerId, accounts[index % accounts.Count], now));
+            transactions.Add(Create(random, kind, index, customerOrdinal, accounts[index % accounts.Count], new Moment(customerId, now, windowDays)));
         }
 
         return transactions;
@@ -67,13 +68,14 @@ public static class DemoTransactions
             .Concat(Enumerable.Repeat(Kind.Credit, PostedCredits))
             .Concat(Enumerable.Repeat(Kind.Debit, PerCustomer - OlderThanWindow - Pending - Reversed - PostedCredits));
 
-    private static Transaction Create(Random random, Kind kind, int index, int customerOrdinal, Guid customerId, Account account, DateTimeOffset now)
+    private static Transaction Create(Random random, Kind kind, int index, int customerOrdinal, Account account, Moment moment)
     {
+        (Guid customerId, DateTimeOffset now, int windowDays) = moment;
         int daysAgo = kind switch
         {
-            Kind.Old => random.Next(WindowDays + 1, SpreadDays + 1),
+            Kind.Old => random.Next(windowDays + 1, windowDays + DaysBeyondWindow + 1),
             Kind.Pending => random.Next(0, 4),
-            _ => random.Next(0, WindowDays),
+            _ => random.Next(0, windowDays),
         };
         // Earlier in the day than now, never later, so no transaction lies in the future.
         DateTimeOffset date = now.AddDays(-daysAgo).AddMinutes(-random.Next(1, 600));
@@ -101,6 +103,8 @@ public static class DemoTransactions
             PostedAt = status == TransactionStatus.Pending ? null : Min(date.AddHours(random.Next(1, 48)), now),
         };
     }
+
+    private sealed record Moment(Guid CustomerId, DateTimeOffset Now, int WindowDays);
 
     private static (string, string, decimal, decimal) Pick(Random random, (string, string, decimal, decimal)[] choices) =>
         choices[random.Next(choices.Length)];

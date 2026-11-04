@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DisputePortal.Api.Shared.Persistence.Migrations
 {
     [DbContext(typeof(DisputePortalDbContext))]
-    [Migration("20261104102955_Transactions")]
+    [Migration("20261104105324_Transactions")]
     partial class Transactions
     {
         /// <inheritdoc />
@@ -78,6 +78,9 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_accounts");
+
+                    b.HasAlternateKey("Id", "CustomerId")
+                        .HasName("ak_accounts_id_customer_id");
 
                     b.HasIndex("CustomerId")
                         .HasDatabaseName("ix_accounts_customer_id");
@@ -152,12 +155,12 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_transactions");
 
-                    b.HasIndex("AccountId")
-                        .HasDatabaseName("ix_transactions_account_id");
-
                     b.HasIndex("Reference")
                         .IsUnique()
                         .HasDatabaseName("ix_transactions_reference");
+
+                    b.HasIndex("AccountId", "CustomerId")
+                        .HasDatabaseName("ix_transactions_account_id_customer_id");
 
                     b.HasIndex("CustomerId", "TransactionDate", "Id")
                         .IsDescending(false, true, true)
@@ -210,19 +213,20 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
 
             modelBuilder.Entity("DisputePortal.Api.Features.Transactions.Transaction", b =>
                 {
-                    b.HasOne("DisputePortal.Api.Features.Transactions.Account", null)
-                        .WithMany()
-                        .HasForeignKey("AccountId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_transactions_accounts_account_id");
-
                     b.HasOne("DisputePortal.Api.Features.Customers.Customer", null)
                         .WithMany()
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_transactions_customers_customer_id");
+
+                    b.HasOne("DisputePortal.Api.Features.Transactions.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId", "CustomerId")
+                        .HasPrincipalKey("Id", "CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_transactions_accounts_account_id_customer_id");
                 });
 #pragma warning restore 612, 618
         }

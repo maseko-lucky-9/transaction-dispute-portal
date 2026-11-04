@@ -1,5 +1,6 @@
 using DisputePortal.Api.Features.Customers;
 using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Domain.Eligibility;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -27,7 +28,11 @@ public static class PersistenceRegistration
         // same request-scoped CurrentCustomer, so it never needs to bypass the filter.
         services.AddDbContext<DisputePortalDbContext>((provider, options) => Configure(options, provider.GetRequiredService<NpgsqlDataSource>())
             .UseAsyncSeeding((context, _, cancellationToken) => Seeder.SeedAsync(
-                context, provider.GetRequiredService<CurrentCustomer>(), provider.GetRequiredService<TimeProvider>(), cancellationToken)));
+                context,
+                provider.GetRequiredService<CurrentCustomer>(),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<IOptions<DisputePolicyOptions>>().Value,
+                cancellationToken)));
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();

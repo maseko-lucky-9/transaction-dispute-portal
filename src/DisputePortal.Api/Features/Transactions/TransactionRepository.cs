@@ -60,5 +60,5 @@ public sealed class TransactionRepository(DisputePortalDbContext db) : ITransact
             transaction.Status,
             transaction.TransactionDate,
             transaction.PostedAt,
-            db.Accounts.Where(account => account.Id == transaction.AccountId).Select(account => account.MaskedNumber).FirstOrDefault() ?? string.Empty));
+            db.Accounts.Where(account => account.Id == transaction.AccountId).Select(account => account.MaskedNumber).FirstOrDefault()));
 }

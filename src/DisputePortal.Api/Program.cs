@@ -52,6 +52,8 @@ catch (VaultUnavailableException exception)
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddPersistence(migrate ? DatabaseUse.Migrations : DatabaseUse.Application);
 builder.Services.AddDataProtectionKeyRing();
+// Before the migrate branch too: the seeder dates its demo data against the same configured window.
+builder.Services.AddDisputeEligibility();
 
 if (migrate)
 {
@@ -75,7 +77,6 @@ builder.Services.AddPerSubjectRateLimiter(builder.Configuration);
 builder.Services.AddRequestTimeouts(options => options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(30) });
 builder.Services.AddApiDocumentation();
 builder.Services.AddSingleton<IValidator<LoginRequest>, LoginRequestValidator>();
-builder.Services.AddDisputeEligibility();
 builder.Services.AddTransactions();
 // Enums cross the wire by name ("Posted"), and the OpenAPI document lists their values for the generated TS types.
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
