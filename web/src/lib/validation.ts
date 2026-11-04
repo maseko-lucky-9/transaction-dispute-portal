@@ -11,9 +11,11 @@
  *
  *   B. `sensitive_data`: the text carries a card number or a South African ID number. Both are
  *      13-19 digit strings that pass the Luhn checksum. To find one:
- *        1. Normalise: NFKC, then delete every format character (category Cf, e.g. zero-width
- *           space), then turn every decimal digit (category Nd, any script) into its ASCII
- *           digit by its value.
+ *        1. Normalise: delete every format character (category Cf, e.g. zero-width space), then
+ *           turn every decimal digit (category Nd, any script) into its ASCII digit by its
+ *           value. There is deliberately NO Unicode normalisation (NFKC): the production server
+ *           runs with invariant globalization, where it does nothing, so the shared rule cannot
+ *           depend on it.
  *        2. A "chain" is a maximal run of ASCII digit groups, where consecutive groups are
  *           separated by 1 to 4 characters, each a whitespace character, a dash (category
  *           Pd), or one of  . , / _ ( )
@@ -26,19 +28,27 @@
  * "4111 1111 1111 1111" and "ref 1 4111111111111111" caught while leaving Luhn-invalid numbers
  * alone.
  *
- * Known limits: this deters ACCIDENTAL disclosure, not deliberate obfuscation. A gap of five or
- * more separators, words between the groups, digits spelled out as words, or invisible code
- * points that are not format characters (variation selectors, U+034F, fillers such as U+115F,
- * U+3164, U+FFA0, the braille blank U+2800) are not joined.
+ * LIMITS. This deters ACCIDENTAL disclosure, not deliberate obfuscation. Not folded, so not
+ * found when a card number is written with:
+ *   - circled, superscript or subscript digits (they are not category Nd);
+ *   - fullwidth or other compatibility punctuation as separators (U+FF0E, U+FF0C, U+FF0F ...;
+ *     fullwidth digits ARE Nd and are read);
+ *   - five or more separators between groups, or words between the groups;
+ *   - invisible characters that are not category Cf: variation selectors, U+034F combining
+ *     grapheme joiner, filler characters such as U+3164, the blank braille pattern U+2800.
+ *
  * And "every digit of every script" means every digit this runtime's Unicode tables know: a
  * script added in a newer Unicode than the server's (Node 22 knows ten Sunuwar digits that
  * .NET 10 does not) is read here and not there. The server is authoritative, so that can only
  * make this side stricter, never let something through.
  *
- * Parity with .NET was checked code point by code point (Nd, Cf, Pd, Cc, NFKC, and each digit's
- * value against `CharUnicodeInfo.GetDecimalDigitValue`): the only differences are that Unicode
- * skew, and `\s` matching U+FEFF here and U+0085 there, both removed or refused before the chain
- * is scanned (the first is category Cf, the second Cc).
+ * Parity with .NET: the category tables (Nd, Cf, Pd, Cc) and each digit's value (against
+ * `CharUnicodeInfo.GetDecimalDigitValue`) were compared code point by code point; the only
+ * difference is that Unicode skew. The regexes differ in one respect: JavaScript's `u`-mode
+ * classes match whole code points, so the separator class here also matches the two
+ * supplementary-plane dashes (U+10D6E, U+10EAD), while .NET's regex works on UTF-16 units and
+ * does not. That too makes this side stricter. `\s` differs by U+FEFF here and U+0085 there,
+ * both removed or refused before the chain is scanned (categories Cf and Cc).
  */
 
 export const SENSITIVE_MIN_DIGITS = 13;
@@ -76,7 +86,6 @@ export function decimalDigitValue(character: string): number {
 /** Rule B, step 1: what the digit scan reads. Exported for tests. */
 export function normalizeForDigitScan(text: string): string {
   return text
-    .normalize("NFKC")
     .replace(FORMAT_CHARACTER, "")
     .replace(DECIMAL_DIGITS, (digit) => String(decimalDigitValue(digit)));
 }

@@ -148,10 +148,11 @@ describe("rule B: normalisation", () => {
     expect(containsSensitiveNumber("41\u200b11111111111111")).toBe(true);
   });
 
-  it("applies NFKC: compatibility forms become their plain equivalents", () => {
-    expect(normalizeForDigitScan("\uff14\uff11")).toBe("41"); // fullwidth digits
-    expect(normalizeForDigitScan("\ufb01")).toBe("fi"); // ligature
-    expect(normalizeForDigitScan("\u2460")).toBe("\u2460".normalize("NFKC")); // circled digit: not Nd
+  it("does no Unicode normalisation: only Cf is deleted and Nd is re-read by value", () => {
+    expect(normalizeForDigitScan("\uff14\uff11")).toBe("41"); // fullwidth digits ARE Nd
+    expect(normalizeForDigitScan("\ufb01")).toBe("\ufb01"); // a ligature stays a ligature
+    expect(normalizeForDigitScan("\u2460\u2074\u2084")).toBe("\u2460\u2074\u2084");
+    expect(normalizeForDigitScan("\uff0e")).toBe("\uff0e"); // fullwidth full stop is not turned into "."
   });
 
   it("reads a digit written in any script by its value", () => {
@@ -175,6 +176,49 @@ describe("rule B: normalisation", () => {
   it("leaves text without digits, and ordinary numbers, alone", () => {
     expect(normalizeForDigitScan("no digits here")).toBe("no digits here");
     expect(containsSensitiveNumber("Charged R1200.50 on 2026-11-04 at 14:30")).toBe(false);
+  });
+});
+
+describe("the documented limits (accidental disclosure, not deliberate obfuscation)", () => {
+  const card = ["4111", "1111", "1111", "1111"];
+
+  it.each([
+    ["circled digits", "\u2460\u2460\u2460\u2460"],
+    ["superscript digits", "\u2074\u00b9\u00b9\u00b9"],
+    ["subscript digits", "\u2084\u2081\u2081\u2081"],
+  ])("%s are not folded to digits", (_name, group) => {
+    expect(containsSensitiveNumber([group, "1111", "1111", "1111"].join(" "))).toBe(false);
+    expect(containsSensitiveNumber([group, group, group, group].join(" "))).toBe(false);
+  });
+
+  it.each([
+    ["fullwidth full stop", "\uff0e"],
+    ["fullwidth comma", "\uff0c"],
+    ["fullwidth solidus", "\uff0f"],
+    ["fullwidth low line", "\uff3f"],
+    ["fullwidth parentheses", "\uff09\uff08"],
+  ])("a %s does not separate groups", (_name, separator) => {
+    expect(containsSensitiveNumber(card.join(separator))).toBe(false);
+  });
+
+  it("but a fullwidth hyphen-minus is a dash (category Pd) and does", () => {
+    expect(containsSensitiveNumber(card.join("\uff0d"))).toBe(true);
+  });
+
+  it.each([
+    ["variation selector", "\ufe0f"],
+    ["combining grapheme joiner", "\u034f"],
+    ["Hangul filler", "\u3164"],
+    ["blank braille pattern", "\u2800"],
+  ])("an invisible %s that is not a format character is not skipped", (_name, invisible) => {
+    expect(containsSensitiveNumber(card.join(invisible))).toBe(false);
+    // ...while a real format character (Cf) between the same groups is.
+    expect(containsSensitiveNumber(card.join("\u200b"))).toBe(true);
+  });
+
+  it("matches the supplementary-plane dashes too (stricter than .NET's UTF-16 regex, by design)", () => {
+    expect(containsSensitiveNumber(card.join("\u{10d6e}"))).toBe(true);
+    expect(containsSensitiveNumber(card.join("\u{10ead}"))).toBe(true);
   });
 });
 
@@ -251,7 +295,7 @@ describe("decimalDigitValue", () => {
       }
     });
 
-    it("agrees with NFKC wherever NFKC itself maps the digit to an ASCII digit", () => {
+    it("agrees with an independent oracle: wherever NFKC maps a digit to ASCII, the value is the same (NFKC is only the test\u2019s oracle)", () => {
       let compared = 0;
       for (const character of digits) {
         const plain = character.normalize("NFKC");

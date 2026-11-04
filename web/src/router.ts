@@ -13,7 +13,11 @@ declare module "@tanstack/react-router" {
 }
 
 declare module "@tanstack/history" {
-  /** One-shot messages carried in history state (never in the URL, so a reload clears them). */
+  /**
+   * One-shot messages carried in history state (never in the URL). History state SURVIVES a
+   * reload and Back/Forward, so whoever shows one must wipe it from the entry once it is on
+   * screen: see SubmissionNotice in dispute-detail-page.tsx.
+   */
   interface HistoryState {
     disputeSubmitted?: boolean;
     /** The create was answered by a replay whose stored details differ from what was just sent. */

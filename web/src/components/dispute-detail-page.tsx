@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getRouteApi, Link, useLocation } from "@tanstack/react-router";
+import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 
 import { disputeDetailOptions, disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
@@ -22,10 +23,6 @@ function focusOnMount(element: HTMLElement | null) {
 
 export function DisputeDetailPage() {
   const { disputeId } = route.useParams();
-  const justSubmitted = useLocation({ select: (location) => location.state.disputeSubmitted });
-  const earlierDetailsKept = useLocation({
-    select: (location) => location.state.earlierDetailsKept,
-  });
   const validId = isGuid(disputeId);
   // A malformed id cannot be a dispute: no request, same page as an unknown id.
   const query = useQuery({ ...disputeDetailOptions(disputeId), enabled: validId });
@@ -62,26 +59,7 @@ export function DisputeDetailPage() {
     <div className="flex flex-col gap-8">
       <title>Dispute - Transactions Dispute Portal</title>
 
-      {justSubmitted ? (
-        // One live region, focused, so the whole message is heard at once.
-        <div
-          role="status"
-          tabIndex={-1}
-          ref={focusOnMount}
-          className="flex flex-col gap-1 rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
-        >
-          <p className="font-medium">
-            Your dispute was submitted. We will review it and update the timeline below.
-          </p>
-          {earlierDetailsKept ? (
-            <p>
-              We had already received your request, so we kept what you sent the first time. A
-              submitted dispute cannot be edited: if the text, reason or amount below is not what
-              you meant, withdraw this dispute and raise a new one.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <SubmissionNotice key={dispute.id} />
 
       <div className="flex flex-col gap-2">
         <Link to="/disputes" className="text-sm underline underline-offset-4">
@@ -139,6 +117,51 @@ export function DisputeDetailPage() {
       </section>
 
       <WithdrawDispute id={dispute.id} current={{ dispute, etag }} />
+    </div>
+  );
+}
+
+/**
+ * The "just submitted" banner. It arrives in history state from the form and must be shown
+ * ONCE: read at mount, kept in this component's state, and wiped from the history entry as soon
+ * as it is on screen, so a reload or Back/Forward to this page cannot bring it back (even after
+ * the dispute was withdrawn). Keyed by dispute, so it cannot follow the customer to another.
+ */
+function SubmissionNotice() {
+  const router = useRouter();
+  const [notice] = useState(() => {
+    const { state } = router.history.location;
+    return {
+      submitted: state.disputeSubmitted === true,
+      earlierDetailsKept: state.earlierDetailsKept === true,
+    };
+  });
+
+  useEffect(() => {
+    if (!notice.submitted) return;
+    // Same URL, empty state; the router keeps its own bookkeeping keys.
+    router.history.replace(router.history.location.href, {});
+  }, [notice.submitted, router]);
+
+  if (!notice.submitted) return null;
+  return (
+    // One live region, focused, so the whole message is heard at once.
+    <div
+      role="status"
+      tabIndex={-1}
+      ref={focusOnMount}
+      className="flex flex-col gap-1 rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
+    >
+      <p className="font-medium">
+        Your dispute was submitted. We will review it and update the timeline below.
+      </p>
+      {notice.earlierDetailsKept ? (
+        <p>
+          We had already received your request, so we kept what you sent the first time. A submitted
+          dispute cannot be edited: if the text, reason or amount below is not what you meant,
+          withdraw this dispute and raise a new one.
+        </p>
+      ) : null}
     </div>
   );
 }

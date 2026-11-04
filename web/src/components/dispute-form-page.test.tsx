@@ -1,9 +1,10 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createBrowserHistory, type RouterHistory } from "@tanstack/react-router";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { CreateDisputeRequest } from "@/api/disputes";
+import { disputeDetailOptions, type CreateDisputeRequest } from "@/api/disputes";
 import type { TransactionItem } from "@/api/transactions";
 import { INVALID_CHARACTERS_MESSAGE, SENSITIVE_MESSAGE } from "@/lib/dispute-form";
 import cases from "@/lib/validation-cases.json";
@@ -692,6 +693,140 @@ describe("dispute form page: one id per opened form", () => {
       unmount();
     }
     expect(ids.size).toBe(3);
+  });
+});
+
+describe("dispute form page: the submitted banner is shown once", () => {
+  const banner = () => screen.queryByText(/Your dispute was submitted/);
+  const histories: RouterHistory[] = [];
+
+  /** The browser's own history (jsdom's window.history), so state really survives a "reload". */
+  function browserHistory(path?: string) {
+    if (path) window.history.replaceState(null, "", path);
+    const history = createBrowserHistory();
+    histories.push(history);
+    return history;
+  }
+
+  afterEach(() => {
+    for (const history of histories.splice(0)) history.destroy();
+    window.history.replaceState(null, "", "/");
+  });
+
+  async function submitFromTheForm(options: FakeOptions = {}) {
+    const tx = makeTransaction({ merchantName: "Netflix" });
+    const disputes = fakeDisputesApi({ transactions: [tx], ...options });
+    server.use(signedIn(), ...fakeTransactionsApi([tx]).handlers, ...disputes.handlers);
+    const view = renderApp("/", { history: browserHistory(`/transactions/${tx.id}/dispute`) });
+    const user = userEvent.setup();
+    await screen.findByRole("form", { name: "Dispute this transaction" });
+    await fillValid(user);
+    await user.click(submitButton());
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(banner()).toBeInTheDocument();
+    return { ...view, ...disputes, user, tx };
+  }
+
+  /** What a reload does: a new document-level router over the same window.history. */
+  async function reload(view: { unmount: () => void }) {
+    view.unmount();
+    const reloaded = renderApp("/", { history: browserHistory() });
+    await screen.findByRole("heading", { level: 1, name: /^Dispute:/ });
+    return reloaded;
+  }
+
+  it("wipes the one-shot state from the history entry once the banner is on screen", async () => {
+    const view = await submitFromTheForm();
+
+    await waitFor(() => {
+      expect(view.router.history.location.state.disputeSubmitted).toBeUndefined();
+    });
+    expect(view.router.history.location.state.earlierDetailsKept).toBeUndefined();
+    // The browser's own entry, which is what a reload reads.
+    expect(window.history.state).not.toHaveProperty("disputeSubmitted");
+    expect(banner()).toBeInTheDocument(); // still on screen for this visit
+    expect(screen.getByText(/Your dispute was submitted/).closest('[role="status"]')).toHaveFocus();
+  });
+
+  it("does not come back after a reload", async () => {
+    const view = await submitFromTheForm();
+    await waitFor(() => expect(window.history.state).not.toHaveProperty("disputeSubmitted"));
+
+    await reload(view);
+
+    expect(banner()).not.toBeInTheDocument();
+    expect(screen.queryByText(/kept what you sent the first time/)).not.toBeInTheDocument();
+  });
+
+  it("does not come back after a reload once the dispute was withdrawn", async () => {
+    const view = await submitFromTheForm();
+    await view.user.click(screen.getByRole("button", { name: "Withdraw dispute" }));
+    await view.user.click(screen.getByRole("button", { name: "Yes, withdraw" }));
+    await screen.findByText("Dispute withdrawn.");
+
+    await reload(view);
+
+    expect(screen.getAllByText("Withdrawn").length).toBeGreaterThan(0);
+    expect(banner()).not.toBeInTheDocument();
+  });
+
+  it("does not come back with Back then Forward", async () => {
+    const view = await submitFromTheForm();
+    await waitFor(() => expect(window.history.state).not.toHaveProperty("disputeSubmitted"));
+
+    act(() => view.router.history.back());
+    await screen.findByRole("form", { name: "Dispute this transaction" });
+    act(() => view.router.history.forward());
+    await screen.findByRole("heading", { level: 1, name: /^Dispute:/ });
+
+    expect(banner()).not.toBeInTheDocument();
+  });
+
+  it("the 'kept what you sent the first time' note is shown once too", async () => {
+    const tx = makeTransaction({ merchantName: "Netflix" });
+    let first = true;
+    const disputes = fakeDisputesApi({
+      transactions: [tx],
+      // The server stores the first attempt, but its answer is lost; the retry is a replay.
+      afterCreate: () => {
+        if (!first) return undefined;
+        first = false;
+        return HttpResponse.error();
+      },
+    });
+    server.use(signedIn(), ...fakeTransactionsApi([tx]).handlers, ...disputes.handlers);
+    const view = renderApp("/", { history: browserHistory(`/transactions/${tx.id}/dispute`) });
+    const user = userEvent.setup();
+    await screen.findByRole("form", { name: "Dispute this transaction" });
+    await fillValid(user);
+    await user.click(submitButton());
+    await screen.findByRole("alert");
+    await user.clear(descriptionBox());
+    await write(user, descriptionBox(), "An edited description that was not stored.");
+    await user.click(submitButton());
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Netflix" });
+    expect(screen.getByText(/kept what you sent the first time/)).toBeInTheDocument();
+    await waitFor(() => expect(window.history.state).not.toHaveProperty("earlierDetailsKept"));
+
+    await reload(view);
+
+    expect(screen.queryByText(/kept what you sent the first time/)).not.toBeInTheDocument();
+    expect(banner()).not.toBeInTheDocument();
+  });
+
+  it("does not follow the customer to another dispute", async () => {
+    const other = makeDisputeDetail({ merchantName: "Uber" }, 7);
+    const view = await submitFromTheForm({ disputes: [other] });
+    // With the other dispute already cached there is no loading state between the two pages, so
+    // the notice component is not unmounted on the way: only its key keeps the banner off it.
+    await view.queryClient.prefetchQuery(disputeDetailOptions(other.id));
+
+    await act(async () => {
+      await view.router.navigate({ to: "/disputes/$disputeId", params: { disputeId: other.id } });
+    });
+    await screen.findByRole("heading", { level: 1, name: "Dispute: Uber" });
+
+    expect(banner()).not.toBeInTheDocument();
   });
 });
 
