@@ -73,7 +73,13 @@ test('edge: security headers per location, no-store on the API, Keycloak admin i
   expect(api.headers()['cache-control']).toContain('no-store');
   expect(api.headers()['x-content-type-options']).toBe('nosniff');
 
-  for (const path of ['/admin/master/console/', '/realms/master/.well-known/openid-configuration', '/metrics', '/health']) {
+  for (const path of [
+    '/admin/master/console/',
+    '/realms/master/.well-known/openid-configuration',
+    '/realms/dispute-portal/account/',
+    '/metrics',
+    '/health',
+  ]) {
     expect((await request.get(`${authUrl}${path}`)).status(), path).toBe(404);
   }
   const oidc = await request.get(`${authUrl}/realms/dispute-portal/.well-known/openid-configuration`);
