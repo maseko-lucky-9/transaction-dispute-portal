@@ -84,10 +84,23 @@ OTEL_ENDPOINT=http://lgtm:4317 docker compose --profile observability up -d --wa
 
 - `OTEL_ENDPOINT` feeds the API's `OTEL_EXPORTER_OTLP_ENDPOINT` (`docker-compose.yml`). If the `api` container was
   already running, `up -d` recreates it with the new variable.
-- Grafana is published on `127.0.0.1:3000`. The image is `grafana/otel-lgtm` (digest-pinned in the compose file).
-- Contradiction with the plan: the plan says the profile generates a Grafana admin password. The compose file does
-  not set one, so the image's default credentials apply (not checked for this image [UNVERIFIED]; change them before exposing the
-  port beyond loopback). The port is bound to loopback only.
+- Grafana is published on `127.0.0.1:3000` only. The image is `grafana/otel-lgtm` (digest-pinned in the compose file).
+- Sign in as `admin` with a generated password. `bootstrap` creates it in the `secrets` volume at
+  `grafana/admin_password` only when the file is missing (so a second `up` does not rotate it, and it is never printed),
+  and `lgtm` mounts that directory read-only and has Grafana read it through `$__file{}`. Read it with a one-off
+  container (the volume is `<project>_secrets`, so `dispute-portal_secrets` for the default project):
+
+  ```
+  docker run --rm -v dispute-portal_secrets:/s:ro alpine cat /s/grafana/admin_password
+  ```
+
+- Anonymous access is switched off (`GF_AUTH_ANONYMOUS_ENABLED=false`). The image's own default is anonymous with the
+  Admin role, which would make the password irrelevant.
+- Grafana applies the admin password only when it creates its database, and `lgtm` has no data volume. To apply a
+  changed password, recreate the container: `docker compose --profile observability rm -sf lgtm`, then `up -d` again.
+- `GF_SECURITY_ADMIN_PASSWORD__FILE` does not work with this image: the `__FILE` suffix is handled by the official
+  `grafana/grafana` image's `run.sh`, and `otel-lgtm` starts `./bin/grafana server` directly. With it, `admin`/`admin`
+  still logged in (observed 2026-11-04), hence the `$__file{}` form.
 - Verified once on a clean clone (2026-11-04): after one dispute submit, Prometheus had `disputes_submitted_total` and
   `security_events_total{type="csrf_rejected"|"authz_denied"}`, and Tempo had a trace for `POST /api/v1/disputes/` with
   a redis `session.retrieve` span and 9 Npgsql spans. No dashboard was built or screenshotted.
