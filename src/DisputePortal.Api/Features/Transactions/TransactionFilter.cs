@@ -1,6 +1,5 @@
 using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
+using DisputePortal.Api.Shared.Paging;
 using DisputePortal.Domain.Transactions;
 
 namespace DisputePortal.Api.Features.Transactions;
@@ -35,7 +34,7 @@ public sealed record TransactionFilter(DateOnly? From, DateOnly? To, Transaction
     public string Fingerprint()
     {
         string canonical = string.Create(CultureInfo.InvariantCulture, $"from={From:yyyy-MM-dd};to={To:yyyy-MM-dd};status={Status}");
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)), 0, 16);
+        return KeysetCursor.Fingerprint(canonical);
     }
 
     private static DateOnly? ParseDate(string? value) => TryParseDate(value, out DateOnly date) ? date : null;

@@ -11,10 +11,8 @@ public static class DbErrorTranslator
     // The cause becomes the refusal's InnerException, so the log keeps the SQLSTATE and server message.
     public static ApiException? Translate(DbUpdateException exception) => exception switch
     {
-        DbUpdateConcurrencyException => new ConflictException(
-            "The resource was changed by another request; reload and retry.", "concurrency_conflict", exception),
-        { InnerException: PostgresException { SqlState: UniqueViolation } } => new ConflictException(
-            "The resource already exists.", "duplicate", exception),
+        DbUpdateConcurrencyException => new ConcurrencyConflictException(exception),
+        { InnerException: PostgresException { SqlState: UniqueViolation } unique } => new DuplicateKeyException(unique.ConstraintName, exception),
         { InnerException: NpgsqlException { IsTransient: true } } => new DatabaseUnavailableException(exception),
         _ => null,
     };

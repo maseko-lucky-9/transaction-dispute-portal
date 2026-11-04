@@ -15,22 +15,23 @@ public static class RateLimits
 {
     private const string PermitSetting = "RateLimiting:PermitsPerMinute";
     private const int DefaultPermitsPerMinute = 300;
+    private const string DisputeSubmitSetting = "RateLimiting:DisputeSubmitsPerMinute";
+    private const int DefaultDisputeSubmitsPerMinute = 10;
+
+    /// <summary>The tighter bucket on POST /api/v1/disputes, on top of the global one.</summary>
+    public const string DisputeSubmitPolicy = "dispute-submit";
 
     public const string RejectionCode = "rate_limited";
 
     public static IServiceCollection AddPerSubjectRateLimiter(this IServiceCollection services, IConfiguration configuration)
     {
         int permits = configuration.GetValue(PermitSetting, DefaultPermitsPerMinute);
+        int disputeSubmits = configuration.GetValue(DisputeSubmitSetting, DefaultDisputeSubmitsPerMinute);
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-                RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = permits,
-                    Window = TimeSpan.FromMinutes(1),
-                    QueueLimit = 0,
-                }));
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context => PerMinute(context, permits));
+            options.AddPolicy(DisputeSubmitPolicy, context => PerMinute(context, disputeSubmits));
             options.OnRejected = async (context, _) =>
             {
                 context.HttpContext.RequestServices.GetRequiredService<SecurityMetrics>().Record(SecurityMetrics.RateLimited);
@@ -46,6 +47,14 @@ public static class RateLimits
         });
         return services;
     }
+
+    private static RateLimitPartition<string> PerMinute(HttpContext context, int permits) =>
+        RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permits,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        });
 
     private static string PartitionKey(HttpContext context) =>
         context.User.FindFirstValue(ClaimNames.Subject) is { } subject

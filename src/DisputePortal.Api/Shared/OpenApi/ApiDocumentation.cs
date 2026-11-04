@@ -9,7 +9,9 @@ public static class ApiDocumentation
     public const string DocumentPath = "/openapi/v1.json";
 
     public static IServiceCollection AddApiDocumentation(this IServiceCollection services) =>
-        services.AddOpenApi(options => options.AddDocumentTransformer<SessionSecurityTransformer>());
+        services.AddOpenApi(options => options
+            .AddDocumentTransformer<SessionSecurityTransformer>()
+            .AddSchemaTransformer<ProblemSchemaTransformer>());
 
     public static WebApplication MapApiDocumentation(this WebApplication app)
     {

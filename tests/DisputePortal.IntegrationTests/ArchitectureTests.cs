@@ -123,9 +123,24 @@ public sealed partial class ArchitectureTests
         using DisputePortalDbContext db = new DesignTimeDbContextFactory().CreateDbContext([]);
         IEntityType[] owned = [.. db.Model.GetEntityTypes().Where(entity => entity.FindProperty("CustomerId") is not null)];
 
-        Assert.Equal(["Account", "Transaction"], owned.Select(entity => entity.ClrType.Name).Order(StringComparer.Ordinal));
-        Assert.All(owned, entity => Assert.Contains(entity.GetDeclaredQueryFilters(), filter => filter.Key == DisputePortalDbContext.OwnerFilter));
+        Assert.Equal(["Account", "Dispute", "Transaction"], owned.Select(entity => entity.ClrType.Name).Order(StringComparer.Ordinal));
+        Assert.All(owned, entity => Assert.True(HasOwnerFilter(entity), entity.ClrType.Name));
     }
+
+    // Rows reached through an owned row (a dispute's history, say) carry no CustomerId of their own, but are just as private.
+    [Fact]
+    public void EveryEntityThatReferencesAnOwnedEntityHasTheOwnerFilter()
+    {
+        using DisputePortalDbContext db = new DesignTimeDbContextFactory().CreateDbContext([]);
+        IEntityType[] dependents = [.. db.Model.GetEntityTypes()
+            .Where(entity => entity.GetForeignKeys().Any(foreignKey => HasOwnerFilter(foreignKey.PrincipalEntityType)))];
+
+        Assert.Equal(["Dispute", "DisputeStatusChange", "Transaction"], dependents.Select(entity => entity.ClrType.Name).Order(StringComparer.Ordinal));
+        Assert.All(dependents, entity => Assert.True(HasOwnerFilter(entity), entity.ClrType.Name));
+    }
+
+    private static bool HasOwnerFilter(IReadOnlyEntityType entity) =>
+        entity.GetDeclaredQueryFilters().Any(filter => filter.Key == DisputePortalDbContext.OwnerFilter);
 
     private static string[] Offenders(IEnumerable<(string Path, string Text)> files, Regex rule, string[] allowedIn) =>
         [.. files

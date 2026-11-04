@@ -1,4 +1,5 @@
 using DisputePortal.Domain.Common;
+using DisputePortal.Domain.Disputes;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -12,7 +13,9 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        (int status, string code, string detail) = Describe(exception);
+        ProblemDetails problem = Describe(exception);
+        int status = problem.Status!.Value;
+        string code = (string)problem.Extensions["code"]!;
         if (status >= StatusCodes.Status500InternalServerError)
         {
             // .NET 10 no longer logs exceptions a handler has handled, so 5xx are logged here.
@@ -24,20 +27,25 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
             httpContext.Response.Headers.RetryAfter = "1";
         }
 
-        await ProblemResponses.WriteAsync(httpContext, new ProblemDetails { Status = status, Detail = detail, Extensions = { ["code"] = code } });
+        await ProblemResponses.WriteAsync(httpContext, problem);
         return true;
     }
 
     // No stack trace or exception text ever reaches the client.
-    private static (int Status, string Code, string Detail) Describe(Exception exception) => exception switch
+    private static ProblemDetails Describe(Exception exception) => exception switch
     {
-        ApiException api => (api.Status, api.Code, api.Message),
-        DomainException domain => (StatusCodes.Status422UnprocessableEntity, domain.Code, domain.Message),
+        ApiException api => api.ToProblem(),
+        // An illegal move conflicts with the dispute's current state (ADR-007): 409, not a rule violation.
+        InvalidTransitionException transition => Problem(StatusCodes.Status409Conflict, transition.Code, transition.Message),
+        DomainException domain => Problem(StatusCodes.Status422UnprocessableEntity, domain.Code, domain.Message),
         RetryLimitExceededException or NpgsqlException { IsTransient: true } =>
-            (StatusCodes.Status503ServiceUnavailable, "database_unavailable", ErrorCodes.DetailForStatus(StatusCodes.Status503ServiceUnavailable)),
+            Problem(StatusCodes.Status503ServiceUnavailable, "database_unavailable", ErrorCodes.DetailForStatus(StatusCodes.Status503ServiceUnavailable)),
         BadHttpRequestException { StatusCode: StatusCodes.Status415UnsupportedMediaType } =>
-            (StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type", ErrorCodes.UnsupportedMediaTypeDetail),
-        BadHttpRequestException bad => (bad.StatusCode, "malformed_request", ErrorCodes.MalformedRequestDetail),
-        _ => (StatusCodes.Status500InternalServerError, "internal_error", ErrorCodes.InternalErrorDetail),
+            Problem(StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type", ErrorCodes.UnsupportedMediaTypeDetail),
+        BadHttpRequestException bad => Problem(bad.StatusCode, "malformed_request", ErrorCodes.MalformedRequestDetail),
+        _ => Problem(StatusCodes.Status500InternalServerError, "internal_error", ErrorCodes.InternalErrorDetail),
     };
+
+    private static ProblemDetails Problem(int status, string code, string detail) =>
+        new() { Status = status, Detail = detail, Extensions = { ["code"] = code } };
 }
