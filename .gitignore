@@ -17,3 +17,4 @@ StrykerOutput/
 .DS_Store
 docker-compose.override.yml
 .vscode/
+*.dump

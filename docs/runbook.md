@@ -47,8 +47,9 @@ Custom meters (source: `src/DisputePortal.Api/Shared/Observability/`):
 Framework meters registered in `Telemetry.cs`: `Microsoft.AspNetCore.Hosting`, `Microsoft.AspNetCore.Server.Kestrel`,
 `System.Net.Http`, `Npgsql`. Request latency comes from the ASP.NET Core instrument `http.server.request.duration`
 (OpenTelemetry semantic-convention name; not defined in this repository's code) and the backend's own translation of
-dots to underscores (for example Prometheus `http_server_request_duration_seconds_bucket`). [UNVERIFIED: the exported
-names in the LGTM stack were not inspected for this document; check them in Grafana Explore before writing the rules.]
+dots to underscores (for example Prometheus `http_server_request_duration_seconds_bucket`). Checked on a clean clone with `--profile observability`: the exported counters appear as `disputes_submitted_total` and
+`security_events_total`. The HTTP server duration histogram name was not inspected [UNVERIFIED]; check it in Grafana
+Explore before writing the latency rules.
 
 Traces: ASP.NET Core, HttpClient and Npgsql, plus a `DisputePortal.Api` activity source. `url.query` is removed from
 server spans; client spans keep the URL without its query. Health endpoints are not traced. Telemetry is exported only
@@ -85,10 +86,13 @@ OTEL_ENDPOINT=http://lgtm:4317 docker compose --profile observability up -d --wa
   already running, `up -d` recreates it with the new variable.
 - Grafana is published on `127.0.0.1:3000`. The image is `grafana/otel-lgtm` (digest-pinned in the compose file).
 - Contradiction with the plan: the plan says the profile generates a Grafana admin password. The compose file does
-  not set one, so the image's default credentials apply. [UNVERIFIED: the default for this image was not checked.]
-  The port is bound to loopback only.
-- Not verified for this document: the profile was not started (another agent held the Docker stack), so no dashboard,
-  trace or metric name above has been seen in Grafana.
+  not set one, so the image's default credentials apply (not checked for this image [UNVERIFIED]; change them before exposing the
+  port beyond loopback). The port is bound to loopback only.
+- Verified once on a clean clone (2026-11-04): after one dispute submit, Prometheus had `disputes_submitted_total` and
+  `security_events_total{type="csrf_rejected"|"authz_denied"}`, and Tempo had a trace for `POST /api/v1/disputes/` with
+  a redis `session.retrieve` span and 9 Npgsql spans. No dashboard was built or screenshotted.
+- `lgtm` joins the `edge` and `app` networks, so while the profile is on it sits on the subnet the API trusts for
+  forwarded headers. Use the profile for local diagnosis only.
 
 ## 6. Backup and restore
 
@@ -104,11 +108,14 @@ sections 5.5 and 8.4): RPO 15 minutes and RTO 1 hour, both labelled "assumed" th
 | Redis | No | Session tickets only; loss means everyone signs in again |
 | Compose `secrets` volume | Regenerable locally by `bootstrap`; in production replace with platform identity | See the "secret zero" caveat in the README |
 
+WARNING: the dump holds plaintext financial and personal data, so write it outside the repository (as below; `*.dump`
+is also git-ignored), and `pg_restore --clean` DROPS and recreates existing objects in `disputes`.
+
 Local equivalent, for a demo database only (the volume names are prefixed by the compose project name `dispute-portal`):
 
 ```
-docker compose exec postgres pg_dump -U postgres -d disputes -Fc > disputes.dump     # backup
-docker compose exec -T postgres pg_restore -U postgres -d disputes --clean --if-exists < disputes.dump   # restore
+docker compose exec -T postgres pg_dump -U postgres -d disputes -Fc > ../disputes.dump     # backup
+docker compose exec -T postgres pg_restore -U postgres -d disputes --clean --if-exists < ../disputes.dump   # restore
 ```
 
 [UNVERIFIED: these two commands were not run. `pg_restore --clean` into a database whose roles and grants already

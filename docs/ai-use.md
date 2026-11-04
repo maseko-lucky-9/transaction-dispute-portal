@@ -10,7 +10,7 @@ and what is not.
   Claude Code drafted the plan (`~/.claude/plans/pasted-content-id-bbc6-the-project-stateful-charm.md`, "rev 2"; it lives
   outside the repository) and revised it after three independent review lanes: the main thread checked against docs,
   a `security-auditor` agent (Opus), and an architecture/delivery `Plan` agent (Opus). The plan records the merged
-  findings (28 rows) and where each was applied.
+  findings (the row count is not recorded in the repository [UNVERIFIED]) and where each was applied.
 - **Implementation.** The plan assigns backend slices to a `csharp-dotnet` sub-agent (Sonnet; Opus for the auth, Vault
   and bootstrap work), the React app to a `frontend-framework-expert` sub-agent, tests to a `test-engineer`, and the
   system-design sections to two `system-design-drafter` agents. Git, `gh` and any MCP tooling stayed on the main
@@ -45,7 +45,7 @@ does not distinguish human from AI work.
   [README](../README.md).
 - Gates: warnings as errors, line-coverage floor (80%), `scripts/check-constraints.sh`, gitleaks, Trivy, npm audit,
   vulnerable-package check; `ci-ok` is the required check on `main` (branch protection read with `gh api` on
-  2026-11-04).
+  2026-11-04 [UNVERIFIED from the repository]).
 - Mutation: Stryker.NET on the Domain project (report only). The plan also asks for manual "break the code, watch the
   test go red" checks on the window rule, the owner filter and the `If-Match` check; the repository does not contain
   their output. [UNVERIFIED]

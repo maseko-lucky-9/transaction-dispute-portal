@@ -55,7 +55,7 @@ dotnet build DisputePortal.slnx -c Release && scripts/coverage.sh   # both suite
 dotnet tool restore && (cd tests/DisputePortal.UnitTests && dotnet tool run dotnet-stryker)   # mutation score of Domain, report only
 npm --prefix web ci --ignore-scripts && npm --prefix web run lint && npm --prefix web run typecheck \
   && npm --prefix web run test:coverage && npm --prefix web run build
-docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test -c e2e   # E2E against the real stack
+docker compose up -d --wait --build && (cd e2e && npm ci && npx playwright install chromium && npx playwright test)   # E2E against the real stack
 ```
 
 ## Measured results
@@ -124,10 +124,10 @@ test names are xUnit methods (`tests/DisputePortal.*Tests/<File>.cs`), Vitest fi
 | Requirements fit | US1-US5 and FR/NFR table below | Every row below names a test | NFR-5 (SLOs) and the retention part of NFR-7 have no test (see below) |
 | Architecture and scalability | [ADR-001](docs/decisions/001-vertical-slices-and-domain-project.md), [ADR-002](docs/decisions/002-ef-core-repositories-unit-of-work.md), [ADR-006](docs/decisions/006-keyset-pagination-and-signed-cursors.md); stateless API, nginx upstream `resolve` in `web/nginx/default.conf`, keyset indexes | `TransactionPlanTests.TheKeysetQueryIsAnIndexScanWithNoSortOn50kRows`; `ArchitectureTests.TheDomainReferencesNeitherEfCoreNorAspNetCore`; `ProductionAuthStackTests.ParallelRefreshesAcrossTwoReplicasRedeemOnceAndKeepTheSession`; `scripts/check-constraints.sh` | `docker compose up --scale api=3` was not exercised by any test in the repository; the capacity numbers in the design doc are assumptions (the doc says so) |
 | Security | [Threat model](docs/threat-model.md), ADR-004, 005, 007, 008 | Rows in the security table below | Residual risks listed in "Known limits" and the threat model |
-| Domain modelling | `src/DisputePortal.Domain/` (aggregate, transition table, eligibility chain, `Money`), [ADR-003](docs/decisions/003-dispute-state-machine.md) | `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable`, `TerminalStatusesHaveNoWayOut`; `EligibilityRuleTests.TheWindowIncludesDay120AndEndsOnDay121`; `DisputeEligibilityPolicyTests`; Stryker 86.80% on this project | Stryker figure is from an earlier run on the same commit |
+| Domain modelling | `src/DisputePortal.Domain/` (aggregate, transition table, eligibility chain, `Money`), [ADR-003](docs/decisions/003-dispute-state-machine.md) | `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable`, `TerminalStatusesHaveNoWayOut`; `DisputeEligibilityPolicyTests.TheWindowIncludesDay120AndEndsOnDay121`; `DisputeEligibilityPolicyTests`; Stryker 86.80% on this project | Stryker figure is from an earlier run on the same commit |
 | API contracts | `docs/openapi.json` (code-first, committed), [ADR-007](docs/decisions/007-http-status-policy-and-idempotency.md), RFC 9457 errors with `code` and `traceId` | `OpenApiTests.TheDocumentMatchesTheCommittedSnapshot`, `TheAgentRoutesDocumentIfMatchTheETagAnd412And428`; `web/src/api/contract.test.ts`; CI step "TS types match the committed OpenAPI snapshot" | `api.http` (listed in the plan's repo layout) does not exist in the repository |
 | Testing | [Test catalogue](#test-catalogue) | Counts above; CI | Manual mutation-check output (plan: "paste the output") is not in the repository [UNVERIFIED] |
-| Observability | `src/DisputePortal.Api/Shared/Observability/`, `web/nginx/default.conf` (JSON access log with `$request_id`), [runbook](docs/runbook.md) | `DisputeMetricsTests`, `Bola404MetricTests`, `ResolutionDurationMetricTests`, `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`, `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes` | No test asserts the OTLP export or the Grafana view; the `--profile observability` stack was not started for this change |
+| Observability | `src/DisputePortal.Api/Shared/Observability/`, `web/nginx/default.conf` (JSON access log with `$request_id`), [runbook](docs/runbook.md) | `DisputeMetricsTests`, `Bola404MetricTests`, `ResolutionDurationMetricTests`, `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`, `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes` | No automated test asserts the OTLP export or the Grafana view. It was checked by hand on a clean clone (see "Verified on a clean clone"); that check is not repeatable in CI |
 
 ### User stories and requirements (`specs/001-transaction-disputes/spec.md`)
 
@@ -135,7 +135,7 @@ test names are xUnit methods (`tests/DisputePortal.*Tests/<File>.cs`), Vitest fi
 |---|---|---|
 | US1.1 keyset paging, no duplicates or gaps (FR-1) | `Features/Transactions/TransactionRepository.cs`, `Shared/Paging/KeysetCursor.cs` | `TransactionsTests.WalkingEveryPage...`, `RowsWithIdenticalDatesArePagedWithoutDuplicatesOrGaps`, `TheDefaultPageIs25AndTheLastPageHasNoCursor`; `TransactionPlanTests` |
 | US1.2 foreign id is 404, never 403 | Owner query filter, `Shared/Persistence/DisputePortalDbContext.cs`; `Shared/Security/CustomerScopeFilter.cs` | `TransactionsTests.AnotherCustomersTransactionIs404LikeAMissingOne`; `OwnerFilterTests.*`; `ArchitectureTests.EveryEntityWithACustomerIdHasTheOwnerFilter`; e2e `a customer can never read another customer's transaction (BOLA), and an agent is refused` |
-| US1.3 pending, credit, over-120-days shown as not disputable with a reason | `Domain/Eligibility/*Rule.cs`, `Features/Transactions/TransactionItem.cs` | `TransactionEligibilityTests.FlagsAndReasonsFollowTheRulesIncludingTheDay120Boundary`; `EligibilityRuleTests.APostedDebitInsideTheWindowIsDisputable`, `OnlyAPostedTransactionIsDisputable`, `ACreditIsNotDisputable` |
+| US1.3 pending, credit, over-120-days shown as not disputable with a reason | `Domain/Eligibility/*Rule.cs`, `Features/Transactions/TransactionItem.cs` | `TransactionEligibilityTests.FlagsAndReasonsFollowTheRulesIncludingTheDay120Boundary`; `DisputeEligibilityPolicyTests.APostedDebitInsideTheWindowIsDisputable`, `OnlyAPostedTransactionIsDisputable`, `ACreditIsNotDisputable` |
 | US2.1 201 with Location and ETag (FR-2) | `Features/Disputes/DisputeCommands.cs` | `DisputesTests.SubmittingCreatesADisputeWithLocationETagAndOneTimelineEntry` |
 | US2.2 422 lists every violated rule | `Domain/Eligibility/DisputeEligibilityPolicy.cs` | `DisputesTests.EveryBrokenRuleIsReportedAtOnceAs422`; `DisputeEligibilityPolicyTests.EveryViolationIsReportedTogetherInRuleOrder` |
 | US2.3 409 `dispute_exists` with the existing id | `Features/Disputes/DisputeConflictProblem.cs` | `DisputesTests.AnExistingDisputeIs409DisputeExistsWithItsId` |
@@ -170,7 +170,7 @@ test names are xUnit methods (`tests/DisputePortal.*Tests/<File>.cs`), Vitest fi
 | DB backstop for one active dispute per transaction | partial unique index `ux_disputes_one_active_per_transaction` | `ReadModelConstraintTests.ASecondActiveDisputeOnOneTransactionIsRefusedByThePartialUniqueIndex`; `DisputeConcurrencyTests.TwoSubmitsForOneTransactionHeldTogetherGiveOne201AndOne409DisputeExists` |
 | Signed, user-and-filter-bound cursors | `Shared/Paging/KeysetCursor.cs` | `TransactionsTests.ATamperedCursorIs400InvalidCursor`, `AnotherCustomersCursorIs400InvalidCursor`, `ACursorReusedWithOtherFiltersIs400InvalidCursor` |
 | No raw interpolated SQL | convention + architecture rule | `ArchitectureTests.NoRawSqlCallIsBuiltFromAnInterpolatedOrConcatenatedString` |
-| Rate limits per subject (10 dispute submits a minute, 300 a minute overall, per replica) | `Shared/Security/RateLimits.cs` | `DisputeSecurityTests.TheEleventhSubmitInAMinuteIs429WithRetryAfter` |
+| Rate limits per subject (10 dispute submits a minute, 300 a minute overall, per replica) | `Shared/Security/RateLimits.cs` | `DisputeSecurityTests.TheEleventhSubmitInAMinuteIs429WithRetryAfter` (proves the 10-a-minute submit bucket only; the 300-a-minute overall bucket has no test) |
 | Forwarded-header and host trust | `Shared/Hosting/HostingRegistration.cs` | `AuthHardeningTests.UnderTheDefaultConfigurationAForeignHostIs400`, `TheRateLimitPartitionUsesTheForwardedClientOnlyBehindTheTrustedProxy`, `RedirectUrisComeFromConfigurationNotFromTheHostHeader` |
 | CSP, edge headers, `no-store`, Keycloak admin not exposed | `web/nginx/*.conf` ([ADR-008](docs/decisions/008-csp-edge-headers-and-keycloak-origin.md)) | e2e `edge: security headers per location, no-store on the API, Keycloak admin is not exposed`; `ProductionAuthStackTests.ApiAndBffResponsesAreNoStore`; zero CSP violations asserted in the e2e sign-in and transactions tests |
 | Credentials only from Vault, AppRole per service | `Shared/Secrets/`, `deploy/bootstrap/bootstrap.sh`, `deploy/vault/policies/` | `VaultConfigurationProviderTests.MigrateReadsOnlyTheOwnerPath`, `TheApiPathsLandUnderTheirConfigurationPrefixes`. Vault policies and CIDR binding themselves are not covered by an automated test (they run in the CI e2e job but nothing asserts them) |
@@ -215,7 +215,7 @@ plan schedules the decision for 2026-11-08.
 - Stryker: kept, as a non-blocking CI job and a reported score.
 - Agent UI: built (`web/src/components/agent-queue-page.tsx`, `agent-dispute-page.tsx`), covered by Vitest and two E2E tests.
 - Dark/light screenshots: none are committed in this repository. The theme toggle exists (`web/src/components/theme-toggle.tsx`).
-- Whether any of the three is formally cut is not recorded in the repository; the date of that decision is later than this document. [UNVERIFIED]
+- Whether any of the three is formally cut is not recorded in the repository. [UNVERIFIED]
 
 ## Next
 

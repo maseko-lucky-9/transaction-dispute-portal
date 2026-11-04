@@ -14,7 +14,7 @@ Browser ──(1)── nginx ──(2)── API ──(3)── Keycloak / Vau
                                   └─(4) customer role vs agent role, inside the API
 ```
 
-Compose networks: `edge` (nginx only), `app` (nginx, API, Keycloak), `data` (stores, Vault, API, Keycloak). nginx has no
+Compose networks: `edge` (nginx only; also `lgtm` while `--profile observability` is on), `app` (nginx, API, Keycloak), `data` (stores, Vault, API, Keycloak). nginx has no
 route to Postgres, Redis or Vault (`docker-compose.yml`). Everything runs over plain HTTP locally; TLS is a deployment
 concern and is not tested.
 
@@ -30,7 +30,7 @@ concern and is not tested.
 | T | XSS reading or changing the page | `script-src 'self'`, `default-src 'none'`, `frame-ancestors 'none'`, no tokens in JS (ADR-004, ADR-008); e2e fails on any CSP violation | `style-src 'unsafe-inline'` (Radix runtime styles). An XSS could still act as the user through the session cookie, because the browser sends it automatically |
 | R | User denies an action | Append-only `DisputeStatusChange` with DB-stamped time and actor type/id (`DatabasePrivilegeTests.TheAppRoleCanSubmitAndMoveADisputeAndTheDatabaseStampsTheHistory`) | Not hash-chained; a DB owner could alter it (README "Known limits") |
 | I | Sensitive data cached or leaked in headers | `Cache-Control: no-store` on `/api` and `/bff` (`ProductionAuthStackTests.ApiAndBffResponsesAreNoStore`); `Referrer-Policy: no-referrer`; headers repeated per location (e2e `edge: security headers per location...`) | **No HSTS header is configured anywhere in `web/nginx/` or `src/`** although ADR-008 mentions it; add it when TLS terminates in front |
-| D | Flooding | nginx `limit_req` (20 r/s per IP on `/bff`, 5 r/s on login POSTs), `client_max_body_size 64k`; API per-subject limiter | Per-IP nginx limits are generous because Docker Desktop NATs clients to one address; no WAF or CDN |
+| D | Flooding | nginx `limit_req` (20 r/s per IP on `/bff`, 5 r/s on login POSTs), `client_max_body_size 64k`; API per-subject limiter. nginx rate-limits `/bff` only; `/api/` is limited by the API's per-subject limiter alone | Per-IP nginx limits are generous because Docker Desktop NATs clients to one address; no WAF or CDN |
 | E | Reach Keycloak admin or master realm | Auth origin allow-lists paths, everything else 404 (e2e `edge: ... Keycloak admin is not exposed`) | Allow-list correctness depends on the regex in `default.conf` |
 
 ### Boundary 2: nginx to API
