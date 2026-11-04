@@ -109,7 +109,7 @@ test('a customer disputes a transaction, sees it in history, replays it safely, 
     await expect(page.getByText('Submitted', { exact: true }).first()).toBeVisible();
     await expect(page.getByText(DESCRIPTION)).toBeVisible();
     // The timeline names who acted in words, never an id.
-    await expect(page.getByText('You').first()).toBeVisible();
+    await expect(page.getByText('You submitted this dispute')).toBeVisible();
 
     expect(await violations()).toEqual([]);
     const axe = await new AxeBuilder({ page }).analyze();
@@ -269,20 +269,26 @@ test('malformed dispute requests are 400/404 problem documents, never 500', asyn
   const reason = (await api(page, 'GET', '/api/v1/dispute-reasons')).body[0].code as string;
   const ok = { id: crypto.randomUUID(), transactionId: tx.id, reasonCode: reason, description: DESCRIPTION };
 
-  const cases: [string, unknown, number][] = [
-    ['empty id', { ...ok, id: '00000000-0000-0000-0000-000000000000' }, 400],
+  // POST /disputes is limited to 10/min per user, so this list stays short; the rest is in the integration tests.
+  const cases: [string, unknown, number, string?][] = [
     ['unknown reason', { ...ok, reasonCode: 'nope' }, 400],
     ['short description', { ...ok, description: 'too short' }, 400],
-    ['long description', { ...ok, description: 'x'.repeat(2001) }, 400],
     ['bad amount', { ...ok, amount: '1.234' }, 400],
     ['unknown transaction', { ...ok, transactionId: crypto.randomUUID() }, 404],
+    // Postgres refuses 0x00 in text: it must be a 400 here, not a 500 from the insert.
+    ['NUL in description', { ...ok, description: 'abcdefghij\u0000k' }, 400],
+    ['NUL in reasonCode', { ...ok, reasonCode: 'x\u0000' }, 400],
+    // The same card number, written the ways people paste it, is still a card number.
+    ['card, double spaces', { ...ok, description: 'paid with 4111  1111  1111  1111 twice' }, 400, 'sensitive_data'],
   ];
-  for (const [name, json, status] of cases) {
+  const wrong: string[] = [];
+  for (const [name, json, status, code] of cases) {
     const r = await api(page, 'POST', '/api/v1/disputes', { json });
-    expect(r.status, name).toBe(status);
-    expect(r.type, name).toContain('application/problem+json');
-    expect(r.body.traceId, name).toBeTruthy();
+    const problem = r.type?.includes('application/problem+json') && r.body?.traceId;
+    if (r.status !== status || (code && r.body?.code !== code) || !problem)
+      wrong.push(`${name}: got ${r.status} ${r.body?.code ?? ''}, want ${status} ${code ?? ''}`.trim());
   }
+  expect(wrong).toEqual([]);
   for (const qs of ['status=Nope', 'limit=0', 'limit=101', 'limit=abc']) {
     const r = await api(page, 'GET', `/api/v1/disputes?${qs}`);
     expect(r.status, qs).toBe(400);
