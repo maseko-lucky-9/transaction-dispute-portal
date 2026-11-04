@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 /**
  * RFC 9457 problem details as the API emits them:
@@ -42,16 +42,27 @@ export interface ProblemDetails {
   [extension: string]: unknown;
 }
 
+export interface ApiErrorOptions extends ErrorOptions {
+  /** The failed response's headers (Retry-After on 429, the current ETag on 412). */
+  headers?: Headers;
+}
+
 /** Thrown for every non-2xx response and for network failures (status 0). */
 export class ApiError extends Error {
   readonly status: number;
   readonly problem: ProblemDetails;
+  /** Response headers; empty for a network failure, which has no response. */
+  readonly headers: Headers;
 
-  constructor(status: number, problem: ProblemDetails, options?: ErrorOptions) {
-    super(problem.detail ?? problem.title ?? `Request failed (${status})`, options);
+  constructor(status: number, problem: ProblemDetails, options?: ApiErrorOptions) {
+    super(
+      problem.detail ?? problem.title ?? `Request failed (${status})`,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "ApiError";
     this.status = status;
     this.problem = problem;
+    this.headers = options?.headers ?? new Headers();
   }
 
   /** Machine-readable error code, e.g. `dispute_exists`. */
@@ -72,21 +83,26 @@ export function isApiError(error: unknown): error is ApiError {
 /** Build the ApiError for a non-2xx response, tolerating bodies that are not problem JSON. */
 export async function toApiError(response: Response): Promise<ApiError> {
   const status = response.status;
+  const headers = response.headers;
   const fallback: ProblemDetails = {
     title: response.statusText || `HTTP ${status}`,
     status,
   };
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("json")) return new ApiError(status, fallback);
+  const contentType = headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) return new ApiError(status, fallback, { headers });
 
   try {
     const parsed = problemSchema.safeParse(await response.json());
-    if (!parsed.success) return new ApiError(status, fallback);
+    if (!parsed.success) return new ApiError(status, fallback, { headers });
     // The HTTP status is authoritative over whatever the body claims.
-    return new ApiError(status, { ...fallback, ...stripUndefined(parsed.data), status });
+    return new ApiError(
+      status,
+      { ...fallback, ...stripUndefined(parsed.data), status },
+      { headers },
+    );
   } catch {
-    return new ApiError(status, fallback);
+    return new ApiError(status, fallback, { headers });
   }
 }
 

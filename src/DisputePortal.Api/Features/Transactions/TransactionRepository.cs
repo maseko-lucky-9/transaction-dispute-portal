@@ -1,4 +1,7 @@
 using DisputePortal.Api.Shared.Persistence;
+using DisputePortal.Domain.Common;
+using DisputePortal.Domain.Disputes;
+using DisputePortal.Domain.Transactions;
 using Microsoft.EntityFrameworkCore;
 
 namespace DisputePortal.Api.Features.Transactions;
@@ -10,6 +13,16 @@ public sealed class TransactionRepository(DisputePortalDbContext db) : ITransact
 
     public Task<TransactionRow?> GetAsync(Guid id, CancellationToken cancellationToken) =>
         Project(db.Transactions.AsNoTracking().Where(transaction => transaction.Id == id)).SingleOrDefaultAsync(cancellationToken);
+
+    public Task<TransactionSnapshot?> GetSnapshotAsync(Guid id, CancellationToken cancellationToken) =>
+        db.Transactions.AsNoTracking()
+            .Where(transaction => transaction.Id == id)
+            .Select(transaction => new TransactionSnapshot(
+                transaction.Status, transaction.Direction, transaction.TransactionDate, Money.Of(transaction.Amount, transaction.Currency)))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<int> CountActiveDisputesAsync(CancellationToken cancellationToken) =>
+        db.Disputes.CountAsync(dispute => DisputeLifecycle.ActiveStatuses.Contains(dispute.Status), cancellationToken);
 
     /// <summary>
     /// The keyset page: a row-value comparison <c>(transaction_date, id) &lt; (last)</c> and the same order as the
@@ -47,7 +60,10 @@ public sealed class TransactionRepository(DisputePortalDbContext db) : ITransact
 
     // The masked number comes from a scalar subquery, not a join: EF wraps a join against the (also Owner-filtered)
     // accounts in a subquery and Postgres then hash-joins and re-sorts the page. The subquery keeps the plan a pure
-    // Limit over the keyset index, evaluated only for the rows the page returns.
+    // Limit over the keyset index, evaluated only for the rows the page returns. The dispute columns are scalar
+    // subqueries for the same reason, each a top-1 read of ix_disputes_transaction_id_customer_id_created_at_id with no
+    // sort. "Most relevant" (active first, else latest) is simply the latest: a new dispute can only follow a Withdrawn
+    // one, and nothing returns to an active status, so an active dispute is always a transaction's latest.
     private IQueryable<TransactionRow> Project(IQueryable<Transaction> query) =>
         query.Select(transaction => new TransactionRow(
             transaction.Id,
@@ -60,5 +76,16 @@ public sealed class TransactionRepository(DisputePortalDbContext db) : ITransact
             transaction.Status,
             transaction.TransactionDate,
             transaction.PostedAt,
-            db.Accounts.Where(account => account.Id == transaction.AccountId).Select(account => account.MaskedNumber).FirstOrDefault()));
+            db.Accounts.Where(account => account.Id == transaction.AccountId).Select(account => account.MaskedNumber).FirstOrDefault(),
+            db.Disputes.Where(dispute => dispute.TransactionId == transaction.Id)
+                .OrderByDescending(dispute => dispute.CreatedAt)
+                .ThenByDescending(dispute => dispute.Id)
+                .Select(dispute => (Guid?)dispute.Id)
+                .FirstOrDefault(),
+            db.Disputes.Where(dispute => dispute.TransactionId == transaction.Id)
+                .OrderByDescending(dispute => dispute.CreatedAt)
+                .ThenByDescending(dispute => dispute.Id)
+                .Select(dispute => (DisputeStatus?)dispute.Status)
+                .FirstOrDefault(),
+            db.Disputes.Count(dispute => dispute.TransactionId == transaction.Id)));
 }

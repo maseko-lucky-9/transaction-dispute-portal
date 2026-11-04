@@ -1,4 +1,5 @@
 using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Api.Shared.Paging;
 using FluentValidation.Results;
 
 namespace DisputePortal.UnitTests;
@@ -78,7 +79,7 @@ public sealed class TransactionListRequestValidatorTests
 
     [Fact]
     public void AnOverlongCursorIsRefused() =>
-        AssertField(new(null, new string('a', TransactionListRequestValidator.MaxCursorLength + 1), null, null, null), "Cursor", valid: false);
+        AssertField(new(null, new string('a', PageLimit.MaxCursorLength + 1), null, null, null), "Cursor", valid: false);
 
     private ValidationResult Validate(TransactionListRequest request) => validator.Validate(request);
 

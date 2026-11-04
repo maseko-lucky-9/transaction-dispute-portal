@@ -57,4 +57,35 @@ describe("ErrorState", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it("lets the caller replace the message and add content under it, keeping the reference", () => {
+    render(
+      <ErrorState
+        error={new ApiError(422, { detail: "Server words.", traceId: "t-22" })}
+        message="Our words."
+      >
+        <a href="/next">Go on</a>
+      </ErrorState>,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Our words.");
+    expect(alert).not.toHaveTextContent("Server words.");
+    expect(alert).toHaveTextContent("Reference: t-22");
+    expect(screen.getByRole("link", { name: "Go on" })).toBeInTheDocument();
+  });
+
+  it("makes Try again a plain button, so inside a form it cannot also submit the form", async () => {
+    const submit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const retry = vi.fn();
+    render(
+      <form onSubmit={submit}>
+        <ErrorState error={new Error("x")} onRetry={retry} />
+      </form>,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(retry).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+  });
 });

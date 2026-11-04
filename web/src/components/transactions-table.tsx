@@ -1,4 +1,5 @@
-import { useId, useState } from "react";
+import { useId } from "react";
+import { Link } from "@tanstack/react-router";
 
 import type { TransactionItem } from "@/api/transactions";
 import { Badge } from "@/components/ui/badge";
@@ -96,49 +97,52 @@ function Amount({ item }: { item: TransactionItem }) {
 
 function DisputeAction({ item }: { item: TransactionItem }) {
   const noteId = useId();
-  const [comingSoon, setComingSoon] = useState(false);
   const label = `Dispute ${item.merchantName}, ${formatDate(item.transactionDate)}`;
 
-  if (!item.isDisputable) {
-    const reasons = describeBlockReasons(item.disputeBlockReasons);
+  if (item.isDisputable) {
     return (
-      <div className="flex flex-col items-start gap-1">
-        {/* aria-disabled (not `disabled`) keeps it focusable, so the reason is announced. */}
-        <Button
-          variant="outline"
-          size="sm"
-          aria-disabled="true"
+      <Button asChild variant="outline" size="sm">
+        <Link
+          to="/transactions/$transactionId/dispute"
+          params={{ transactionId: item.id }}
           aria-label={label}
-          aria-describedby={noteId}
         >
           Dispute
-        </Button>
-        <p id={noteId} className="max-w-56 text-xs text-muted-foreground">
-          {reasons.map((reason) => (
-            <span key={reason} className="block">
-              {reason}
-            </span>
-          ))}
-        </p>
-      </div>
+        </Link>
+      </Button>
     );
   }
 
+  const reasons = describeBlockReasons(item.disputeBlockReasons);
   return (
     <div className="flex flex-col items-start gap-1">
-      {/* Until disputes ship (PR4) this only announces that they are coming. */}
+      {/* aria-disabled (not `disabled`) keeps it focusable, so the reason is announced. */}
       <Button
         variant="outline"
         size="sm"
+        aria-disabled="true"
         aria-label={label}
         aria-describedby={noteId}
-        onClick={() => setComingSoon(true)}
       >
         Dispute
       </Button>
-      <p id={noteId} role="status" className="text-xs text-muted-foreground">
-        {comingSoon ? "Coming in the next release" : ""}
+      <p id={noteId} className="max-w-56 text-xs text-muted-foreground">
+        {reasons.map((reason) => (
+          <span key={reason} className="block">
+            {reason}
+          </span>
+        ))}
       </p>
+      {item.dispute ? (
+        <Link
+          to="/disputes/$disputeId"
+          params={{ disputeId: item.dispute.id }}
+          aria-label={`View the dispute for ${item.merchantName}, ${formatDate(item.transactionDate)}`}
+          className="text-xs underline underline-offset-4"
+        >
+          View dispute
+        </Link>
+      ) : null}
     </div>
   );
 }

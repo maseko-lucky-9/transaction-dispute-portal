@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 /**
  * Pins the validateSearch pattern that every list page will copy (see routes/index.ts):

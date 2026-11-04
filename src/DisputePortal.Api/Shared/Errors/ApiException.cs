@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Mvc;
+
 namespace DisputePortal.Api.Shared.Errors;
 
 /// <summary>An expected refusal with its HTTP status and stable machine-readable code (SCAD ADR-004).</summary>
@@ -11,4 +13,7 @@ public abstract class ApiException(string message, int status, string code, Exce
     public int Status { get; } = status;
 
     public string Code { get; } = code;
+
+    /// <summary>The body; a refusal with extension members (violations, an existing id) returns a richer type.</summary>
+    public virtual ProblemDetails ToProblem() => new() { Status = Status, Detail = Message, Extensions = { ["code"] = Code } };
 }

@@ -1,4 +1,4 @@
-import { infiniteQueryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import type { ListTransactionsQuery, TransactionFilters } from "@/lib/transaction-filters";
 
@@ -11,6 +11,7 @@ export type TransactionPage = components["schemas"]["TransactionListResponse"];
 
 export const transactionsKey = (filters: TransactionFilters) =>
   ["transactions", "list", filters] as const;
+export const transactionKey = (id: string) => ["transactions", "detail", id] as const;
 
 /** `GET /api/v1/transactions`. Absent filters are not sent at all. */
 export function fetchTransactionPage(
@@ -52,16 +53,18 @@ export function transactionsInfiniteOptions(filters: TransactionFilters) {
   });
 }
 
-/** Flatten pages into one list. First occurrence wins, so a repeated row is never rendered twice. */
-export function flattenPages(pages: readonly TransactionPage[]): TransactionItem[] {
-  const seen = new Set<string>();
-  const items: TransactionItem[] = [];
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (seen.has(item.id)) continue;
-      seen.add(item.id);
-      items.push(item);
-    }
-  }
-  return items;
+/** `GET /api/v1/transactions/{id}`: one of my transactions; anyone else's is a 404 like a missing one. */
+export function fetchTransaction(id: string, signal?: AbortSignal): Promise<TransactionItem> {
+  return apiFetch<TransactionItem>(
+    `/api/v1/transactions/${encodeURIComponent(id)}`,
+    signal ? { signal } : {},
+  );
 }
+
+export const transactionOptions = (id: string) =>
+  queryOptions({
+    queryKey: transactionKey(id),
+    queryFn: ({ signal }) => fetchTransaction(id, signal),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });

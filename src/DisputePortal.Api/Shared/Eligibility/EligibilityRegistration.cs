@@ -10,11 +10,16 @@ public static class EligibilityRegistration
     {
         services.AddOptions<DisputePolicyOptions>().BindConfiguration(DisputePolicyOptions.Section)
             .Validate(options => options.WindowDays > 0, "DisputePolicy:WindowDays must be positive.")
+            .Validate(options => options.MaxActiveDisputesPerCustomer > 0, "DisputePolicy:MaxActiveDisputesPerCustomer must be positive.")
+            .Validate(options => options.MaxDisputesPerTransaction > 0, "DisputePolicy:MaxDisputesPerTransaction must be positive.")
             .ValidateOnStart();
         services.AddSingleton(provider => provider.GetRequiredService<IOptions<DisputePolicyOptions>>().Value);
         services.AddSingleton<IDisputeEligibilityRule, PostedRule>();
         services.AddSingleton<IDisputeEligibilityRule, DebitRule>();
         services.AddSingleton<IDisputeEligibilityRule, DisputeWindowRule>();
+        services.AddSingleton<IDisputeEligibilityRule, AmountRule>();
+        services.AddSingleton<IDisputeEligibilityRule, ActiveDisputeCapRule>();
+        services.AddSingleton<IDisputeEligibilityRule, TransactionDisputeCapRule>();
         services.AddSingleton<DisputeEligibilityPolicy>();
         return services;
     }

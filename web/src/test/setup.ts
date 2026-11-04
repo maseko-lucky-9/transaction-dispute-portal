@@ -1,11 +1,16 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
 import * as axeMatchers from "vitest-axe/matchers";
 
 import { server } from "./server";
 
 expect.extend(axeMatchers);
+
+// The first findBy* in a file also waits for a lazy route chunk to be imported and transformed,
+// which takes well over the 1 s default on a busy machine (shared CI runner, a parallel build).
+// Passing tests are no slower for this: it only bounds how long a failing one waits.
+configure({ asyncUtilTimeout: 6000 });
 
 // jsdom has no matchMedia. Default: light OS theme; tests use mockColorScheme() to change it.
 // Re-stubbed per test because `unstubGlobals` restores globals after each one.

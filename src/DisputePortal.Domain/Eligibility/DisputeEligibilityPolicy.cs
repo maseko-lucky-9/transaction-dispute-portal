@@ -10,9 +10,11 @@ public sealed class DisputeEligibilityPolicy(IEnumerable<IDisputeEligibilityRule
 {
     private readonly IReadOnlyList<IDisputeEligibilityRule> rules = [.. rules];
 
-    public IReadOnlyList<EligibilityViolation> Evaluate(TransactionSnapshot transaction)
-    {
-        DisputeEligibilityContext context = new(transaction, time.GetUtcNow());
-        return [.. rules.Select(rule => rule.Evaluate(context)).OfType<EligibilityViolation>()];
-    }
+    /// <summary>A context at the policy's clock; add the optional inputs with <c>with { ... }</c>.</summary>
+    public DisputeEligibilityContext ContextFor(TransactionSnapshot transaction) => new(transaction, time.GetUtcNow());
+
+    public IReadOnlyList<EligibilityViolation> Evaluate(TransactionSnapshot transaction) => Evaluate(ContextFor(transaction));
+
+    public IReadOnlyList<EligibilityViolation> Evaluate(DisputeEligibilityContext context) =>
+        [.. rules.Select(rule => rule.Evaluate(context)).OfType<EligibilityViolation>()];
 }

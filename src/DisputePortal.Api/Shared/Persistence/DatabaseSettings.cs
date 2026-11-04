@@ -12,8 +12,14 @@ public sealed class DatabaseSettings
     public const string AppSection = "Database";
     public const string OwnerSection = "DatabaseOwner";
 
-    // statement_timeout bounds a runaway API query; migrations run without it, so a long index build can finish.
     private const int ConnectTimeoutSeconds = 5;
+
+    // Npgsql's type-loading query on open counts against this timeout. The API fails fast (5 s) so a replica reports
+    // unhealthy and is replaced; the one-shot migrate job has no such alternative and runs while the host is busy
+    // building and recreating containers, so it waits longer instead of failing the whole `up`.
+    private const int MigrationConnectTimeoutSeconds = 30;
+
+    // statement_timeout bounds a runaway API query; migrations run without it, so a long index build can finish.
     private const int StatementTimeoutMilliseconds = 5000;
 
     [Required]
@@ -48,7 +54,7 @@ public sealed class DatabaseSettings
             Username = Username,
             Password = Password,
             MaxPoolSize = MaxPoolSize,
-            Timeout = ConnectTimeoutSeconds,
+            Timeout = use == DatabaseUse.Migrations ? MigrationConnectTimeoutSeconds : ConnectTimeoutSeconds,
             ApplicationName = use == DatabaseUse.Migrations ? "dispute-portal-migrate" : "dispute-portal",
         };
         if (use == DatabaseUse.Application)

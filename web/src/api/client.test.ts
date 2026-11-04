@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { server } from "@/test/server";
 import { problem } from "@/test/handlers";
 
-import { apiFetch, CSRF_HEADER } from "./client";
+import { apiFetch, apiRequest, CSRF_HEADER } from "./client";
 import { ApiError } from "./problem";
 
 /** Record the headers of every request that reaches `path`. */
@@ -158,5 +158,76 @@ describe("apiFetch: responses", () => {
     const pending = apiFetch("/api/v1/a", { signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("apiRequest: status and headers", () => {
+  it("returns the body with the status and the response headers (ETag, Location)", async () => {
+    server.use(
+      http.post("/api/v1/disputes", () =>
+        HttpResponse.json(
+          { id: "d1" },
+          { status: 201, headers: { ETag: '"v1"', Location: "/api/v1/disputes/d1" } },
+        ),
+      ),
+    );
+
+    const response = await apiRequest<{ id: string }>("/api/v1/disputes", {
+      method: "POST",
+      json: {},
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.data).toEqual({ id: "d1" });
+    expect(response.headers.get("ETag")).toBe('"v1"');
+    expect(response.headers.get("Location")).toBe("/api/v1/disputes/d1");
+  });
+
+  it("still sends X-CSRF and rejects off-origin paths, like apiFetch", async () => {
+    const seen = captureHeaders("get", "/api/v1/a");
+    await apiRequest("/api/v1/a", { headers: { "X-CSRF": "0" } });
+    expect(seen[0]?.get("x-csrf")).toBe("1");
+    await expect(apiRequest("https://evil.example/x")).rejects.toThrow(/same-origin/);
+  });
+
+  it("returns an undefined body for 204 with its headers", async () => {
+    server.use(
+      http.delete(
+        "/api/v1/a",
+        () => new HttpResponse(null, { status: 204, headers: { ETag: '"x"' } }),
+      ),
+    );
+    const response = await apiRequest("/api/v1/a", { method: "DELETE" });
+    expect(response.data).toBeUndefined();
+    expect(response.headers.get("ETag")).toBe('"x"');
+  });
+
+  it("puts the failed response's headers on the ApiError (Retry-After, current ETag)", async () => {
+    server.use(
+      http.get("/api/v1/a", () =>
+        HttpResponse.json(
+          { title: "Too Many Requests", code: "rate_limited", traceId: "t-429" },
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/problem+json",
+              "Retry-After": "17",
+              ETag: '"v9"',
+            },
+          },
+        ),
+      ),
+    );
+    const error = (await apiRequest("/api/v1/a").catch((e: unknown) => e)) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.headers.get("Retry-After")).toBe("17");
+    expect(error.headers.get("ETag")).toBe('"v9"');
+  });
+
+  it("gives a network failure empty headers", async () => {
+    server.use(http.get("/api/v1/a", () => HttpResponse.error()));
+    const error = (await apiRequest("/api/v1/a").catch((e: unknown) => e)) as ApiError;
+    expect(error.status).toBe(0);
+    expect([...error.headers.keys()]).toEqual([]);
   });
 });

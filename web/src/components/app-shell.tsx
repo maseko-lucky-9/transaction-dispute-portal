@@ -7,7 +7,11 @@ import { logout, useSession } from "@/api/session";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 
-/** Header (name, theme, user, logout) around the page content. */
+const NAV_LINK =
+  "text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:underline";
+const NAV_ACTIVE = "font-medium text-foreground underline";
+
+/** Header (name, section links, theme, user, logout) around the page content. */
 export function AppShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data: user } = useSession();
@@ -22,9 +26,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4">
-          <Link to="/" className="font-semibold outline-none focus-visible:underline">
-            Transactions Dispute Portal
-          </Link>
+          <div className="flex items-center gap-6">
+            <Link to="/" className="font-semibold outline-none focus-visible:underline">
+              Transactions Dispute Portal
+            </Link>
+            {user ? (
+              // The router marks the current section's link aria-current="page" by itself.
+              <nav aria-label="Primary" className="flex items-center gap-4 text-sm">
+                <Link
+                  to="/transactions"
+                  className={NAV_LINK}
+                  activeProps={{ className: NAV_ACTIVE }}
+                >
+                  Transactions
+                </Link>
+                <Link to="/disputes" className={NAV_LINK} activeProps={{ className: NAV_ACTIVE }}>
+                  Disputes
+                </Link>
+              </nav>
+            ) : null}
+          </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {user ? (

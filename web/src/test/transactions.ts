@@ -68,6 +68,10 @@ export function fakeTransactionsApi(
 ): {
   api: FakeApi;
   handler: ReturnType<typeof http.get>;
+  /** GET /api/v1/transactions/{id}: 404 for an id that is not in `all` (BOLA looks the same). */
+  byIdHandler: ReturnType<typeof http.get>;
+  /** Both handlers, for `server.use(...handlers)`. */
+  handlers: ReturnType<typeof http.get>[];
 } {
   const api: FakeApi = { requests: [] };
 
@@ -133,5 +137,12 @@ export function fakeTransactionsApi(
     });
   });
 
-  return { api, handler };
+  const byIdHandler = http.get("/api/v1/transactions/:id", ({ params }) => {
+    const found = all.find((item) => item.id === params["id"]);
+    return found
+      ? HttpResponse.json(found)
+      : problem(404, { title: "Not Found", detail: "Transaction not found.", code: "not_found" });
+  });
+
+  return { api, handler, byIdHandler, handlers: [handler, byIdHandler] };
 }

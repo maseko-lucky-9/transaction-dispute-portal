@@ -40,6 +40,9 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     clearMocks: true,
+    // Generous on purpose: the heaviest tests render 150 rows and, on a loaded machine, the
+    // lazy route chunks too. A test that is wrong still fails; it just is not killed for being slow.
+    testTimeout: 20_000,
     provide: { openApiSpec },
     unstubGlobals: true,
     coverage: {

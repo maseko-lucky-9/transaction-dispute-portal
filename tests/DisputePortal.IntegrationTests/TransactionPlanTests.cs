@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Text.Json;
 using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Api.Shared.Paging;
 using DisputePortal.Api.Shared.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,7 +57,7 @@ public sealed class TransactionPlanTests(ApiFactory api)
         scope.ServiceProvider.GetRequiredService<CurrentCustomer>().Set(customerId);
         DisputePortalDbContext db = scope.ServiceProvider.GetRequiredService<DisputePortalDbContext>();
         TransactionRepository repository = new(db);
-        await using DbCommand command = repository.PageQuery(filter, after, TransactionQueries.DefaultLimit + 1).CreateDbCommand();
+        await using DbCommand command = repository.PageQuery(filter, after, PageLimit.Default + 1).CreateDbCommand();
         command.CommandText = "EXPLAIN (FORMAT JSON) " + command.CommandText;
         await db.Database.OpenConnectionAsync();
         using JsonDocument plan = JsonDocument.Parse((string)(await command.ExecuteScalarAsync())!);

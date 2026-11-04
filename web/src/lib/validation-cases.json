@@ -1,5 +1,10 @@
 [
-  { "name": "empty text", "input": "", "valid": true, "code": null },
+  {
+    "name": "empty text",
+    "input": "",
+    "valid": true,
+    "code": null
+  },
   {
     "name": "plain prose",
     "input": "Charged twice for the same purchase.",
@@ -60,8 +65,18 @@
     "valid": true,
     "code": null
   },
-  { "name": "13 digits that fail Luhn", "input": "1234567890123", "valid": true, "code": null },
-  { "name": "16 digits that fail Luhn", "input": "4111111111111112", "valid": true, "code": null },
+  {
+    "name": "13 digits that fail Luhn",
+    "input": "1234567890123",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "16 digits that fail Luhn",
+    "input": "4111111111111112",
+    "valid": true,
+    "code": null
+  },
   {
     "name": "card inside a sentence",
     "input": "My card 4111 1111 1111 1111 was charged twice",
@@ -113,6 +128,144 @@
   {
     "name": "several numbers, none Luhn-valid",
     "input": "4111 1111 1111 1112 and 4111 1111 1111 1113",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "card, two spaces between groups",
+    "input": "paid with 4111  1111  1111  1111 twice",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, spaced hyphen between groups",
+    "input": "4111 - 1111 - 1111 - 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, dot separated",
+    "input": "4111.1111.1111.1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, slash separated",
+    "input": "4111/1111/1111/1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, underscore separated",
+    "input": "4111_1111_1111_1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, comma separated",
+    "input": "4111,1111,1111,1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, no-break space separated",
+    "input": "4111\u00a01111\u00a01111\u00a01111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, en dash separated",
+    "input": "4111\u20131111\u20131111\u20131111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, zero-width space between groups",
+    "input": "4111\u200b1111\u200b1111\u200b1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, zero-width space inside a group",
+    "input": "41\u200b11111111111111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, fullwidth digits",
+    "input": "\uff14\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card, Arabic-Indic digits",
+    "input": "\u0664\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661\u0661",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card split across a blank line",
+    "input": "4111 1111\n\n1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card split across an indented wrapped line",
+    "input": "4111 1111\n   1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card split across a CRLF blank line",
+    "input": "4111 1111\r\n\r\n1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "South African ID, two spaces",
+    "input": "id 8001015009087 and 800101  5009087",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "a gap of five separators ends the chain (documented limit)",
+    "input": "4111     1111 1111 1111",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "words between the groups end the chain",
+    "input": "4111 abc 1111 1111 1111",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "tabs and line breaks in prose are fine",
+    "input": "line one\tcolumn two\nline three is here",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "NUL character",
+    "input": "abcdefghij\u0000k",
+    "valid": false,
+    "code": "invalid_characters"
+  },
+  {
+    "name": "bell control character",
+    "input": "abcdefghij\u0007k",
+    "valid": false,
+    "code": "invalid_characters"
+  },
+  {
+    "name": "unit-separator control character",
+    "input": "abcdefghij\u001fk",
+    "valid": false,
+    "code": "invalid_characters"
+  },
+  {
+    "name": "circled and superscript digits are not folded (documented limit)",
+    "input": "\u2074\u00b9\u00b9\u00b9 \u2460\u2460\u2460\u2460 1111 1111",
     "valid": true,
     "code": null
   }
