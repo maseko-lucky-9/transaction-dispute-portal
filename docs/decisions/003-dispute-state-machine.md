@@ -21,10 +21,13 @@ historic view); the app role has INSERT only on that table and the database stam
 ### Refinement (PR4)
 - **Integrity invariant vs policy ceilings.** "One active dispute per transaction" is enforced by the database: the
   partial unique index `ux_disputes_one_active_per_transaction`. The 20-active-per-customer and 3-per-transaction caps
-  are policy ceilings, counted just before the insert. Two submits racing at a ceiling can overshoot it by one.
+  are policy ceilings, counted just before the insert (read committed, no lock). Submits racing at a ceiling all read
+  the same count, so the overshoot is bounded by the number of concurrent submits, not by one: the submit limit of
+  10 a minute per user and replica caps it at roughly 10 times the replicas.
   - The design's alternative, a lock on the Customer row, needs UPDATE on `customers`, which `dispute_app` does not
     have. An advisory lock would serialise the customer's submits, which is not worth it at about one write per second.
-  - The overshoot is bounded and visible, and the next submission is refused.
+  - The overshoot is bounded and visible, and the next submission is refused. The ceilings limit abuse; they are not
+    money invariants, which is why only the one-active-per-transaction rule has a database backstop.
 - **"Already disputed" is a state, not a rule.** It is outside the chain: 409 `dispute_exists` on submit, and the
   block reason `already_disputed` on the transaction list.
 - **The most relevant dispute is always the latest.** The transaction list shows the active dispute first, else the
@@ -35,3 +38,7 @@ historic view); the app role has INSERT only on that table and the database stam
 ## Consequences
 Illegal moves are unrepresentable. The transition matrix is a single unit-test theory. The frontend mirrors the
 legal next states for the agent form.
+- **Known limit: "latest" is ordered by the replica's clock.** `created_at` is stamped by the API's `TimeProvider`.
+  Clock skew between replicas larger than the gap between a withdraw and a re-dispute could order the withdrawn
+  dispute after the active one, so the list would offer Dispute while submit answers 409. Keep replicas on NTP; a
+  database-stamped `created_at` (as `occurred_at` already is) is the upgrade.
