@@ -14,17 +14,39 @@ import { parseHTML } from 'k6/html';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
 // ---- configuration (all overridable with `-e NAME=value`) -------------------------------------------------------
-const num = (name, fallback) => (__ENV[name] === undefined ? fallback : Number(__ENV[name]));
+// Integers only: a typo such as READ_PER_MIN=abc must stop the run, not turn every guard comparison false (NaN).
+const num = (name, fallback, min = 1) => {
+  if (__ENV[name] === undefined) return fallback;
+  const value = Number(__ENV[name]);
+  if (!Number.isInteger(value) || value < min) throw new Error(`${name} must be an integer >= ${min}, got "${__ENV[name]}"`);
+  return value;
+};
+// This script posts the demo passwords and a session cookie to whatever it is pointed at, so by default it only talks
+// to the local compose stack. Pointing it elsewhere needs a deliberate ALLOW_NONLOCAL=1 (never a shared service).
+const LOCAL_ORIGIN = /^http:\/\/(web|localhost|127\.0\.0\.1):\d{2,5}$/;
+const origin = (name, fallback) => {
+  const value = __ENV[name] || fallback;
+  if (__ENV.ALLOW_NONLOCAL !== '1' && !LOCAL_ORIGIN.test(value)) {
+    throw new Error(`${name}=${value} is not a local origin (web, localhost or 127.0.0.1); refusing to send credentials there`);
+  }
+  return value;
+};
 // Where k6 reaches the stack (inside the compose edge network) ...
-const APP_ORIGIN = __ENV.APP_ORIGIN || 'http://web:8080';
-const AUTH_ORIGIN = __ENV.AUTH_ORIGIN || 'http://web:8180';
+const APP_ORIGIN = origin('APP_ORIGIN', 'http://web:8080');
+const AUTH_ORIGIN = origin('AUTH_ORIGIN', 'http://web:8180');
 // ... and the public origins the stack was configured with (APP_PORT / AUTH_PORT). The API only accepts Host:
 // localhost, and the OIDC redirects carry these origins, so we send them as Host and map them back when following.
-const PUBLIC_APP = __ENV.PUBLIC_APP || 'http://localhost:8880';
-const PUBLIC_AUTH = __ENV.PUBLIC_AUTH || 'http://localhost:8980';
+const PUBLIC_ORIGIN = /^http:\/\/localhost:\d{2,5}$/;
+const publicOrigin = (name, fallback) => {
+  const value = __ENV[name] || fallback;
+  if (!PUBLIC_ORIGIN.test(value)) throw new Error(`${name}=${value} must look like http://localhost:<port>`);
+  return value;
+};
+const PUBLIC_APP = publicOrigin('PUBLIC_APP', 'http://localhost:8880');
+const PUBLIC_AUTH = publicOrigin('PUBLIC_AUTH', 'http://localhost:8980');
 
 const READ_PER_MIN = num('READ_PER_MIN', 240); // per subject (thandi, sipho, agent)
-const WRITE_PER_MIN = num('WRITE_PER_MIN', 3); // submit+withdraw pairs per customer
+const WRITE_PER_MIN = num('WRITE_PER_MIN', 3, 0); // submit+withdraw pairs per customer
 const DURATION = __ENV.DURATION || '3m';
 const READ_P95_MS = num('READ_P95_MS', 300); // SLO; only lower/raise for the negative control
 const WRITE_P95_MS = num('WRITE_P95_MS', 500);
@@ -32,7 +54,7 @@ const WRITE_P95_MS = num('WRITE_P95_MS', 500);
 const PER_REPLICA_OVERALL = 300;
 const PER_REPLICA_SUBMITS = 10;
 const SETUP_SUBMITS = 3;
-const SETUP_REQUESTS = 40;
+const SETUP_REQUESTS = 40; // upper bound for setup's API calls per subject; setup() fails if it needs more
 if (READ_PER_MIN + 2 * WRITE_PER_MIN + SETUP_REQUESTS >= PER_REPLICA_OVERALL || WRITE_PER_MIN + SETUP_SUBMITS >= PER_REPLICA_SUBMITS) {
   throw new Error('rate plan would risk the per-replica rate limits; lower READ_PER_MIN / WRITE_PER_MIN');
 }
@@ -69,7 +91,7 @@ export const options = {
     write_duration: [`p(95)<${WRITE_P95_MS}`],
     errors: ['rate<0.01'],
     http_req_failed: ['rate<0.01'],
-    http_429: ['count==0'],
+    http_429: [{ threshold: 'count==0', abortOnFail: true }], // a 429 invalidates the run: stop hitting the service at once
     dropped_iterations: ['count==0'], // the generator really delivered the planned arrival rate
   },
 };
@@ -129,11 +151,14 @@ function send(origin, method, path, jar, { headers = {}, body = null, tags = {},
 }
 
 // Map an absolute public URL (or a relative one) back to {origin, path}.
+// The prefix must end at a path boundary: "http://localhost:8980@evil/x" and "http://localhost:89801/" are NOT ours.
+const under = (location, prefix) =>
+  location === prefix || location.startsWith(prefix + '/') || location.startsWith(prefix + '?');
 function locate(location, currentOrigin) {
-  if (location.startsWith(PUBLIC_AUTH)) return { origin: AUTH_ORIGIN, path: location.slice(PUBLIC_AUTH.length) || '/' };
-  if (location.startsWith(PUBLIC_APP)) return { origin: APP_ORIGIN, path: location.slice(PUBLIC_APP.length) || '/' };
-  if (location.startsWith('/')) return { origin: currentOrigin, path: location };
-  fail(`unexpected redirect target ${location}`);
+  if (under(location, PUBLIC_AUTH)) return { origin: AUTH_ORIGIN, path: location.slice(PUBLIC_AUTH.length) || '/' };
+  if (under(location, PUBLIC_APP)) return { origin: APP_ORIGIN, path: location.slice(PUBLIC_APP.length) || '/' };
+  if (location.startsWith('/') && !location.startsWith('//')) return { origin: currentOrigin, path: location };
+  return fail(`unexpected redirect target ${location}`);
 }
 
 // ---- real sign-in: /bff/login -> Keycloak form -> /signin-oidc -> session cookie ---------------------------------
@@ -170,7 +195,10 @@ function signIn(user) {
 }
 
 // ---- API helper for setup and for the scenarios -----------------------------------------------------------------
+let setupUser = null; // set while setup() works for one subject, to count its calls against SETUP_REQUESTS
+const setupCalls = {};
 function api(session, method, path, { body = null, headers = {}, name } = {}) {
+  if (setupUser) setupCalls[setupUser] = (setupCalls[setupUser] || 0) + 1;
   const h = Object.assign({ 'X-CSRF': '1', Accept: 'application/json' }, headers);
   if (body !== null) h['Content-Type'] = 'application/json';
   return send(APP_ORIGIN, method, path, session, { headers: h, body: body === null ? null : JSON.stringify(body), tags: { name: name || path } });
@@ -202,6 +230,7 @@ export function setup() {
   }
 
   for (const user of ['thandi', 'sipho']) {
+    setupUser = user;
     const session = cookiesOf(data.users[user]);
     // Walk every page: ids for detail reads, cursors for paged reads, and the disputable pool for the write loop.
     const txIds = [];
@@ -240,6 +269,10 @@ export function setup() {
       writePool: disputable.filter((id) => !blocked.has(id)),
       reasonCode: reasons[0].code,
     });
+    if (setupCalls[user] > SETUP_REQUESTS) {
+      fail(`${user}: setup used ${setupCalls[user]} API calls, more than the ${SETUP_REQUESTS} the rate plan assumes; lower READ_PER_MIN or shrink the data set`);
+    }
+    setupUser = null;
   }
 
   const agent = cookiesOf(data.users.agent);

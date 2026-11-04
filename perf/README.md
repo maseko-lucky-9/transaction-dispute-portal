@@ -26,5 +26,8 @@ Knobs, passed as `-e NAME=value` before the image name: `DURATION` (default `3m`
 240), `WRITE_PER_MIN` (submit and withdraw pairs per customer, default 3), `READ_P95_MS`, `WRITE_P95_MS`.
 If you changed `APP_PORT` or `AUTH_PORT`, also pass `-e PUBLIC_APP=http://localhost:<APP_PORT> -e PUBLIC_AUTH=http://localhost:<AUTH_PORT>`.
 
-If a run reports any `http_429`, it is invalid: lower `READ_PER_MIN` and rerun. Do not raise the rates to "stress" the
+The script only talks to the local stack (`web`, `localhost`, `127.0.0.1`) and refuses other origins unless
+`ALLOW_NONLOCAL=1`; it sends the demo passwords, so never aim it at a shared service.
+
+If a run reports any `http_429` (the run also aborts), it is invalid: lower `READ_PER_MIN` and rerun. Do not raise the rates to "stress" the
 stack; the per-subject limits (300 requests per minute, 10 submits per minute, per replica) cap what one user can send.

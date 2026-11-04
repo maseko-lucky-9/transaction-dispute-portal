@@ -87,10 +87,13 @@ Does not prove:
 - **Writes (3 per minute per customer):** `POST /disputes` with a client-generated UUID on a random disputable
   transaction, then `POST /disputes/{id}/withdraw` with the `If-Match` ETag from the 201. The dispute is withdrawn so the
   20-active-disputes cap is not approached; the transaction can be disputed again (cap: 3 per transaction, ~100 candidates).
-- **Rate plan (zero 429 by construction):** the limiter is a fixed one-minute window per subject per replica, and nginx
+- **Rate plan (sized to stay under the limits):** the limiter is a fixed one-minute window per subject per replica, and nginx
   may send everything of one user to one replica. Per user: 240 reads + 6 writes + at most 40 setup requests is under
   300; submits are 3 per minute + 3 in setup, under 10. The script throws at start-up if the plan breaks either limit.
-  A 429 would still fail the run (`http_429` count must be 0); a run with any 429 is invalid and must be repeated lower.
+  Values must be integers (a typo such as `READ_PER_MIN=abc` stops the run), and setup fails if it needs more than the 40
+  requests the plan assumes. A 429 aborts the run at once (`http_429` count must be 0, `abortOnFail`); a run with any 429 is
+  invalid and must be repeated lower. The abort path was added after review and has not been seen firing against a live
+  stack. [UNVERIFIED]
 - **Thresholds (in the script):** `read_duration p(95)<300`, `write_duration p(95)<500`, `errors rate<0.01`,
   `http_req_failed rate<0.01`, `http_429 count==0`, `dropped_iterations count==0`. `read_duration` and `write_duration` are
   custom trends fed only by the measured calls (setup and sign-in are excluded); there is one trend per endpoint too.
@@ -312,8 +315,10 @@ Notes:
   of the first start; if `APP_PORT` changes, `down -v` first).
 - Each run leaves 3 open disputes per customer and some withdrawn ones. Reruns on the same stack are fine; `down -v` resets.
 - If any run shows `http_429` above 0, discard it and rerun with a lower `-e READ_PER_MIN=...`.
-- To apply the same script to another environment, set `APP_ORIGIN`, `AUTH_ORIGIN`, `PUBLIC_APP`, `PUBLIC_AUTH`. Only
-  the local compose stack was tried.
+- The script posts the demo passwords and a session cookie to whatever it is pointed at, so it refuses any origin that is
+  not `web`, `localhost` or `127.0.0.1` unless `ALLOW_NONLOCAL=1` is set, and `PUBLIC_APP` / `PUBLIC_AUTH` must look like
+  `http://localhost:<port>`. Do not point it at a shared or production service. The `edge` network is not `internal`, so the
+  container has internet egress. Only the local compose stack was tried.
 
 ## Follow-ups (not done)
 
