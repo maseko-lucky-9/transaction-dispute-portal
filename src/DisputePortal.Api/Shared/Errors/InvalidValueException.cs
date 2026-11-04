@@ -5,4 +5,7 @@ namespace DisputePortal.Api.Shared.Errors;
 /// no validator caught. Answered as 400, not 500, since retrying the same request cannot succeed.
 /// </summary>
 public sealed class InvalidValueException(Exception? cause = null)
-    : ApiException("A value in the request cannot be stored.", StatusCodes.Status400BadRequest, "invalid_value", cause);
+    : ApiException("A value in the request cannot be stored.", StatusCodes.Status400BadRequest, ErrorCode, cause)
+{
+    public const string ErrorCode = "invalid_value";
+}

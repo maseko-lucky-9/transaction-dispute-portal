@@ -21,6 +21,12 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
             // .NET 10 no longer logs exceptions a handler has handled, so 5xx are logged here.
             logger.LogError(exception, "Request failed with {Status} {Code}", status, code);
         }
+        else if (code == InvalidValueException.ErrorCode)
+        {
+            // A value got past every validator: worth a look, but logged without the exception, whose message can
+            // quote the value (a description, say). The SQLSTATE and the type say enough.
+            logger.LogWarning("Request refused with 400 {Code}: SQLSTATE {SqlState} from {ExceptionType}", code, SqlStateOf(exception), exception.GetType().Name);
+        }
 
         if (status == StatusCodes.Status503ServiceUnavailable)
         {
@@ -46,6 +52,13 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
             Problem(StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type", ErrorCodes.UnsupportedMediaTypeDetail),
         BadHttpRequestException bad => Problem(bad.StatusCode, "malformed_request", ErrorCodes.MalformedRequestDetail),
         _ => Problem(StatusCodes.Status500InternalServerError, "internal_error", ErrorCodes.InternalErrorDetail),
+    };
+
+    private static string? SqlStateOf(Exception? exception) => exception switch
+    {
+        null => null,
+        PostgresException postgres => postgres.SqlState,
+        _ => SqlStateOf(exception.InnerException),
     };
 
     private static ProblemDetails Problem(int status, string code, string detail) =>

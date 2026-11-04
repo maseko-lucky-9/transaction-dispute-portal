@@ -166,6 +166,7 @@ public sealed class DisputesTests(ApiFactory api)
     [InlineData("two-space-card", "description", "sensitive_data")]
     [InlineData("nul-description", "description", "invalid_characters")]
     [InlineData("nul-reason", "reasonCode", "invalid_characters")]
+    [InlineData("long-reason", "reasonCode", "validation_failed")]
     public async Task InvalidBodiesAre400WithTheFieldNamed(string invalid, string field, string code)
     {
         (_, Guid transactionId, BrowserSession session) = await EligibleAsync();
@@ -184,6 +185,7 @@ public sealed class DisputesTests(ApiFactory api)
             "card-number" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "My card 4111 1111 1111 1111 was charged twice" },
             "two-space-card" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "paid with 4111  1111  1111  1111 twice" },
             "nul-description" => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "Charged twice\u0000 for one order." },
+            "long-reason" => new { id, transactionId = tx, reasonCode = new string('r', 41), description = DisputeRequests.Description },
             "nul-reason" => new { id, transactionId = tx, reasonCode = "other\u0000", description = DisputeRequests.Description },
             _ => new { id, transactionId = tx, reasonCode = DisputeRequests.Reason, description = "My ID number is 800101 5009 087, please check" },
         };

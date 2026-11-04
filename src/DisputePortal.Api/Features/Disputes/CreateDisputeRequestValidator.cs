@@ -15,10 +15,12 @@ public sealed partial class CreateDisputeRequestValidator : AbstractValidator<Cr
         RuleFor(request => request.Id).Must(BeANonEmptyUuid).WithMessage("id must be a non-empty UUID.");
         RuleFor(request => request.TransactionId).Must(BeANonEmptyUuid).WithMessage("transactionId must be a non-empty UUID.");
         RuleFor(request => request.ReasonCode).NotEmpty().WithMessage("reasonCode is required.");
+        RuleFor(request => request.ReasonCode).MaximumLength(DisputeReasonEntry.CodeMaxLength)
+            .WithMessage($"reasonCode has at most {DisputeReasonEntry.CodeMaxLength} characters.");
         RuleFor(request => request.ReasonCode).Must(code => !SensitiveNumberDetector.ContainsInvalidCharacters(code))
             .WithMessage(InvalidCharactersMessage("reasonCode"))
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.InvalidCharactersCode));
-        // Only a clean, bounded code is looked up: PostgreSQL refuses a NUL in text.
+        // Only a clean, bounded code is looked up: PostgreSQL refuses a NUL in text, and an overlong one is a field error above.
         RuleFor(request => request.ReasonCode)
             .MustAsync((code, cancellationToken) => reasons.ExistsAsync(code!, cancellationToken))
             .When(request => request.ReasonCode is { Length: > 0 and <= DisputeReasonEntry.CodeMaxLength }

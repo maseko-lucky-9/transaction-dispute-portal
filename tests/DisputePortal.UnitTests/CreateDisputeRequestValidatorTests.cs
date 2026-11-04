@@ -13,10 +13,10 @@ public sealed class CreateDisputeRequestValidatorTests
     private static readonly string TransactionId = Guid.NewGuid().ToString();
 
     private readonly CreateDisputeRequestValidator validator;
+    private readonly IDisputeReasonRepository reasons = Substitute.For<IDisputeReasonRepository>();
 
     public CreateDisputeRequestValidatorTests()
     {
-        IDisputeReasonRepository reasons = Substitute.For<IDisputeReasonRepository>();
         reasons.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<string>() == Known);
         validator = new CreateDisputeRequestValidator(reasons);
     }
@@ -43,6 +43,19 @@ public sealed class CreateDisputeRequestValidatorTests
     [InlineData(Known, true)]
     public async Task TheReasonMustExist(string? reason, bool valid) =>
         Assert.Equal(valid, !(await FailingFieldsAsync(Valid() with { ReasonCode = reason })).Contains("ReasonCode"));
+
+    // Bounded as a field error (400 validation_failed), and an overlong code is never looked up in the database.
+    [Theory]
+    [InlineData(40, true)]
+    [InlineData(41, false)]
+    [InlineData(5000, false)]
+    public async Task TheReasonCodeHasAtMost40Characters(int length, bool lookedUp)
+    {
+        ValidationResult result = await ValidateAsync(Valid() with { ReasonCode = new string('r', length) });
+
+        Assert.Equal(!lookedUp, result.Errors.Any(error => error.PropertyName == "ReasonCode" && error.ErrorMessage.Contains("at most 40", StringComparison.Ordinal)));
+        await reasons.Received(lookedUp ? 1 : 0).ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
 
     [Theory]
     [InlineData(9, false)]
