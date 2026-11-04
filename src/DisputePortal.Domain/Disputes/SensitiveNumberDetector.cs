@@ -10,17 +10,20 @@ namespace DisputePortal.Domain.Disputes;
 /// <list type="number">
 /// <item><b>invalid_characters</b>: any control character (Unicode Cc) other than tab, line feed and carriage return.
 /// Checked first; a NUL would otherwise reach PostgreSQL, which refuses it.</item>
-/// <item><b>sensitive_data</b>: a card or South African ID number. The text is normalised first (NFKC, then every format
-/// character, Unicode Cf, removed, then every decimal digit, Unicode Nd, mapped to ASCII), so look-alike digits and
-/// zero-width format characters cannot hide one. A chain is digit groups joined by runs of 1 to 4 separators (whitespace, dashes,
-/// <c>. , / _ ( )</c>); any run of whole groups inside a chain with 13 to 19 digits that passes the Luhn check is
-/// sensitive, so a leading reference number cannot hide a card behind it. Five or more separators end the chain.</item>
+/// <item><b>sensitive_data</b>: a card or South African ID number. The text is normalised first: every format character
+/// (Unicode Cf: zero-width space and joiner, BOM, soft hyphen...) is removed, and every decimal digit of any script
+/// (Unicode Nd: fullwidth, Arabic-Indic, Devanagari...) is mapped to ASCII. A chain is digit groups joined by runs of 1
+/// to 4 separators (whitespace, dashes, <c>. , / _ ( )</c>); any run of whole groups inside a chain with 13 to 19 digits
+/// that passes the Luhn check is sensitive, so a leading reference number cannot hide a card behind it.</item>
 /// </list>
 /// Known limit: this deters ACCIDENTAL disclosure, not deliberate obfuscation by the customer about their own number.
-/// Five or more separators, words between groups, and invisible code points that are not format characters (variation
-/// selectors, U+034F, fillers such as U+115F, U+3164, U+FFA0, the braille blank U+2800) are not joined; the README lists
-/// it. Treating every non-alphanumeric as a separator would flag ordinary text, and the same person could spell the
-/// digits out, so the rule stays a guard against accidents.
+/// Not folded: circled, superscript and subscript digits (Unicode No); fullwidth or other compatibility punctuation used
+/// as a separator; five or more separators; words between groups; and invisible code points that are not format
+/// characters (variation selectors, U+034F, fillers such as U+115F, U+3164, U+FFA0, the braille blank U+2800). The README
+/// lists it. There is deliberately no compatibility normalisation (NFKC): the API ships with invariant globalization,
+/// where it does nothing, so only .NET's built-in Unicode tables are used and the rule behaves the same in production,
+/// in the tests and on the web form. Treating every non-alphanumeric as a separator would flag ordinary text, and the
+/// same person could spell the digits out, so the rule stays a guard against accidents.
 /// </summary>
 public static partial class SensitiveNumberDetector
 {
@@ -84,13 +87,12 @@ public static partial class SensitiveNumberDetector
         return sum % 10 == 0;
     }
 
-    // NFKC, drop format characters (zero-width space and joiner, BOM, soft hyphen...), decimal digits of any script to
-    // ASCII. Runes, so characters outside the BMP (a surrogate pair) are judged whole.
+    // Drop format characters, map decimal digits of any script to ASCII. Runes, so a character outside the BMP (a
+    // surrogate pair) is judged whole; a lone surrogate enumerates as U+FFFD and is kept as it is.
     private static string Normalise(string text)
     {
-        string composed = text.IsNormalized(NormalizationForm.FormKC) ? text : text.Normalize(NormalizationForm.FormKC);
-        StringBuilder normalised = new(composed.Length);
-        foreach (Rune rune in composed.EnumerateRunes())
+        StringBuilder normalised = new(text.Length);
+        foreach (Rune rune in text.EnumerateRunes())
         {
             UnicodeCategory category = Rune.GetUnicodeCategory(rune);
             if (category == UnicodeCategory.Format)

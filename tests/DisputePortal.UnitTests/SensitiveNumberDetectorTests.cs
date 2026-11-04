@@ -102,16 +102,28 @@ public sealed class SensitiveNumberDetectorTests
     [InlineData("4111 : 1111 1111 1111", false)]
     public void UpToFourSeparatorsJoinGroups(string text, bool sensitive) => Assert.Equal(sensitive, SensitiveNumberDetector.ContainsSensitiveNumber(text));
 
-    // Digits of any script count after normalisation, and invisible characters cannot split a number.
+    // Decimal digits of any script count, and invisible format characters cannot split a number.
     [Theory]
     [InlineData("٤١١١١١١١١١١١١١١١")]
     [InlineData("४१११११११११११११११")]
+    [InlineData("\uFF14\uFF11\uFF11\uFF11 1111 1111 1111")]
     [InlineData("\U0001D7D2\U0001D7CF\U0001D7CF\U0001D7CF 1111 1111 1111")]
     [InlineData("4111\u00AD1111\uFEFF1111\u200D1111")]
-    [InlineData("\u2074\u00B9\u00B9\u00B9 \u2460\u2460\u2460\u2460 1111 1111")]
     [InlineData("4111 1111 1111 111\U000E00311")]
-    public void LookAlikeDigitsAndInvisibleCharactersCannotHideACard(string text) =>
+    [InlineData("4111\u00A01111\u20131111\u20141111")]
+    public void OtherScriptsDigitsAndFormatCharactersCannotHideACard(string text) =>
         Assert.True(SensitiveNumberDetector.ContainsSensitiveNumber(text));
+
+    // The documented limits: the check catches accidents, not deliberate disguise, and folds no compatibility forms.
+    [Theory]
+    [InlineData("\u2074\u00B9\u00B9\u00B9 \u2460\u2460\u2460\u2460 1111 1111")]
+    [InlineData("\u2084\u2081\u2081\u2081 1111 1111 1111")]
+    [InlineData("4111\uFF0E1111\uFF0E1111\uFF0E1111")]
+    [InlineData("4111     1111 1111 1111")]
+    [InlineData("4111 card 1111 1111 1111")]
+    [InlineData("4111\u31641111\u31641111\u31641111")]
+    public void CompatibilityFormsAndDisguisesAreNotFolded(string text) =>
+        Assert.False(SensitiveNumberDetector.ContainsSensitiveNumber(text));
 
     [Fact]
     public void TheScanIsBoundedToMaxScanLength()

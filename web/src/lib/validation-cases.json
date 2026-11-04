@@ -264,9 +264,9 @@
     "code": "invalid_characters"
   },
   {
-    "name": "card written in superscript and circled digits (only NFKC folds them)",
+    "name": "circled and superscript digits are not folded (documented limit)",
     "input": "\u2074\u00b9\u00b9\u00b9 \u2460\u2460\u2460\u2460 1111 1111",
-    "valid": false,
-    "code": "sensitive_data"
+    "valid": true,
+    "code": null
   }
 ]
