@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Conventional Commits with a fixed scope list; subject at most 72 characters.
+subject=$(grep -v '^#' "$1" | head -n 1)
+pattern='^(feat|fix|test|docs|chore|refactor|build|ci|perf)\((repo|api|domain|db|web|auth|bff|vault|compose|nginx|e2e|ci|docs|tests|deps|security|obs)\): [a-z].{8,}$'
+if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+  echo "commit-msg: '$subject' does not match $pattern" >&2
+  exit 1
+fi
+if [ "${#subject}" -gt 72 ]; then
+  echo "commit-msg: subject is ${#subject} characters; the limit is 72" >&2
+  exit 1
+fi

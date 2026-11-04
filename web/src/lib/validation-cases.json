@@ -1,0 +1,119 @@
+[
+  { "name": "empty text", "input": "", "valid": true, "code": null },
+  {
+    "name": "plain prose",
+    "input": "Charged twice for the same purchase.",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "16-digit card, unseparated",
+    "input": "4111111111111111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "16-digit card, space separated",
+    "input": "4111 1111 1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "16-digit card, hyphen separated",
+    "input": "4111-1111-1111-1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "15-digit card, 4-6-5 grouping",
+    "input": "3782 822463 10005",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "13 digits is the lower bound (SA ID shape)",
+    "input": "8001015009087",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "19 digits is the upper bound",
+    "input": "4000000000000000006",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "SA ID written in groups",
+    "input": "ID 800101 5009 087",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "12 digits is too short even if Luhn-valid",
+    "input": "411111111117",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "20 unbroken digits is too long even if Luhn-valid",
+    "input": "11111111111111111111",
+    "valid": true,
+    "code": null
+  },
+  { "name": "13 digits that fail Luhn", "input": "1234567890123", "valid": true, "code": null },
+  { "name": "16 digits that fail Luhn", "input": "4111111111111112", "valid": true, "code": null },
+  {
+    "name": "card inside a sentence",
+    "input": "My card 4111 1111 1111 1111 was charged twice",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card followed by punctuation",
+    "input": "card number is 4111-1111-1111-1111.",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "letters break the digit chain",
+    "input": "4111 1111 abcd 1111 1111",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "leading short number does not hide the card",
+    "input": "ref 1 4111111111111111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "leading digit groups do not hide the card",
+    "input": "123 4111 1111 1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "card wrapped across a line break",
+    "input": "4111 1111\n1111 1111",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "amount, date and time are not card numbers",
+    "input": "Charged R1200.50 on 2026-11-04 at 14:30",
+    "valid": true,
+    "code": null
+  },
+  {
+    "name": "one Luhn-valid number among several",
+    "input": "4111 1111 1111 1111 and 4111 1111 1111 1112",
+    "valid": false,
+    "code": "sensitive_data"
+  },
+  {
+    "name": "several numbers, none Luhn-valid",
+    "input": "4111 1111 1111 1112 and 4111 1111 1111 1113",
+    "valid": true,
+    "code": null
+  }
+]

@@ -1,0 +1,6 @@
+title = "dispute-portal gitleaks"
+[extend]
+useDefault = true
+[allowlist]
+description = "Documented local-only demo passwords of the imported Keycloak users (nothing else is allowlisted)"
+regexes = ['''(Thandi|Sipho|Agent)-Demo-2026!''']

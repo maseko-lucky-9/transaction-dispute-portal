@@ -1,0 +1,38 @@
+{
+  "realm": "dispute-portal",
+  "users": [
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "username": "thandi",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Thandi",
+      "lastName": "Nkosi",
+      "email": "thandi@example.test",
+      "credentials": [{ "type": "password", "value": "Thandi-Demo-2026!", "temporary": false }],
+      "realmRoles": ["customer"]
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "username": "sipho",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sipho",
+      "lastName": "Dlamini",
+      "email": "sipho@example.test",
+      "credentials": [{ "type": "password", "value": "Sipho-Demo-2026!", "temporary": false }],
+      "realmRoles": ["customer"]
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-0000000000a1",
+      "username": "agent",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Anele",
+      "lastName": "Agent",
+      "email": "agent@example.test",
+      "credentials": [{ "type": "password", "value": "Agent-Demo-2026!", "temporary": false }],
+      "realmRoles": ["dispute-agent"]
+    }
+  ]
+}
