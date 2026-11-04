@@ -18,7 +18,8 @@ public sealed class ManagementSettings
     /// <summary>
     /// The name Keycloak uses to reach the management port (a compose alias on the data network, e.g. <c>api-mgmt</c>).
     /// Host filtering admits it so that call can arrive, and <see cref="ManagementPortMiddleware"/> refuses it on the public
-    /// port, so the public listener still accepts only <c>AllowedHosts</c>. Unset: nothing changes.
+    /// port, so the public listener still accepts only <c>AllowedHosts</c>. Unset: nothing changes. Set, it requires
+    /// <see cref="InternalNetwork"/> (<see cref="ManagementSettingsValidator"/> stops start-up otherwise).
     /// </summary>
     public string? InternalHost { get; init; }
 

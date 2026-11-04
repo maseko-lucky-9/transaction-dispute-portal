@@ -15,7 +15,8 @@ public static class HostingRegistration
     public static WebApplicationBuilder ConfigurePorts(this WebApplicationBuilder builder)
     {
         ManagementSettings ports = builder.Configuration.GetSection(ManagementSettings.Section).Get<ManagementSettings>() ?? new ManagementSettings();
-        builder.Services.AddOptions<ManagementSettings>().BindConfiguration(ManagementSettings.Section);
+        builder.Services.AddOptions<ManagementSettings>().BindConfiguration(ManagementSettings.Section).ValidateOnStart();
+        builder.Services.AddSingleton<IValidateOptions<ManagementSettings>, ManagementSettingsValidator>();
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.ListenAnyIP(ports.Public);

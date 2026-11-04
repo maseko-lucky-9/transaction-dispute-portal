@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DisputePortal.Api.Features.Bff;
+using DisputePortal.Api.Shared.Health;
 using DisputePortal.Api.Shared.Observability;
 using DisputePortal.Api.Shared.OpenApi;
 using DisputePortal.Api.Shared.Persistence;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 
@@ -27,8 +29,7 @@ namespace DisputePortal.IntegrationTests;
 public sealed class BackchannelLogoutTests : IDisposable
 {
     private const string TrustedProxy = "172.28.0.5";
-    private const string DataNetwork = "10.231.28.0/24";
-    private const string KeycloakOnTheDataNetwork = "10.231.28.20";
+    private const string KeycloakOnTheDataNetwork = ApiFactory.KeycloakPeer;
 
     private readonly ApiFactory api;
 
@@ -306,16 +307,33 @@ public sealed class BackchannelLogoutTests : IDisposable
         Assert.Contains(probe.Samples, sample => (string?)sample.Tags["type"] == SecurityMetrics.RateLimited);
     }
 
+
+    // Misconfiguration fails start-up: an internal host name without the network it may be used from.
+    [Fact]
+    public async Task AnInternalHostWithoutAnInternalNetworkStopsStartUp()
+    {
+        WebApplicationFactory<Program> misconfigured = api.WithWebHostBuilder(builder => builder.UseSetting("Ports:InternalNetwork", ""));
+
+        Exception error = Assert.ThrowsAny<Exception>(() => misconfigured.CreateClient());
+
+        Assert.Contains(ManagementSettingsValidator.MissingNetwork, Messages(error));
+        try
+        {
+            await misconfigured.DisposeAsync();
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or AggregateException or OptionsValidationException)
+        {
+            // A host that never started may refuse a clean stop; only the start-up failure matters here.
+        }
+    }
+
     // On the management port the socket's peer counts, never X-Forwarded-For: a container on the trusted app network
     // (where nginx is) cannot pass for Keycloak on the data network.
     [Fact]
     public async Task OnlyPeersOnTheDataNetworkReachTheEndpointAndForwardedForIsIgnoredThere()
     {
         await using WebApplicationFactory<Program> compose = api.WithWebHostBuilder(builder =>
-        {
-            builder.UseSetting("Ports:InternalNetwork", DataNetwork);
-            builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, PeerAddressFilter>());
-        });
+            builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, PeerAddressFilter>()));
 
         HttpStatusCode keycloak = await PostFromAsync(compose, KeycloakOnTheDataNetwork);
         HttpStatusCode appNetwork = await PostFromAsync(compose, TrustedProxy);
@@ -418,6 +436,11 @@ public sealed class BackchannelLogoutTests : IDisposable
 
         return (await keycloak.SendAsync(request)).StatusCode;
     }
+
+    private static string Messages(Exception error) =>
+        error is AggregateException aggregate
+            ? string.Join(" | ", aggregate.Flatten().InnerExceptions.Select(Messages))
+            : error.Message + (error.InnerException is null ? "" : " | " + Messages(error.InnerException));
 
     private static FormUrlEncodedContent Form(string token) => new([new KeyValuePair<string, string>("logout_token", token)]);
 

@@ -31,6 +31,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>The management port under the compose alias Keycloak uses for back-channel logout.</summary>
     public const string InternalHost = "api-mgmt";
     public const string ManagementBaseUrl = "http://" + InternalHost + ":8081";
+    public const int ManagementPort = 8081;
+
+    /// <summary>The compose data network, and Keycloak's address on it: the peer a management-port request comes from by default.</summary>
+    public const string InternalNetwork = "10.231.28.0/24";
+    public const string KeycloakPeer = "10.231.28.20";
 
     /// <summary>The compose ACL user (deploy/bootstrap/bootstrap.sh), so every Redis command the app sends is proven under it.</summary>
     public const string RedisUser = "dispute_api";
@@ -81,8 +86,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Keycloak:Authority", FakeIdentityProvider.Issuer);
         builder.UseSetting("Keycloak:ClientSecret", IdentityProvider.ClientSecret);
         builder.UseSetting("Forwarded:KnownNetwork", "172.28.0.0/16");
-        // As compose: Keycloak reaches the management port under this name (ADR-011).
+        // As compose: Keycloak reaches the management port under this name, from the data network (ADR-011).
         builder.UseSetting("Ports:InternalHost", InternalHost);
+        builder.UseSetting("Ports:InternalNetwork", InternalNetwork);
         builder.ConfigureTestServices(services =>
         {
             // The real OIDC handler, with metadata supplied in memory and the back channel answered by the fake.
