@@ -93,6 +93,7 @@ public sealed class ManagementPortMiddlewareTests
     [InlineData("10.231.28.7", true)]
     [InlineData("::ffff:10.231.28.7", true)]
     [InlineData("127.0.0.1", true)]
+    [InlineData("::ffff:127.0.0.1", true)]
     [InlineData("::1", true)]
     [InlineData("10.231.29.4", false)]
     [InlineData("::ffff:10.231.29.4", false)]

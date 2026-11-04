@@ -458,7 +458,9 @@ public sealed class BackchannelLogoutTests : IDisposable
             case "no-token-field":
                 return new FormUrlEncodedContent([new("token", token)]);
             case "oversized":
-                StringContent padded = new("logout_token=" + token + "&pad=" + new string('x', (int)BackchannelLogoutEndpoint.MaxBodyBytes), Encoding.ASCII);
+                // A valid token, and fields each within the form limits: only the declared-length bound refuses it.
+                string pad = new('x', (int)(BackchannelLogoutEndpoint.MaxBodyBytes / 2) + 1);
+                StringContent padded = new("logout_token=" + token + "&pad1=" + pad + "&pad2=" + pad, Encoding.ASCII);
                 padded.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
                 return padded;
             default:

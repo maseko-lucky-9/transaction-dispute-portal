@@ -47,7 +47,8 @@ public sealed class ManagementPortMiddleware
     private bool IsInternalHost(HostString host) =>
         !string.IsNullOrWhiteSpace(ports.InternalHost) && string.Equals(host.Host, ports.InternalHost, StringComparison.OrdinalIgnoreCase);
 
-    // Kestrel's dual-stack listener reports an IPv4 peer as ::ffff:a.b.c.d; the network is IPv4.
+    // Kestrel's dual-stack listener reports an IPv4 peer as ::ffff:a.b.c.d; IsLoopback and IPNetwork.Contains both match
+    // that form on .NET 10 (pinned by ManagementPortMiddlewareTests), so no mapping is needed here.
     private bool AdmitsPeer(IPAddress? peer)
     {
         if (internalNetwork is not { } network)
@@ -55,13 +56,7 @@ public sealed class ManagementPortMiddleware
             return true;
         }
 
-        if (peer is null)
-        {
-            return false;
-        }
-
-        IPAddress address = peer.IsIPv4MappedToIPv6 ? peer.MapToIPv4() : peer;
-        return IPAddress.IsLoopback(address) || network.Contains(address);
+        return peer is not null && (IPAddress.IsLoopback(peer) || network.Contains(peer));
     }
 
     private static Task Refuse(HttpContext context, int status)
