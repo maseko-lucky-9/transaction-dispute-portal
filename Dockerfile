@@ -28,7 +28,7 @@ USER root
 RUN apk upgrade --no-cache
 USER nginx
 COPY web/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY web/nginx/security-headers.conf web/nginx/csp-app.conf /etc/nginx/
+COPY web/nginx/security-headers.conf web/nginx/csp-app.conf web/nginx/csp-deny.conf /etc/nginx/
 COPY --from=web-build /web/dist /usr/share/nginx/html
 EXPOSE 8080 8180
 

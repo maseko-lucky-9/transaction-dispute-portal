@@ -51,3 +51,14 @@ npm --prefix web ci --ignore-scripts && npm --prefix web run lint && npm --prefi
   && npm --prefix web run test:coverage && npm --prefix web run build
 docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test   # E2E against the real stack
 ```
+
+## Known limits (deliberate, with the upgrade path)
+
+| Limit | Why it is acceptable here | Upgrade path |
+|---|---|---|
+| Rate limits are per API replica | N replicas allow about N times the quota | Redis-backed limiter |
+| Vault runs with one key share, and `bootstrap` plays the trusted orchestrator that delivers each service's AppRole files ("secret zero") | Local development only; the AppRoles are bound to the `data` network, which `web` is not on | Auto-unseal, no root token, platform identity (for example Kubernetes auth) instead of files |
+| Issued AppRole secret_ids stay valid for 24 h (tidy removes only expired ones) | Bounded by the network binding and the TTL | Single-use secret_ids with response wrapping |
+| DataProtection keys sit unencrypted in Postgres, guarded by grants | A Redis write alone cannot forge a session | `ProtectKeysWithCertificate` with a key held in Vault |
+| Keycloak and the data stores are not `read_only` | They need writable state; capabilities are dropped | Per-image tmpfs mounts |
+| Database credentials are read once at start-up | Rotation means a rolling restart | Vault dynamic database credentials |

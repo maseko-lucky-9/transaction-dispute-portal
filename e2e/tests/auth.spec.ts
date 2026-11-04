@@ -80,12 +80,18 @@ test('edge: security headers per location, no-store on the API, Keycloak admin i
     '/realms/dispute-portal/.well-known/openid-configuration',
     '/realms/dispute-portal/protocol/openid-connect/token',
     '/realms/dispute-portal/protocol/openid-connect/certs',
+    '/realms/dispute-portal/protocol/openid-connect/auth/device',
     '/realms/dispute-portal/clients-registrations/default',
     '/metrics',
     '/health',
   ]) {
     expect((await request.get(`${authUrl}${path}`)).status(), path).toBe(404);
   }
+  // nginx's own error pages on the auth origin carry a deny-all CSP (Keycloak's pages keep Keycloak's).
+  const notFound = await request.get(`${authUrl}/nope`);
+  expect(notFound.status()).toBe(404);
+  expect(notFound.headers()['content-security-policy']).toContain("default-src 'none'");
+
   // The login page itself is reachable and carries exactly one nosniff (Keycloak's duplicate is hidden).
   const login = await request.get(`${authUrl}/realms/dispute-portal/protocol/openid-connect/auth`, { maxRedirects: 0 });
   expect([200, 302, 400]).toContain(login.status());
