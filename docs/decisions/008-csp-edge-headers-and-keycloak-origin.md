@@ -17,7 +17,10 @@ Status: accepted (2026-11-04)
   port-scoped. Keycloak
   keeps its own CSP.
 - `Cache-Control: no-store` on `/api` and `/bff`; hashed assets are immutable; `index.html` is `no-cache`.
-- HSTS is sent only over https and is not counted as a control on localhost.
+- HSTS is not sent by this stack: the local and CI stack serves plain http, and neither `web/nginx` nor the API sets
+  `Strict-Transport-Security`. A production deployment must add it at the TLS-terminating edge. It is not counted as a
+  control here (see the threat model). Corrected 2026-11-04: this line previously said HSTS was sent over https, which
+  the code does not do.
 
 ## Consequences
 One more origin to document. In exchange the admin console and master realm are unreachable from the browser.
