@@ -37,7 +37,7 @@ Format: `[ID] [P?] [Story] description`. Tasks within a PR run in order unless m
 - [x] T041 [P] Agent UI
 
 ## PR6 — Ops hardening
-- [ ] T050 OTel + security events, rate limits, CSP/header/cookie tests, GHCR publish
+- [x] T050 OTel + security events, rate limits, CSP/header/cookie tests, GHCR publish (PR #16)
 
 ## PR7 — Final docs
-- [ ] T060 README criteria table, runbook, threat model (STRIDE + POPIA), test catalogue, AI-use disclosure
+- [x] T060 README criteria table, runbook, threat model (STRIDE + POPIA), test catalogue, AI-use disclosure
