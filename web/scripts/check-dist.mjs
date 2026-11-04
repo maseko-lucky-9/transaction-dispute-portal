@@ -7,7 +7,7 @@ const dist = new URL("../dist/", import.meta.url).pathname;
 const html = readFileSync(join(dist, "index.html"), "utf8");
 const problems = [];
 
-for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
   const [, attrs, body] = match;
   if (!/\bsrc\s*=/.test(attrs)) problems.push("inline <script> (blocked by script-src 'self')");
   else if (body.trim()) problems.push("<script src> with an inline body");
