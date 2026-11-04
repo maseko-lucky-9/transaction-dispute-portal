@@ -1,4 +1,5 @@
 using DisputePortal.Api.Features.Customers;
+using DisputePortal.Api.Features.Transactions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -20,10 +21,16 @@ public static class PersistenceRegistration
         services.AddOptions<DatabaseSettings>().BindConfiguration(section).ValidateDataAnnotations().ValidateOnStart();
         // Resolved on first use, so test settings apply.
         services.AddSingleton(provider => NpgsqlDataSource.Create(provider.GetRequiredService<IOptions<DatabaseSettings>>().Value.ToConnectionString(use)));
-        // Not pooled: a later slice adds a per-request owner filter, and pooled contexts would carry it across requests.
-        services.AddDbContext<DisputePortalDbContext>((provider, options) => Configure(options, provider.GetRequiredService<NpgsqlDataSource>()));
+        services.AddScoped<CurrentCustomer>();
+        services.AddScoped<ICurrentCustomer>(provider => provider.GetRequiredService<CurrentCustomer>());
+        // Not pooled: the Owner filter reads per-request state. The seeder acts as each customer in turn through the
+        // same request-scoped CurrentCustomer, so it never needs to bypass the filter.
+        services.AddDbContext<DisputePortalDbContext>((provider, options) => Configure(options, provider.GetRequiredService<NpgsqlDataSource>())
+            .UseAsyncSeeding((context, _, cancellationToken) => Seeder.SeedAsync(
+                context, provider.GetRequiredService<CurrentCustomer>(), provider.GetRequiredService<TimeProvider>(), cancellationToken)));
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
+        services.AddScoped<ITransactionRepository, TransactionRepository>();
         return services;
     }
 
@@ -44,6 +51,5 @@ public static class PersistenceRegistration
     internal static DbContextOptionsBuilder Configure(DbContextOptionsBuilder options, NpgsqlDataSource dataSource) =>
         options
             .UseNpgsql(dataSource, npgsql => npgsql.EnableRetryOnFailure(MaxRetryCount).CommandTimeout(CommandTimeoutSeconds))
-            .UseSnakeCaseNamingConvention()
-            .UseAsyncSeeding(Seeder.SeedAsync);
+            .UseSnakeCaseNamingConvention();
 }

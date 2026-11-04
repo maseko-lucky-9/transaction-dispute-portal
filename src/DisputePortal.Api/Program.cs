@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
 using DisputePortal.Api.Features.Bff;
 using DisputePortal.Api.Features.Me;
+using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Api.Shared.Eligibility;
 using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Health;
 using DisputePortal.Api.Shared.Hosting;
@@ -72,6 +75,10 @@ builder.Services.AddPerSubjectRateLimiter(builder.Configuration);
 builder.Services.AddRequestTimeouts(options => options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(30) });
 builder.Services.AddApiDocumentation();
 builder.Services.AddSingleton<IValidator<LoginRequest>, LoginRequestValidator>();
+builder.Services.AddDisputeEligibility();
+builder.Services.AddTransactions();
+// Enums cross the wire by name ("Posted"), and the OpenAPI document lists their values for the generated TS types.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 WebApplication app = builder.Build();
 
@@ -91,6 +98,7 @@ app.UseRequestTimeouts();
 app.MapHealthEndpoints();
 app.MapBffEndpoints();
 app.MapMeEndpoints();
+app.MapTransactionsEndpoints();
 app.MapApiDocumentation();
 
 if (!await DependencyGate.WaitAsync(app.Services, app.Logger, CancellationToken.None))

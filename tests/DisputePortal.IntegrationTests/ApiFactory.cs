@@ -46,12 +46,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public string AppConnectionString => RoleConnectionString(AppRole, appPassword);
 
+    /// <summary>The container's superuser on the app database: test-data setup only, never what the API connects as.</summary>
+    public string AdminConnectionString => postgres.GetConnectionString();
+
     public async Task InitializeAsync()
     {
         await Task.WhenAll(postgres.StartAsync(), redis.StartAsync());
         await PrepareRedisUserAsync();
         await PrepareRolesAsync();
-        await MigrateAsOwnerAsync();
+        Assert.Equal(0, await MigrateAsync(DatabaseName, OwnerRole, ownerPassword, TimeProvider.System));
     }
 
     // UseSetting reaches Program's configuration before Build(); hosts derived with WithWebHostBuilder inherit it.
@@ -120,29 +123,48 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         }
     }
 
-    // The --migrate code path itself (MigrationRunner), on the owner's credentials, as the compose migrate job runs it.
-    private async Task MigrateAsOwnerAsync()
+    /// <summary>
+    /// The --migrate code path itself (MigrationRunner, which also seeds), as the compose migrate job runs it. The fixture
+    /// uses the owner's credentials; the seeder test points it at a fresh database with a fixed clock.
+    /// </summary>
+    public async Task<int> MigrateAsync(string database, string username, string password, TimeProvider clock)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["DatabaseOwner:Host"] = postgres.Hostname,
                 ["DatabaseOwner:Port"] = postgres.GetMappedPublicPort(PostgreSqlBuilder.PostgreSqlPort).ToString(CultureInfo.InvariantCulture),
-                ["DatabaseOwner:Name"] = DatabaseName,
-                ["DatabaseOwner:Username"] = OwnerRole,
-                ["DatabaseOwner:Password"] = ownerPassword,
+                ["DatabaseOwner:Name"] = database,
+                ["DatabaseOwner:Username"] = username,
+                ["DatabaseOwner:Password"] = password,
             })
             .Build();
         ServiceCollection services = new();
         services.AddSingleton(configuration);
         services.AddLogging();
-        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(clock);
         services.AddPersistence(DatabaseUse.Migrations);
         services.AddDataProtectionKeyRing();
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
-        int exitCode = await MigrationRunner.RunAsync(provider, CancellationToken.None);
-        Assert.Equal(0, exitCode);
+        return await MigrationRunner.RunAsync(provider, CancellationToken.None);
     }
+
+    /// <summary>A new, empty database on the same server, reachable with <see cref="AdminConnectionString"/>'s superuser.</summary>
+    public async Task<(string Name, string Username, string Password)> CreateEmptyDatabaseAsync()
+    {
+        string name = "t" + Guid.NewGuid().ToString("N");
+        await using NpgsqlConnection connection = new(AdminConnectionString);
+        await connection.OpenAsync();
+        // CREATE DATABASE takes no parameters; the name is generated above, never input.
+        await using NpgsqlCommand command = new("CREATE DATABASE " + name, connection);
+        await command.ExecuteNonQueryAsync();
+        NpgsqlConnectionStringBuilder admin = new(AdminConnectionString);
+        return (name, admin.Username!, admin.Password!);
+    }
+
+    /// <summary>A connection string for another database on the same server, as the superuser.</summary>
+    public string AdminConnectionStringFor(string database) =>
+        new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = database }.ConnectionString;
 
     private string RoleConnectionString(string role, string password) =>
         new NpgsqlConnectionStringBuilder(postgres.GetConnectionString()) { Username = role, Password = password, Database = DatabaseName }.ConnectionString;

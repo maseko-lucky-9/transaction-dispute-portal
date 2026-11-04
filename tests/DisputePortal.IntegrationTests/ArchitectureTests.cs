@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Domain.Common;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace DisputePortal.IntegrationTests;
 
@@ -48,6 +50,17 @@ public sealed partial class ArchitectureTests
         Assert.DoesNotContain(references, name => name.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal));
         Assert.DoesNotContain(references, name => name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
         Assert.DoesNotContain(references, name => name.StartsWith("Npgsql", StringComparison.Ordinal));
+    }
+
+    // Fail-closed ownership is only as good as its coverage: any entity carrying a CustomerId must carry the Owner filter.
+    [Fact]
+    public void EveryEntityWithACustomerIdHasTheOwnerFilter()
+    {
+        using DisputePortalDbContext db = new DesignTimeDbContextFactory().CreateDbContext([]);
+        IEntityType[] owned = [.. db.Model.GetEntityTypes().Where(entity => entity.FindProperty("CustomerId") is not null)];
+
+        Assert.Equal(["Account", "Transaction"], owned.Select(entity => entity.ClrType.Name).Order(StringComparer.Ordinal));
+        Assert.All(owned, entity => Assert.Contains(entity.GetDeclaredQueryFilters(), filter => filter.Key == DisputePortalDbContext.OwnerFilter));
     }
 
     [GeneratedRegex(@"\b(?:FromSqlRaw|ExecuteSqlRaw(?:Async)?|SqlQueryRaw)\s*(?:<[^>]*>)?\(\s*(?:\$|""[^""]*""\s*\+)")]
