@@ -47,6 +47,8 @@ reset together, because the database roles take their passwords from the secrets
 dotnet build DisputePortal.slnx -warnaserror
 dotnet test  tests/DisputePortal.UnitTests
 dotnet test  tests/DisputePortal.IntegrationTests     # Testcontainers: needs Docker
+dotnet build DisputePortal.slnx -c Release && scripts/coverage.sh   # both suites merged, fails below the line-coverage floor
+dotnet tool restore && (cd tests/DisputePortal.UnitTests && dotnet tool run dotnet-stryker)   # mutation score of Domain, report only
 npm --prefix web ci --ignore-scripts && npm --prefix web run lint && npm --prefix web run typecheck \
   && npm --prefix web run test:coverage && npm --prefix web run build
 docker compose up -d --wait --build && npm --prefix e2e ci && npx --prefix e2e playwright test   # E2E against the real stack

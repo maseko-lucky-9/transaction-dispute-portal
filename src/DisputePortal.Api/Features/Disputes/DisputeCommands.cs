@@ -23,17 +23,23 @@ public sealed class DisputeCommands(
     DisputeEligibilityPolicy eligibility,
     TimeProvider time,
     DisputeMetrics metrics,
+    SecurityMetrics securityMetrics,
     ILogger<DisputeCommands> logger)
 {
-    /// <exception cref="NotFoundException">The transaction is missing or someone else's.</exception>
+    /// <exception cref="NotFoundException">The transaction is missing or someone else's (counted as <see cref="SecurityMetrics.Bola404"/>).</exception>
     /// <exception cref="DisputeConflictException">The transaction is already disputed, or the id was used otherwise.</exception>
     /// <exception cref="EligibilityFailedException">One or more eligibility rules refuse it.</exception>
     public async Task<SubmitOutcome> SubmitAsync(CreateDisputeRequest request, string subject, CancellationToken cancellationToken)
     {
         Guid id = Guid.ParseExact(request.Id!, "D");
         Guid transactionId = Guid.ParseExact(request.TransactionId!, "D");
-        TransactionSnapshot transaction = await transactions.GetSnapshotAsync(transactionId, cancellationToken)
-            ?? throw new NotFoundException("transaction_not_found", "No transaction with this id.");
+        TransactionSnapshot? transaction = await transactions.GetSnapshotAsync(transactionId, cancellationToken);
+        if (transaction is null)
+        {
+            securityMetrics.Record(SecurityMetrics.Bola404);
+            throw new NotFoundException("transaction_not_found", "No transaction with this id.");
+        }
+
         if (await disputes.FindTransactionIdAsync(id, cancellationToken) is { } usedFor)
         {
             return await ReplayAsync(id, transactionId, usedFor, cancellationToken);
@@ -73,7 +79,13 @@ public sealed class DisputeCommands(
     /// </summary>
     public async Task<VersionedDispute> WithdrawAsync(Guid id, string? ifMatch, string subject, CancellationToken cancellationToken)
     {
-        Dispute dispute = await disputes.FindAsync(id, cancellationToken) ?? throw DisputeNotFound();
+        Dispute? dispute = await disputes.FindAsync(id, cancellationToken);
+        if (dispute is null)
+        {
+            securityMetrics.Record(SecurityMetrics.Bola404);
+            throw DisputeNotFound();
+        }
+
         if (ifMatch is null)
         {
             throw new PreconditionRequiredException();

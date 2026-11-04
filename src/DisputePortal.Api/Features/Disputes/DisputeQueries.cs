@@ -1,4 +1,5 @@
 using DisputePortal.Api.Shared.Errors;
+using DisputePortal.Api.Shared.Observability;
 using DisputePortal.Api.Shared.Paging;
 using DisputePortal.Api.Shared.Persistence;
 
@@ -9,7 +10,8 @@ public sealed class DisputeQueries(
     IDisputeRepository disputes,
     IDisputeReasonRepository reasons,
     ICurrentCustomer currentCustomer,
-    DisputeCursorProtector cursors)
+    DisputeCursorProtector cursors,
+    SecurityMetrics securityMetrics)
 {
     public async Task<DisputeListResponse> ListAsync(DisputeListRequest request, CancellationToken cancellationToken)
     {
@@ -25,9 +27,18 @@ public sealed class DisputeQueries(
         return new DisputeListResponse([.. rows.Take(limit)], nextCursor);
     }
 
-    /// <exception cref="NotFoundException">Missing or another customer's.</exception>
-    public async Task<VersionedDispute> GetAsync(Guid id, CancellationToken cancellationToken) =>
-        await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeCommands.DisputeNotFound();
+    /// <exception cref="NotFoundException">Missing or another customer's (counted as <see cref="SecurityMetrics.Bola404"/>).</exception>
+    public async Task<VersionedDispute> GetAsync(Guid id, CancellationToken cancellationToken)
+    {
+        VersionedDispute? dispute = await disputes.GetDetailAsync(id, cancellationToken);
+        if (dispute is null)
+        {
+            securityMetrics.Record(SecurityMetrics.Bola404);
+            throw DisputeCommands.DisputeNotFound();
+        }
+
+        return dispute;
+    }
 
     public Task<IReadOnlyList<DisputeReason>> ReasonsAsync(CancellationToken cancellationToken) => reasons.ListAsync(cancellationToken);
 }
