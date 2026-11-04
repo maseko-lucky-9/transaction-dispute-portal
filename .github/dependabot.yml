@@ -1,20 +1,31 @@
 version: 2
+# Minor and patch updates only, grouped to keep the PR count low. Major bumps change the pinned stack (see
+# docs/decisions) and are taken deliberately, with an ADR, not by a bot.
 updates:
   - package-ecosystem: nuget
     directory: /
     schedule: { interval: weekly }
+    groups: { nuget: { update-types: [minor, patch] } }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
+    groups: { web: { update-types: [minor, patch] } }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: npm
     directory: /e2e
     schedule: { interval: weekly }
+    groups: { e2e: { update-types: [minor, patch] } }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups: { actions: { update-types: [minor, patch] } }
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
