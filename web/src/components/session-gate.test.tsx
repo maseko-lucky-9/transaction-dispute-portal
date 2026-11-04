@@ -39,7 +39,7 @@ describe("session gate: signed in (200)", () => {
     expect(await screen.findByText("none assigned")).toBeInTheDocument();
   });
 
-  it("links My transactions and keeps Agent queue as a disabled placeholder", async () => {
+  it("links My transactions and My disputes for a customer, and shows no agent queue", async () => {
     server.use(signedIn());
     renderApp();
     await screen.findByText(/Signed in as/);
@@ -47,11 +47,10 @@ describe("session gate: signed in (200)", () => {
     const transactions = screen.getByRole("link", { name: "My transactions" });
     expect(transactions).toHaveAttribute("href", "/transactions");
     expect(transactions).not.toHaveAttribute("aria-disabled");
-
-    const agentQueue = screen.getByRole("link", { name: "Agent queue" });
-    expect(agentQueue).toHaveAttribute("aria-disabled", "true");
-    expect(agentQueue).not.toHaveAttribute("href");
-    expect(screen.getAllByText("Coming soon")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "My disputes" })).toHaveAttribute("href", "/disputes");
+    expect(screen.queryByText("Agent queue")).not.toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /queue/i })).not.toBeInTheDocument();
   });
 
   it("opens the transactions page from Home", async () => {

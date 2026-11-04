@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isApiError } from "@/api/problem";
 import { disputeKeys, withdrawDispute, type DisputeWithEtag } from "@/api/disputes";
 import { ErrorState } from "@/components/error-state";
+import { TraceReference } from "@/components/trace-reference";
 import { Button } from "@/components/ui/button";
 import { WITHDRAWABLE_STATUSES } from "@/lib/dispute-filters";
 
@@ -150,15 +151,6 @@ export function WithdrawDispute({ id, current }: { id: string; current: DisputeW
       ) : null}
     </section>
   );
-}
-
-function TraceReference({ error }: { error: unknown }) {
-  const traceId = isApiError(error) ? error.traceId : undefined;
-  return traceId ? (
-    <p className="text-sm text-muted-foreground">
-      Reference: <code className="font-mono text-foreground">{traceId}</code>
-    </p>
-  ) : null;
 }
 
 function ConfirmWithdraw(props: { pending: boolean; onConfirm: () => void; onCancel: () => void }) {

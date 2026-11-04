@@ -8,16 +8,16 @@ import { createDispute, disputeKeys, type DisputeReason } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
 import type { TransactionItem } from "@/api/transactions";
 import { ErrorState } from "@/components/error-state";
+import { CharacterCounter, FormField } from "@/components/form-field";
+import { TraceReference } from "@/components/trace-reference";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeAmount } from "@/lib/decimal";
 import {
   DESCRIPTION_MAX,
   DESCRIPTION_MIN,
-  describeRemaining,
   disputeFormSchema,
   keptEarlierDetails,
   type DisputeFormValues,
@@ -140,7 +140,6 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
   const selectedReason = reasons.find((reason) => reason.code === reasonCode);
   // Counted the way the server counts it: on the trimmed text.
   const length = description.trim().length;
-  const overLimit = length > DESCRIPTION_MAX;
 
   return (
     <form
@@ -149,7 +148,7 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
       onSubmit={(event) => void submit(event)}
       className="flex flex-col gap-5"
     >
-      <Field
+      <FormField
         id="dispute-reason"
         label="Reason"
         error={errors.reasonCode?.message}
@@ -171,29 +170,14 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
             ))}
           </Select>
         )}
-      </Field>
+      </FormField>
 
-      <Field
+      <FormField
         id="dispute-description"
         label="What happened?"
         error={errors.description?.message}
         hint={`In your own words, ${DESCRIPTION_MIN} to ${DESCRIPTION_MAX} characters. Do not include card or ID numbers.`}
-        footer={
-          <>
-            <span className={overLimit ? "text-destructive" : "text-muted-foreground"}>
-              {length} / {DESCRIPTION_MAX}
-            </span>
-            <span
-              role="status"
-              aria-label="Description length"
-              aria-live="polite"
-              aria-atomic="true"
-              className="sr-only"
-            >
-              {describeRemaining(length)}
-            </span>
-          </>
-        }
+        footer={<CharacterCounter length={length} label="Description length" />}
       >
         {(described) => (
           <Textarea
@@ -205,9 +189,9 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
             {...register("description")}
           />
         )}
-      </Field>
+      </FormField>
 
-      <Field
+      <FormField
         id="dispute-amount"
         label="Amount to dispute"
         optional
@@ -225,7 +209,7 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
             {...register("amount")}
           />
         )}
-      </Field>
+      </FormField>
 
       {failed ? (
         <FailureNotice key={mutation.submittedAt} failed={failed} retry={() => void submit()} />
@@ -242,64 +226,9 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
           {pending ? "Submitting your dispute..." : ""}
         </p>
       </div>
-      {failed?.failure.kind === "fields" ? <Reference error={failed.error} /> : null}
+      {failed?.failure.kind === "fields" ? <TraceReference error={failed.error} /> : null}
     </form>
   );
-}
-
-interface FieldProps {
-  id: string;
-  label: string;
-  optional?: boolean;
-  error: string | undefined;
-  hint?: string | undefined;
-  footer?: ReactNode;
-  /** Receives the `aria-describedby` value: the hint, then the error when there is one. */
-  children: (described: string) => ReactNode;
-}
-
-function Field({ id, label, optional, error, hint, footer, children }: FieldProps) {
-  const hintId = `${id}-hint`;
-  const errorId = `${id}-error`;
-  const described = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>
-        {label}{" "}
-        <span className="font-normal text-muted-foreground">
-          {optional ? "(optional)" : "(required)"}
-        </span>
-      </Label>
-      {children(described)}
-      {hint ? (
-        <p id={hintId} className="text-sm text-muted-foreground">
-          {hint}
-        </p>
-      ) : null}
-      {footer ? <div className="flex justify-end gap-2 text-sm">{footer}</div> : null}
-      {/*
-        A fixed-height slot: an error appearing on blur must not move the Submit button, or the
-        mouse-down that blurs the field would shift it away before the mouse-up and the click
-        would be dropped.
-      */}
-      <div className="min-h-10">
-        {error ? (
-          <p id={errorId} role="alert" className="text-sm leading-5 text-destructive">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function Reference({ error }: { error: unknown }) {
-  const traceId = isApiError(error) ? error.traceId : undefined;
-  return traceId ? (
-    <p className="text-sm text-muted-foreground">
-      Reference: <code className="font-mono text-foreground">{traceId}</code>
-    </p>
-  ) : null;
 }
 
 function plural(count: number, noun: string) {

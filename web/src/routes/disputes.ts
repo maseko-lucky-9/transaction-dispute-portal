@@ -9,6 +9,7 @@ import { rootRoute } from "./root";
 /** /disputes?status=&limit= : the history. Every param is validated, none can crash the page. */
 export const disputesRoute = createRoute({
   getParentRoute: () => rootRoute,
+  staticData: { area: "customer" },
   path: "/disputes",
   validateSearch: disputesSearchSchema,
   search: { middlewares: [stripSearchParams({ limit: DEFAULT_LIMIT })] },

@@ -10,6 +10,11 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: ReturnType<typeof createAppRouter>;
   }
+
+  /** Which half of the app a route belongs to; RoleGuard checks it against the session's role. */
+  interface StaticDataRouteOption {
+    area?: "agent" | "customer";
+  }
 }
 
 declare module "@tanstack/history" {

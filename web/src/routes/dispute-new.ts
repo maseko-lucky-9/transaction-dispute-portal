@@ -7,6 +7,7 @@ import { rootRoute } from "./root";
 /** /transactions/$transactionId/dispute : the form that raises a dispute on one transaction. */
 export const disputeNewRoute = createRoute({
   getParentRoute: () => rootRoute,
+  staticData: { area: "customer" },
   path: "/transactions/$transactionId/dispute",
   component: lazyRouteComponent(() => import("@/components/dispute-form-page"), "DisputeFormPage"),
   pendingComponent: ListSkeleton,

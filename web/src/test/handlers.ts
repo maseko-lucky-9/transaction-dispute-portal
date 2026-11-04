@@ -9,6 +9,20 @@ export const alice: User = {
   logoutUrl: "/bff/logout?sid=abc123",
 };
 
+/** A back-office agent: the `dispute-agent` role and no customer role. */
+export const bob: User = {
+  name: "Bob Agent",
+  roles: ["dispute-agent"],
+  logoutUrl: "/bff/logout?sid=agent456",
+};
+
+/** Both roles at once, which the server refuses everywhere. */
+export const carol: User = {
+  name: "Carol Both",
+  roles: ["customer", "dispute-agent"],
+  logoutUrl: "/bff/logout?sid=both789",
+};
+
 export function signedIn(user: User = alice) {
   return http.get("/bff/user", () => HttpResponse.json(user));
 }

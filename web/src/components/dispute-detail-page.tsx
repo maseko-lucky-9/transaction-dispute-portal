@@ -4,14 +4,13 @@ import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 
 import { disputeDetailOptions, disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
+import { DisputeOverview } from "@/components/dispute-overview";
 import { DisputeStatusBadge } from "@/components/dispute-status-badge";
 import { DisputeTimeline } from "@/components/dispute-timeline";
 import { ErrorState } from "@/components/error-state";
-import { Fact } from "@/components/fact";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WithdrawDispute } from "@/components/withdraw-dispute";
-import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
 
 // getRouteApi avoids importing the route here (the route imports this component).
@@ -53,7 +52,6 @@ export function DisputeDetailPage() {
   }
 
   const { dispute, etag } = query.data;
-  const { transaction } = dispute;
 
   return (
     <div className="flex flex-col gap-8">
@@ -72,49 +70,13 @@ export function DisputeDetailPage() {
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
       </div>
 
-      <section aria-labelledby="summary-heading" className="flex flex-col gap-3">
-        <h2 id="summary-heading" className="text-lg font-semibold">
-          Your dispute
-        </h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-          <Fact term="Amount disputed" value={formatMoney(dispute.amount, dispute.currency)} />
-          <Fact term="Reason" value={reasonLabel(dispute.reasonCode, reasons.data)} />
-          <Fact term="Last updated" value={formatDateTime(dispute.updatedAt)} />
-          {dispute.resolvedAt ? (
-            <Fact term="Closed" value={formatDateTime(dispute.resolvedAt)} />
-          ) : null}
-        </dl>
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium text-muted-foreground">What you told us</h3>
-          {/* User text: rendered as text (React escapes it), keeping the line breaks. */}
-          <p className="whitespace-pre-wrap">{dispute.description}</p>
-        </div>
-        {dispute.resolutionNote ? (
-          <div className="flex flex-col gap-1 rounded-md border bg-muted/50 p-4">
-            <h3 className="text-sm font-medium text-muted-foreground">Resolution note</h3>
-            <p className="whitespace-pre-wrap">{dispute.resolutionNote}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section aria-labelledby="transaction-heading" className="flex flex-col gap-3">
-        <h2 id="transaction-heading" className="text-lg font-semibold">
-          The transaction
-        </h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-          <Fact term="Merchant" value={transaction.merchantName} />
-          <Fact term="Reference" value={transaction.reference} />
-          <Fact term="Amount" value={formatMoney(transaction.amount, transaction.currency)} />
-          <Fact term="Date (UTC)" value={formatDate(transaction.transactionDate)} />
-        </dl>
-      </section>
-
-      <section aria-labelledby="timeline-heading" className="flex flex-col gap-3">
-        <h2 id="timeline-heading" className="text-lg font-semibold">
-          Timeline
-        </h2>
-        <DisputeTimeline entries={dispute.timeline} />
-      </section>
+      <DisputeOverview
+        dispute={dispute}
+        reasons={reasons.data}
+        summaryHeading="Your dispute"
+        descriptionHeading="What you told us"
+        timeline={<DisputeTimeline entries={dispute.timeline} />}
+      />
 
       <WithdrawDispute id={dispute.id} current={{ dispute, etag }} />
     </div>

@@ -7,6 +7,7 @@ import { rootRoute } from "./root";
 /** /disputes/$disputeId : one dispute, its timeline and the withdraw action. */
 export const disputeDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
+  staticData: { area: "customer" },
   path: "/disputes/$disputeId",
   component: lazyRouteComponent(
     () => import("@/components/dispute-detail-page"),
