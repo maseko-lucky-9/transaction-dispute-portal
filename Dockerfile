@@ -22,7 +22,10 @@ RUN npm ci --ignore-scripts
 COPY web/ ./
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.28-alpine AS web
+FROM nginxinc/nginx-unprivileged:1.30-alpine AS web
+# Pick up fixed OS packages published after the base image was built (the Trivy gate blocks fixable CRITICALs).
+USER root
+RUN apk upgrade --no-cache
 COPY web/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY web/nginx/security-headers.conf web/nginx/csp-app.conf /etc/nginx/
 COPY --from=web-build /web/dist /usr/share/nginx/html
