@@ -15,6 +15,12 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
 
     public const string PrimaryKeyName = "pk_disputes";
 
+    /// <summary>The agent queue for one status, oldest first.</summary>
+    public const string StatusQueueIndexName = "ix_disputes_status_created_at_id";
+
+    /// <summary>The agent's default queue, Submitted and UnderReview together, oldest first, with no sort.</summary>
+    public const string OpenQueueIndexName = "ix_disputes_open_queue";
+
     private const int EnumMaxLength = 16;
 
     public void Configure(EntityTypeBuilder<Dispute> builder)
@@ -52,8 +58,12 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
         builder.HasIndex(dispute => new { dispute.CustomerId, dispute.CreatedAt, dispute.Id })
             .IsDescending(false, true, true)
             .HasDatabaseName(KeysetIndexName);
-        // The agent queue: by status, oldest first.
-        builder.HasIndex(dispute => new { dispute.Status, dispute.CreatedAt, dispute.Id });
+        // The agent queue: by status, oldest first. The open queue spans two statuses, which (status, created_at, id) can only
+        // serve with a sort, so it has its own partial index; terminal disputes, which pile up, are not in it.
+        builder.HasIndex(dispute => new { dispute.Status, dispute.CreatedAt, dispute.Id }).HasDatabaseName(StatusQueueIndexName);
+        builder.HasIndex(dispute => new { dispute.CreatedAt, dispute.Id })
+            .HasFilter("status IN ('Submitted', 'UnderReview')")
+            .HasDatabaseName(OpenQueueIndexName);
         // Per-transaction reads (the latest dispute, the count) in index order; it also covers the composite foreign key.
         builder.HasIndex(dispute => new { dispute.TransactionId, dispute.CustomerId, dispute.CreatedAt, dispute.Id })
             .IsDescending(false, false, true, true);

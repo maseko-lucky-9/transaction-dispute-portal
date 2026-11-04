@@ -86,7 +86,7 @@ public sealed class Dispute
     public void Withdraw(Actor actor, DateTimeOffset now) => Transition(DisputeStatus.Withdrawn, actor, note: null, now);
 
     /// <exception cref="InvalidTransitionException">(current, <paramref name="to"/>, actor) is not in the lifecycle table.</exception>
-    /// <exception cref="DomainException">A resolution without a note, or a note over 2000 characters.</exception>
+    /// <exception cref="DomainException">A resolution without a note, a note over 2000 characters, or a note with control characters or a card or ID number.</exception>
     public void Transition(DisputeStatus to, Actor actor, string? note, DateTimeOffset now)
     {
         if (!DisputeLifecycle.Allows(Status, to, actor.Type))
@@ -120,6 +120,16 @@ public sealed class Dispute
         if (trimmed is { Length: > NoteMaxLength })
         {
             throw new DomainException("note_too_long", $"A note has at most {NoteMaxLength} characters.");
+        }
+
+        // Same free-text rules as a description, on the text that is stored (invalid_characters first). The length check
+        // above bounds the scan.
+        string? problem = SensitiveNumberDetector.ProblemCodeFor(trimmed);
+        if (problem is not null)
+        {
+            throw new DomainException(problem, problem == SensitiveNumberDetector.InvalidCharactersCode
+                ? "A note must not contain control characters."
+                : "A note must not contain a card or ID number.");
         }
 
         return trimmed;

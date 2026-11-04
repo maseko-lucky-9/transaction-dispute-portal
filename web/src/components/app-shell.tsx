@@ -6,6 +6,7 @@ import { LogOut } from "lucide-react";
 import { logout, useSession } from "@/api/session";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { accessFor, type Access } from "@/lib/roles";
 
 const NAV_LINK =
   "text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:underline";
@@ -30,21 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link to="/" className="font-semibold outline-none focus-visible:underline">
               Transactions Dispute Portal
             </Link>
-            {user ? (
-              // The router marks the current section's link aria-current="page" by itself.
-              <nav aria-label="Primary" className="flex items-center gap-4 text-sm">
-                <Link
-                  to="/transactions"
-                  className={NAV_LINK}
-                  activeProps={{ className: NAV_ACTIVE }}
-                >
-                  Transactions
-                </Link>
-                <Link to="/disputes" className={NAV_LINK} activeProps={{ className: NAV_ACTIVE }}>
-                  Disputes
-                </Link>
-              </nav>
-            ) : null}
+            {user ? <PrimaryNav access={accessFor(user)} /> : null}
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -70,5 +57,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
     </div>
+  );
+}
+
+/**
+ * The section links for the session's role: customer pages for a customer, ONLY the queue for an
+ * agent (customer pages would be refused), nothing for a refused both-roles session. The router
+ * marks the current section's link aria-current="page" by itself.
+ */
+function PrimaryNav({ access }: { access: Access }) {
+  if (access === "both") return null;
+  return (
+    <nav aria-label="Primary" className="flex items-center gap-4 text-sm">
+      {access === "agent" ? (
+        <Link to="/agent" className={NAV_LINK} activeProps={{ className: NAV_ACTIVE }}>
+          Queue
+        </Link>
+      ) : (
+        <>
+          <Link to="/transactions" className={NAV_LINK} activeProps={{ className: NAV_ACTIVE }}>
+            Transactions
+          </Link>
+          <Link to="/disputes" className={NAV_LINK} activeProps={{ className: NAV_ACTIVE }}>
+            Disputes
+          </Link>
+        </>
+      )}
+    </nav>
   );
 }

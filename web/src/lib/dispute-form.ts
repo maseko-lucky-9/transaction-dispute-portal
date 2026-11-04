@@ -3,13 +3,12 @@ import { z } from "@/lib/zod";
 
 import { compareDecimals, normalizeAmount } from "@/lib/decimal";
 import { formatMoney } from "@/lib/format";
-import { containsForbiddenControlCharacter, containsSensitiveNumber } from "@/lib/validation";
+import { freeTextField } from "@/lib/free-text";
 
 export const DESCRIPTION_MIN = 10;
 export const DESCRIPTION_MAX = 2000;
 
-export const SENSITIVE_MESSAGE = "Please remove card or ID numbers";
-export const INVALID_CHARACTERS_MESSAGE = "Please remove control or non-printing characters";
+export { INVALID_CHARACTERS_MESSAGE, SENSITIVE_MESSAGE } from "@/lib/free-text";
 
 export interface DisputeFormRules {
   /** The codes the server offered; a reason outside the list is refused before any request. */
@@ -39,15 +38,12 @@ export function disputeFormSchema(rules: DisputeFormRules) {
         (code) => code === "" || rules.reasonCodes.includes(code),
         "Choose a reason from the list",
       ),
-    description: z
-      .string()
-      // Rule A runs on the text as typed (before trimming, which would hide a trailing control
-      // character) and comes first, as it does on the server.
-      .refine((text) => !containsForbiddenControlCharacter(text), INVALID_CHARACTERS_MESSAGE)
-      .trim()
-      .min(DESCRIPTION_MIN, `Describe what went wrong, in at least ${DESCRIPTION_MIN} characters`)
-      .max(DESCRIPTION_MAX, `Keep the description to ${DESCRIPTION_MAX} characters or fewer`)
-      .refine((text) => !containsSensitiveNumber(text), SENSITIVE_MESSAGE),
+    description: freeTextField({
+      min: DESCRIPTION_MIN,
+      max: DESCRIPTION_MAX,
+      minMessage: `Describe what went wrong, in at least ${DESCRIPTION_MIN} characters`,
+      maxMessage: `Keep the description to ${DESCRIPTION_MAX} characters or fewer`,
+    }),
     amount: z
       .string()
       .trim()

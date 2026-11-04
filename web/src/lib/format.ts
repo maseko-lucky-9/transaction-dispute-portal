@@ -79,3 +79,21 @@ export function formatDateTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : `${dateTimeFormat.format(date)} UTC`;
 }
+
+/** An opaque id is long; the first 8 characters are enough to tell one from another by eye. */
+export function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * How long ago, in whole days: "Today", "1 day", "3 days". Whole UTC days since the instant, so
+ * the same dispute reads the same in every time zone, and an instant in the future (a skewed
+ * clock) is "Today" rather than a negative age.
+ */
+export function formatAge(iso: string, now: number = Date.now()): string {
+  const days = Math.floor((now - new Date(iso).getTime()) / DAY_MS);
+  if (!Number.isFinite(days) || days < 1) return "Today";
+  return days === 1 ? "1 day" : `${days} days`;
+}

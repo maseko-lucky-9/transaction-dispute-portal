@@ -342,6 +342,10 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                         .HasDatabaseName("ux_disputes_one_active_per_transaction")
                         .HasFilter("status IN ('Submitted', 'UnderReview')");
 
+                    b.HasIndex("CreatedAt", "Id")
+                        .HasDatabaseName("ix_disputes_open_queue")
+                        .HasFilter("status IN ('Submitted', 'UnderReview')");
+
                     b.HasIndex("CustomerId", "CreatedAt", "Id")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("ix_disputes_customer_id_created_at_id");

@@ -35,14 +35,15 @@ public static class DisputeOpenApi
         return Task.CompletedTask;
     }
 
-    public static Task RequireIfMatch(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
-    {
-        OpenApiParameter ifMatch = operation.Parameters?.OfType<OpenApiParameter>().SingleOrDefault(parameter => parameter.Name == "If-Match")
-            ?? throw new InvalidOperationException("The withdraw operation has no If-Match parameter to describe.");
-        ifMatch.Required = true;
-        ifMatch.Description = "The ETag of the version being withdrawn. Missing: 428; stale, weak or *: 412.";
-        return Task.CompletedTask;
-    }
+    public static Func<OpenApiOperation, OpenApiOperationTransformerContext, CancellationToken, Task> RequireIfMatch(string description) =>
+        (operation, _, _) =>
+        {
+            OpenApiParameter ifMatch = operation.Parameters?.OfType<OpenApiParameter>().SingleOrDefault(parameter => parameter.Name == "If-Match")
+                ?? throw new InvalidOperationException($"Operation {operation.OperationId} has no If-Match parameter to describe.");
+            ifMatch.Required = true;
+            ifMatch.Description = description;
+            return Task.CompletedTask;
+        };
 
     // A missing response is a wiring defect (the endpoint lost its Produces metadata), so it fails loudly.
     private static void AddHeader(OpenApiOperation operation, int status, string name, string description, bool required)

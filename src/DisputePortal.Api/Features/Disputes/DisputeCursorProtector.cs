@@ -10,12 +10,12 @@ public sealed class DisputeCursorProtector(IDataProtectionProvider dataProtectio
     private readonly KeysetCursor cursor = new(dataProtection.CreateProtector("DisputePortal.Disputes.Cursor.v1"));
 
     public string Protect(DisputeKey last, Guid customerId, DisputeListFilter filter) =>
-        cursor.Protect(last.CreatedAt, last.Id, customerId, filter.Fingerprint());
+        cursor.Protect(last.CreatedAt, last.Id, KeysetCursor.ScopeOf(customerId), filter.Fingerprint());
 
     /// <exception cref="InvalidCursorException">Tampered, foreign, or issued for another filter.</exception>
     public DisputeKey Unprotect(string value, Guid customerId, DisputeListFilter filter)
     {
-        (DateTimeOffset at, Guid id) = cursor.Unprotect(value, customerId, filter.Fingerprint());
+        (DateTimeOffset at, Guid id) = cursor.Unprotect(value, KeysetCursor.ScopeOf(customerId), filter.Fingerprint());
         return new DisputeKey(at, id);
     }
 }

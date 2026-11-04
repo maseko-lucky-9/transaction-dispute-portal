@@ -53,7 +53,7 @@ public static class DisputesEndpoints
             .ProducesProblem(StatusCodes.Status428PreconditionRequired)
             .AddOpenApiOperationTransformer(DisputeOpenApi.ETagOn(StatusCodes.Status200OK))
             .AddOpenApiOperationTransformer(DisputeOpenApi.StaleETagOn412)
-            .AddOpenApiOperationTransformer(DisputeOpenApi.RequireIfMatch);
+            .AddOpenApiOperationTransformer(DisputeOpenApi.RequireIfMatch("The ETag of the version being withdrawn. Missing: 428; stale, weak or *: 412."));
         return app;
     }
 
@@ -84,13 +84,7 @@ public static class DisputesEndpoints
         }
         catch (PreconditionFailedException stale)
         {
-            // Answered here, not by the exception handler, which strips ETag: a 412 must carry the current one.
-            if (stale.CurrentETag is not null)
-            {
-                httpContext.Response.Headers.ETag = stale.CurrentETag;
-            }
-
-            return ProblemResponses.Result(stale.ToProblem());
+            return DisputeETag.Stale(httpContext, stale);
         }
     }
 

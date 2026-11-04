@@ -314,12 +314,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The work queue across customers, oldest first. No status means the open queue (Submitted and UnderReview). */
+        get: operations["ListAgentQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/disputes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A dispute with the customer's details and who acted on it; the ETag header is its version. Every view is audited. */
+        get: operations["GetAgentDispute"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/disputes/{id}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a dispute: Submitted to UnderReview, UnderReview to Accepted or Rejected (with a note). Requires If-Match. */
+        post: operations["TransitionDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {unknown} */
         ActorType: "Customer" | "Agent";
+        AgentDisputeDetail: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            transactionId: string;
+            status: components["schemas"]["DisputeStatus"];
+            reasonCode: string;
+            description: string;
+            amount: string;
+            currency: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            resolvedAt: null | string;
+            resolutionNote: null | string;
+            customerDisplayName: string;
+            maskedAccountNumber: string;
+            timeline: components["schemas"]["AgentTimelineEntry"][];
+            transaction: components["schemas"]["TransactionSummary"];
+        };
+        AgentQueueItem: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["DisputeStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            merchantName: string;
+            amount: string;
+            currency: string;
+            reasonCode: string;
+            customerDisplayName: string;
+            maskedAccountNumber: string;
+        };
+        AgentQueueResponse: {
+            items: components["schemas"]["AgentQueueItem"][];
+            nextCursor: null | string;
+        };
+        AgentTimelineEntry: {
+            from: null | components["schemas"]["DisputeStatus"];
+            to: components["schemas"]["DisputeStatus"];
+            actorType: components["schemas"]["ActorType"];
+            actorId: string;
+            note: null | string;
+            /** Format: date-time */
+            occurredAt: string;
+        };
         BffUserResponse: {
             name: string;
             roles: string[];
@@ -499,6 +598,12 @@ export interface components {
             currency: string;
             /** Format: date-time */
             transactionDate: string;
+        };
+        TransitionRequest: {
+            /** @enum {string} */
+            toStatus: "UnderReview" | "Accepted" | "Rejected";
+            /** @description Required to accept or reject; the customer sees it. */
+            note?: string;
         };
     };
     responses: never;
@@ -876,6 +981,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DisputeDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Precondition Failed */
+            412: {
+                headers: {
+                    /** @description The current version, when the dispute still exists: reload, then retry with it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListAgentQueue: {
+        parameters: {
+            query?: {
+                status?: "Submitted" | "UnderReview" | "Accepted" | "Rejected" | "Withdrawn";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentQueueResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetAgentDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDisputeDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    TransitionDispute: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag of the version the agent decided on. Missing: 428; stale, weak or *: 412. */
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDisputeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
             /** @description Unauthorized */
