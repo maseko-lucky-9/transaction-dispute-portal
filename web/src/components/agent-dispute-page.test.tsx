@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { agentKeys } from "@/api/agent";
 import { fakeAgentApi, makeAgentDispute } from "@/test/agent";
 import { bob, problem, signedIn } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
@@ -147,6 +148,38 @@ describe("agent dispute page", () => {
     // The reload brought the new status and its buttons; the note typed is still there.
     await user.click(await screen.findByRole("button", { name: "Accept" }));
     expect(note()).toHaveValue("My note");
+    await user.click(await screen.findByRole("button", { name: "Yes, accept" }));
+    await screen.findByText(/Status updated\./);
+    expect(api.transitionCalls.at(-1)?.ifMatch).toBe('"v2"');
+  });
+
+  it("sends the version the agent was shown, not a newer one a refetch brought in meanwhile", async () => {
+    const { api, queryClient } = await openDispute("UnderReview");
+    const user = userEvent.setup();
+    await user.type(note(), "Refunded in full.");
+    await user.click(screen.getByRole("button", { name: "Accept" }));
+    await screen.findByText("Do you want to accept this dispute?");
+
+    // While the agent reads the confirmation, a background refetch brings a newer ETag (same status).
+    api.versionMovesOn(ID);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: agentKeys.detail(ID) });
+    });
+    expect(queryClient.getQueryData(agentKeys.detail(ID))).toMatchObject({ etag: '"v2"' });
+
+    // The decision was made on v1: that is what goes out, the server refuses it, and nothing is decided.
+    await user.click(screen.getByRole("button", { name: "Yes, accept" }));
+    expect(
+      await screen.findByText("This dispute changed while you were reviewing it. We reloaded it."),
+    ).toBeInTheDocument();
+    expect(api.transitionCalls).toEqual([
+      { id: ID, ifMatch: '"v1"', body: { toStatus: "Accepted", note: "Refunded in full." } },
+    ]);
+    expect(api.store[0]?.status).toBe("UnderReview");
+    expect(screen.queryByText(/Status updated\./)).not.toBeInTheDocument();
+
+    // Having seen the reload, deciding again goes out on the version now shown.
+    await user.click(await screen.findByRole("button", { name: "Accept" }));
     await user.click(await screen.findByRole("button", { name: "Yes, accept" }));
     await screen.findByText(/Status updated\./);
     expect(api.transitionCalls.at(-1)?.ifMatch).toBe('"v2"');

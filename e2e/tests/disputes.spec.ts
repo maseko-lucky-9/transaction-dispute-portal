@@ -1,6 +1,27 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { api, DEMO, DESCRIPTION, fillValid, GUID, pickDisputable, signIn, trackCspViolations } from './support';
+
+/** CSP first: axe evaluates strings in the page, which the CSP blocks by design, so read violations before it runs. */
+async function expectNoCspOrAxeViolations(page: Page, violations: () => Promise<string[]>) {
+  expect(await violations()).toEqual([]);
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(axe.violations).toEqual([]);
+}
+
+/** A field in error is announced and wired: aria-invalid, and an aria-describedby that resolves to the message. */
+async function expectFieldError(page: Page, field: Locator, errorId: string, message: RegExp) {
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+  await expect(field).toHaveAttribute('aria-describedby', new RegExp(`(^| )${errorId}( |$)`));
+  await expect(page.locator(`#${errorId}`)).toHaveText(message);
+  await expect(page.locator(`#${errorId}`)).toHaveAttribute('role', 'alert');
+  await expect(field).toHaveAccessibleDescription(message); // the browser's own resolution of aria-describedby
+}
+
+async function expectNoFieldError(page: Page, field: Locator, errorId: string) {
+  await expect(field).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator(`#${errorId}`)).toHaveCount(0);
+}
 
 test('a customer disputes a transaction, sees it in history, replays it safely, withdraws it and disputes again', async ({
   page,
@@ -143,6 +164,98 @@ test('a customer disputes a transaction, sees it in history, replays it safely, 
     // Leave the stack as found: this one is withdrawn too.
     const etag = (await api(page, 'GET', `/api/v1/disputes/${secondId}`)).etag!;
     expect((await api(page, 'POST', `/api/v1/disputes/${secondId}/withdraw`, { headers: { 'If-Match': etag } })).status).toBe(200);
+  });
+
+  expect(await violations()).toEqual([]);
+});
+
+test('an empty or invalid dispute form shows inline errors per field and sends no request', async ({ page }) => {
+  const violations = await trackCspViolations(page);
+  await signIn(page, DEMO.customer);
+  // Independent of the other tests, and nothing is submitted, so the picked transaction stays disputable.
+  const tx = await pickDisputable(page);
+  const detail = await api(page, 'GET', `/api/v1/transactions/${tx.id}`);
+  expect(detail.status).toBe(200);
+  const maximum = detail.body.amount as string;
+  const tooMuch = (Number(maximum) + 1).toFixed(2); // more than the transaction's own amount
+
+  // The listener counts every attempt. The route also refuses it, so a regression in the form cannot
+  // create a real dispute (and cannot spend the 10-a-minute submit limit or the transaction).
+  const sent: string[] = [];
+  const refused: string[] = [];
+  const isSubmit = (method: string, url: string) => method === 'POST' && new URL(url).pathname === '/api/v1/disputes';
+  page.on('request', (r) => {
+    if (isSubmit(r.method(), r.url())) sent.push(r.url());
+  });
+  await page.route('**/api/v1/disputes', (route) => {
+    if (!isSubmit(route.request().method(), route.request().url())) return route.fallback();
+    refused.push(route.request().url());
+    return route.abort();
+  });
+  const expectNothingSent = () => {
+    expect(sent, 'POST /api/v1/disputes attempts').toEqual([]);
+    expect(refused, 'POST /api/v1/disputes refused by the route').toEqual([]);
+  };
+
+  const reason = page.getByLabel(/^Reason/);
+  const description = page.getByLabel(/^What happened\?/);
+  const amount = page.getByLabel(/^Amount to dispute/);
+  const submit = page.getByRole('button', { name: 'Submit dispute' });
+
+  await test.step('the form opens for the picked transaction', async () => {
+    await page.goto(`/transactions/${tx.id}/dispute`);
+    await expect(page.getByRole('form', { name: 'Dispute this transaction' })).toBeVisible();
+    await expect(page.getByText(tx.merchantName).first()).toBeVisible();
+  });
+
+  await test.step('submitting it empty flags each required field and focuses the first', async () => {
+    await submit.click();
+    await expectFieldError(page, reason, 'dispute-reason-error', /Choose a reason/);
+    await expectFieldError(page, description, 'dispute-description-error', /Describe what went wrong, in at least 10 characters/);
+    await expectNoFieldError(page, amount, 'dispute-amount-error'); // the amount is optional: empty means all of it
+    await expect(reason).toBeFocused();
+    expectNothingSent();
+    await expectNoCspOrAxeViolations(page, violations);
+  });
+
+  await test.step('a description that is too short once trimmed is refused', async () => {
+    await reason.selectOption({ index: 1 });
+    await expectNoFieldError(page, reason, 'dispute-reason-error');
+    await description.fill('  too short  '); // 13 characters typed, 9 counted: the length is on the trimmed text
+    await submit.click();
+    await expectFieldError(page, description, 'dispute-description-error', /Describe what went wrong, in at least 10 characters/);
+    await expect(description).toBeFocused();
+    expectNothingSent();
+  });
+
+  await test.step('an amount above the transaction amount is refused', async () => {
+    await description.fill(DESCRIPTION);
+    await expectNoFieldError(page, description, 'dispute-description-error');
+    await amount.fill(tooMuch);
+    await submit.click();
+    await expectFieldError(page, amount, 'dispute-amount-error', /The amount cannot be more than/);
+    await expect(amount).toBeFocused();
+    expectNothingSent();
+  });
+
+  await test.step('a Luhn-valid 16-digit run in the description is refused with the sensitive-data message', async () => {
+    await description.fill('Charged twice, my card 4111111111111111 was used');
+    await submit.click();
+    await expectFieldError(page, description, 'dispute-description-error', /Please remove card or ID numbers/);
+    await expectFieldError(page, amount, 'dispute-amount-error', /The amount cannot be more than/); // still wrong
+    await expect(description).toBeFocused(); // the first invalid field in form order, not the last one touched
+    expectNothingSent();
+    await expectNoCspOrAxeViolations(page, violations); // the form with two fields in error
+  });
+
+  await test.step('fixing each problem clears its error, still without a request', async () => {
+    // Only the checksum tells a card number from any other long number: this 16-digit run fails Luhn.
+    await description.fill('Charged twice, reference 4111111111111112 on the slip');
+    await expectNoFieldError(page, description, 'dispute-description-error');
+    // The transaction's own amount is the most that can be disputed.
+    await amount.fill(maximum);
+    await expectNoFieldError(page, amount, 'dispute-amount-error');
+    expectNothingSent();
   });
 
   expect(await violations()).toEqual([]);
