@@ -60,8 +60,9 @@ is refused; every view and transition is attributed and logged.
 - NFR-7 Privacy (POPIA): masked account numbers, no PII in logs, agent views logged, retention in the runbook.
 
 ## Out of scope (README "Next")
-Attachments, notifications, live cloud deploy, outbox/event publishing, back-channel logout, agent TOTP, dynamic DB
-credentials, a distributed rate limiter.
+Attachments, notifications, live cloud deploy, outbox/event publishing, agent TOTP, dynamic DB credentials, a
+distributed rate limiter. (Back-channel logout was listed here and has since been delivered:
+[ADR-011](../../docs/decisions/011-backchannel-logout.md).)
 
 ## Success criteria
 SC-1 A reviewer runs `docker compose up --build` and completes US1–US5 with the demo users.

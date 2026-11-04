@@ -10,8 +10,9 @@ namespace DisputePortal.Api.Features.Bff;
 
 /// <summary>
 /// POST /bff/backchannel-logout (OpenID Connect Back-Channel Logout 1.0). Keycloak calls it over the internal data network
-/// when a session ends there (admin, idle or max timeout, logout elsewhere); every ticket signed in under that Keycloak
-/// session is deleted at once, instead of at the next refresh. Anonymous and CSRF-exempt because the signed token is the
+/// when a session is logged out there (a logout at Keycloak, an admin ending the session); every ticket signed in under
+/// that Keycloak session is deleted at once, instead of at the next refresh. A session that merely expires at Keycloak is
+/// not relied on to send one: the refresh bound covers expiry. Anonymous and CSRF-exempt because the signed token is the
 /// authentication, and served only on the management port, which is never published (ADR-011). Not in the OpenAPI
 /// document: it is Keycloak's contract, not the SPA's.
 /// </summary>

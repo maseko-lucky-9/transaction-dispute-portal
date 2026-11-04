@@ -263,8 +263,8 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
     }
 
-    // ADR-011: Keycloak ends the session (admin, timeout, logout elsewhere) and posts a signed logout token to the
-    // management port. The very next request is refused, long before the 5-minute access token would have expired.
+    // ADR-011: Keycloak logs the session out (a logout at Keycloak, an admin ending it) and posts a signed logout token
+    // to the management port. The very next request is refused, long before the 5-minute access token would expire.
     [Fact]
     public async Task ABackchannelLogoutFromKeycloakEndsTheSessionOnTheNextRequest()
     {

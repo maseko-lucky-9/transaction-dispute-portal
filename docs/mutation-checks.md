@@ -3,8 +3,9 @@
 Short version: for each guard the plan names (the 120-day window, the Owner filter, `If-Match`) and for a few more
 (sensitive-data check, CSRF, the unique-violation path, optimistic concurrency), I broke the code on purpose, ran the
 unit and integration suites, and recorded which tests went red. Every mutation was temporary: applied, tested,
-reverted with `git checkout -- .`, and the suites were re-run green. Nothing mutated is committed. The runs were made on the base commit below (475 unit and 307 integration tests); later
-changes in the same pull request raised the totals (see the README's measured results).
+reverted with `git checkout -- .`, and the suites were re-run green. Nothing mutated is committed. The runs were made on the base commit below (475 unit and 307 integration tests at the
+time); the suites have grown since (579 unit and 363 integration tests on `feat/backchannel-logout`, see the README's
+measured results).
 
 Why: a test that still passes against broken source proves nothing. The project plan (Testing, "Manual mutation check")
 asks for this check with the output pasted, and that output was not in the repo. Stryker (Domain only, report-only in CI)
@@ -1256,3 +1257,28 @@ Notes:
   refuses it, and the rerun is red.
 - I1 first did not build (removing the condition left a constructor parameter unread, a warning as error); it was
   re-run as "the exemption compares against the public port" and is red.
+
+### Review fixes (same branch, later commits)
+
+After an independent review: the jti claim is released when deleting the tickets fails, `exp` is required, the
+back-channel rate limit defaults to 6000 a minute, and start-up fails when `Ports:InternalHost` is set without
+`Ports:InternalNetwork`. Same runner and method; V6 and I8 were re-run because their tests changed.
+
+| Id | Mutation | File | Verdict | Filtered run |
+|---|---|---|---|---|
+| V6 | exp ignored | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| I8 | no rate limit | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 37 red |
+| R1 | claim not released after a failed deletion | `BackchannelLogoutEndpoint.cs` | CAUGHT | 1 of 37 red |
+| R2 | release not best effort (throws) | `RedisLogoutTokenReplayCache.cs` | CAUGHT | 1 of 37 red |
+| X1 | exp optional again | `LogoutTokenValidator.cs` | CAUGHT | 1 of 41 red |
+| S1 | configured back-channel limit ignored | `RateLimits.cs` | CAUGHT | 1 of 37 red |
+| S2 | default limit back to 60 a minute | `RateLimits.cs` | CAUGHT | 1 of 37 red |
+| K1 | internal host without network accepted | `ManagementSettingsValidator.cs` | CAUGHT | 3 of 8 red |
+| K2 | settings validator not registered | `HostingRegistration.cs` | CAUGHT | 1 of 37 red |
+| K3 | malformed network accepted | `ManagementSettingsValidator.cs` | CAUGHT | 2 of 8 red |
+
+Notes:
+- R2 first **survived**: the test took DEL away from the Redis user to make the release fail, but StackExchange.Redis 3
+  deletes with UNLINK, so the release still worked. The test now denies both; the rerun above is red.
+- R1 to R2 use the real Redis: the ACL user loses `eval`/`evalsha` (and `del`/`unlink` for R2) for one request, so the
+  deletion fails while the claim and its release still reach Redis; the commands are given back in a `finally` block.

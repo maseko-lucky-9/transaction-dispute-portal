@@ -3,9 +3,11 @@
 Status: accepted (2026-11-04)
 
 ## Context
-Until now a session ended at Keycloak (an admin signing the user out, the SSO idle or max timeout, a logout from another
-application) lived on in the app until its next token refresh failed: up to 5 minutes, the access-token lifetime
-(ADR-004). OpenID Connect Back-Channel Logout 1.0 lets Keycloak tell the client at once, by POSTing a signed
+Until now a session logged out at Keycloak (a logout at Keycloak itself or from another application, an admin ending
+the session) lived on in the app until its next token refresh failed: up to 5 minutes, the access-token lifetime
+(ADR-004). Sessions that merely expire at Keycloak (SSO idle or max lifespan) are not relied on here: Keycloak does
+not reliably send a logout token when a session expires, so expiry stays covered by the refresh bound.
+OpenID Connect Back-Channel Logout 1.0 lets Keycloak tell the client at once, by POSTing a signed
 `logout_token` to a URL the client registered. That URL is unauthenticated by construction and deletes sessions, so
 every check has to hold.
 
@@ -42,10 +44,13 @@ same `sid` as Keycloak's session id.
   key is tried (so never `none`); JWS signature by a key of that set, matched by `kid` (an unknown `kid` asks the
   manager for fresh keys, throttled by the manager, and is refused); `typ` `logout+jwt` (an ID token signed by the same
   key cannot pass); `iss`; `aud` contains the client id; `iat` present, at most 2 minutes old and 30 s in the future;
-  `exp` and `nbf` honoured when present; `events` holds the back-channel-logout member as a JSON object; no `nonce`;
+  `exp` present (the spec requires it; Keycloak sends `iat` + 120 s) and not past; `nbf` honoured when present;
+  `events` holds the back-channel-logout member as a JSON object; no `nonce`;
   `jti` and `sid` present (the client sets `backchannel.logout.session.required`); `sub` optional. Only a token that
   passed every stateless check reaches Redis: `SET NX EX` on `bff:logout-jti:<sha256(iss, jti)>` for 3 minutes (the
-  window in which its `iat` could still pass), so a replay to any replica is refused.
+  window in which its `iat` could still pass), so a replay to any replica is refused. If deleting the tickets then
+  fails (Redis error, 503), the claim is released again (best effort), so a retry of the same token is processed
+  instead of being refused as a replay.
 - **Responses.** Every refusal is the same 400 problem, `invalid_logout_token`, with one fixed detail: no oracle. A
   valid token for a session this API does not know (or already ended) is 200, as the spec requires. Redis down is 503
   `session_store_unavailable` (fail closed); Keycloak's metadata unavailable is 503 `idp_unavailable`. `no-store` on all.
@@ -54,8 +59,11 @@ same `sid` as Keycloak's session id.
   TTL reset to the 8-hour absolute lifetime. Logout, sign-in revocation and compare-and-delete take the id out again.
   The back-channel deletes every ticket in the set and the set itself in one Lua script, so no ticket joins in between.
   Ids only: no token material, and the sid is hashed.
-- **Abuse.** A per-peer limiter (60 a minute per replica, `RateLimiting:BackchannelLogoutsPerMinute`) on top of the
-  global one; bounded work before Redis (size check, one RSA verification); fixed log lines that carry a reason name
+- **Abuse.** A per-peer limiter (6000 a minute per replica, `RateLimiting:BackchannelLogoutsPerMinute`) on top of the
+  global one. It is high on purpose: every Keycloak logout comes from the same peer, so a low limit (an earlier draft
+  had 60) would let any user who loops sign-in and logout starve the real calls; an RSA verification is cheap and only
+  the data network reaches the endpoint, so a 429 from it is itself the signal of a flood from inside that network;
+  bounded work before Redis (size check, one RSA verification); fixed log lines that carry a reason name
   (`Back-channel logout token refused: Nonce`) or a count (`Back-channel logout ended 1 session(s)`), never a token, sid,
   sub or jti. `security.events{type}` gains `backchannel_logout` and `backchannel_logout_rejected` (bounded constants).
 - **Keycloak client.** `frontchannelLogout: false`, `backchannel.logout.url`, `backchannel.logout.session.required:
@@ -73,11 +81,15 @@ same `sid` as Keycloak's session id.
 - **Keep relying on the refresh.** Revocation stays bounded by 5 minutes; the refresh path remains as the fallback.
 
 ## Consequences
-A session ended at Keycloak is dead in the app on the next request (E2E: a logout at Keycloak itself, and an admin
-deleting the session through the admin API). Any replica may receive the POST; state is in Redis, so it is correct with
+A session logged out at Keycloak is dead in the app on the next request. Verified end to end for two triggers: a
+logout at Keycloak's own end-session endpoint, and an admin deleting the session through the admin API. Other
+triggers (an admin's "sign out" of a user, logout from another client) take the same Keycloak logout path but were not
+tested here; natural expiry is left to the refresh bound.
+Any replica may receive the POST; state is in Redis, so it is correct with
 `--scale api=3` (Keycloak's HTTP client keeps one pooled connection and so mostly hits one replica; it fails over when
 that replica goes away). Residual: Keycloak does not retry a failed delivery, so a back-channel call lost to an API or
-Redis outage, a rate-limit 429 during a mass logout, or a key rotation before the API's metadata refresh falls back to
+Redis outage (the jti claim is released, but Keycloak does not call again), a 429 from a flood on the data network, or
+a key rotation before the API's metadata refresh falls back to
 the 5-minute refresh bound; a sign-in completing at the same instant as its Keycloak session ends can leave a ticket
 that the next refresh ends; Redis-down turns the call into 503, not a silent 200. A lost call is also quiet: Keycloak
 26.4 logged nothing at its default level when the call failed (checked by pointing the client at a wrong path, which
