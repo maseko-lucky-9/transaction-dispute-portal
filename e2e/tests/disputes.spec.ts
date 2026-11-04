@@ -1,62 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
-import { DEMO, signIn, trackCspViolations } from './support';
-
-interface Api {
-  status: number;
-  etag: string | null;
-  type: string | null;
-  body: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-}
-
-/** A same-origin API call with the session cookie and the CSRF header, like the SPA makes. */
-function api(page: Page, method: string, path: string, opts: { headers?: Record<string, string>; json?: unknown } = {}) {
-  return page.evaluate(
-    async ({ method, path, opts }): Promise<Api> => {
-      const r = await fetch(path, {
-        method,
-        headers: {
-          'X-CSRF': '1',
-          ...(opts.json === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...opts.headers,
-        },
-        ...(opts.json === undefined ? {} : { body: JSON.stringify(opts.json) }),
-      });
-      return {
-        status: r.status,
-        etag: r.headers.get('etag'),
-        type: r.headers.get('content-type'),
-        body: await r.json().catch(() => null),
-      };
-    },
-    { method, path, opts },
-  );
-}
-
-/**
- * A transaction nobody has disputed in this run (or any earlier run on this stack): pick at random from
- * every disputable one, so reruns do not pile onto the same row and hit the 3-per-transaction cap.
- */
-async function pickDisputable(page: Page): Promise<{ id: string; merchantName: string }> {
-  const found: { id: string; merchantName: string }[] = [];
-  let cursor: string | null = null;
-  do {
-    const r: Api = await api(page, 'GET', `/api/v1/transactions?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
-    expect(r.status).toBe(200);
-    for (const t of r.body.items) if (t.isDisputable) found.push({ id: t.id, merchantName: t.merchantName });
-    cursor = r.body.nextCursor;
-  } while (cursor);
-  expect(found.length).toBeGreaterThan(0);
-  return found[Math.floor(Math.random() * found.length)]!;
-}
-
-const GUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const DESCRIPTION = 'The merchant charged me twice for a single purchase.';
-
-async function fillValid(page: Page, description = DESCRIPTION) {
-  await page.getByLabel(/^Reason/).selectOption({ index: 1 });
-  await page.getByLabel(/^What happened\?/).fill(description);
-}
+import { expect, test } from '@playwright/test';
+import { api, DEMO, DESCRIPTION, fillValid, GUID, pickDisputable, signIn, trackCspViolations } from './support';
 
 test('a customer disputes a transaction, sees it in history, replays it safely, withdraws it and disputes again', async ({
   page,

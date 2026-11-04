@@ -11,6 +11,16 @@ public sealed class SecurityMetrics
     public const string MeterName = "DisputePortal.Security";
 
     public const string AuthzDenied = "authz_denied";
+
+    /// <summary>
+    /// A customer asked for a transaction or dispute and got the owner-filter 404. The filter hides other customers' rows,
+    /// so the code cannot tell "someone else's id" from "no such id" (ADR-007, and by design: an extra lookup that
+    /// ignores the filter would defeat it). The counter therefore counts every not-found answered to a customer: a probe
+    /// for foreign ids shows as a spike, a stale bookmark as noise. Agents see every dispute, so their 404s are not counted.
+    /// The tag is the type alone: an id would make the series unbounded and put a customer's data in the metrics.
+    /// </summary>
+    public const string Bola404 = "bola_404";
+
     public const string CsrfRejected = "csrf_rejected";
     public const string RateLimited = "rate_limited";
     public const string SessionRefreshFailed = "session_refresh_failed";

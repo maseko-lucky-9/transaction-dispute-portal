@@ -216,7 +216,7 @@ describe("TransactionsTable dispute action", () => {
     expect(row.getByRole("button", { name: /^Dispute Takealot/ })).toHaveAccessibleDescription(
       "This transaction already has a dispute",
     );
-    expect(row.getByRole("link", { name: /^View the dispute for Takealot/ })).toHaveAttribute(
+    expect(row.getByRole("link", { name: /^View dispute for Takealot/ })).toHaveAttribute(
       "href",
       "/disputes/dddddddd-0000-4000-8000-000000000001",
     );

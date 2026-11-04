@@ -1,4 +1,5 @@
 using DisputePortal.Api.Shared.Errors;
+using DisputePortal.Api.Shared.Observability;
 using DisputePortal.Api.Shared.Paging;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Domain.Common;
@@ -13,7 +14,8 @@ public sealed class TransactionQueries(
     ITransactionRepository repository,
     ICurrentCustomer currentCustomer,
     TransactionCursorProtector cursors,
-    DisputeEligibilityPolicy eligibility)
+    DisputeEligibilityPolicy eligibility,
+    SecurityMetrics securityMetrics)
 {
     /// <summary>A block reason outside the eligibility chain: an active, Accepted or Rejected dispute exists (a state, not a rule).</summary>
     public const string AlreadyDisputedCode = "already_disputed";
@@ -33,11 +35,16 @@ public sealed class TransactionQueries(
         return new TransactionListResponse([.. rows.Take(limit).Select(row => ToItem(row, activeDisputes))], nextCursor);
     }
 
-    /// <exception cref="NotFoundException">Missing or another customer's.</exception>
+    /// <exception cref="NotFoundException">Missing or another customer's (counted as <see cref="SecurityMetrics.Bola404"/>).</exception>
     public async Task<TransactionItem> GetAsync(Guid id, CancellationToken cancellationToken)
     {
-        TransactionRow row = await repository.GetAsync(id, cancellationToken)
-            ?? throw new NotFoundException("transaction_not_found", "No transaction with this id.");
+        TransactionRow? row = await repository.GetAsync(id, cancellationToken);
+        if (row is null)
+        {
+            securityMetrics.Record(SecurityMetrics.Bola404);
+            throw new NotFoundException("transaction_not_found", "No transaction with this id.");
+        }
+
         return ToItem(row, await repository.CountActiveDisputesAsync(cancellationToken));
     }
 

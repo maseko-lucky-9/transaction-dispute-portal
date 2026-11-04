@@ -38,7 +38,8 @@ public sealed class AgentCommands(
 
         DisputeStatus from = dispute.Status;
         DisputeStatus to = Enum.Parse<DisputeStatus>(request.ToStatus!, ignoreCase: true);
-        dispute.Transition(to, Actor.Agent(agentSubject), request.Note, time.GetUtcNow());
+        DateTimeOffset now = time.GetUtcNow();
+        dispute.Transition(to, Actor.Agent(agentSubject), request.Note, now);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -50,6 +51,12 @@ public sealed class AgentCommands(
         }
 
         disputeMetrics.Transitioned(to);
+        if (DisputeLifecycle.IsResolution(to))
+        {
+            // After the commit, so a refused or lost write records nothing; `now` is the instant stored as resolved_at.
+            disputeMetrics.Resolved(to, now - dispute.CreatedAt);
+        }
+
         securityMetrics.Audit(SecurityMetrics.AgentDisputeTransitioned);
         logger.LogInformation(DisputeTransitioned, "agent.dispute.transitioned {DisputeId} {From} to {To} by {AgentSubject}", id, from, to, agentSubject);
         return await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeCommands.DisputeNotFound();
