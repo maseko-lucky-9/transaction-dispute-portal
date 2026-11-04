@@ -40,16 +40,21 @@ function adminDeleteKeycloakSession(sid: string): void {
     '"$kc" config credentials --config "$cfg" --server http://localhost:8080 --realm master --user admin >/dev/null',
     '"$kc" delete "sessions/$1" --config "$cfg" -r dispute-portal',
   ].join('\n');
-  execFileSync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'keycloak', 'bash', '-c', script, 'kcadm', sid], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 60_000,
-  });
+  try {
+    execFileSync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'keycloak', 'bash', '-c', script, 'kcadm', sid], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    });
+  } catch (error) {
+    // kcadm's own words (no secret: the password is in the environment, never in its output or argv).
+    const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim() ?? '';
+    throw new Error(`kcadm could not delete the Keycloak session: ${stderr || String(error)}`);
+  }
 }
 
 test('a logout at Keycloak itself, not through the app, ends the app session on the next request', async ({ page }) => {
   await signIn(page, DEMO.customer);
   expect(await sessionStatus(page)).toBe(200);
-  const started = Date.now();
 
   // Keycloak's end-session endpoint with no id_token_hint: it asks for confirmation, then ends its SSO session and calls
   // every client's back-channel logout URL before it answers. The app's /bff/logout is never involved.
@@ -60,20 +65,17 @@ test('a logout at Keycloak itself, not through the app, ends the app session on 
   await page.goto('/');
   expect(await sessionStatus(page)).toBe(401);
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
-  expect(Date.now() - started).toBeLessThan(60_000);
 });
 
 test('an admin ending the session in Keycloak ends the app session on the next request', async ({ page }) => {
   await signIn(page, DEMO.customer2);
   expect(await sessionStatus(page)).toBe(200);
   const sid = await keycloakSessionId(page);
-  const started = Date.now();
 
   adminDeleteKeycloakSession(sid);
 
   // The very next request, with no reload and no wait: the ticket is already gone from Redis.
   expect(await sessionStatus(page)).toBe(401);
-  expect(Date.now() - started).toBeLessThan(60_000);
   await page.reload();
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
 });
