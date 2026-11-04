@@ -1,3 +1,4 @@
+using DisputePortal.Domain.Common;
 using DisputePortal.Domain.Eligibility;
 using DisputePortal.Domain.Transactions;
 
@@ -6,6 +7,7 @@ namespace DisputePortal.UnitTests;
 public sealed class DisputeEligibilityPolicyTests
 {
     private static readonly DateTimeOffset Transacted = new(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Money Amount = Money.Of(250.50m, "ZAR");
 
     [Fact]
     public void APostedDebitInsideTheWindowIsDisputable() =>
@@ -38,8 +40,8 @@ public sealed class DisputeEligibilityPolicyTests
         FixedClock lastMinuteOfDay120 = new(dayZeroMidnight.AddDays(120).AddHours(23).AddMinutes(59));
         FixedClock firstMinuteOfDay121 = new(dayZeroMidnight.AddDays(121));
 
-        Assert.Empty(Policy(lastMinuteOfDay120).Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, lateEvening)));
-        Assert.Equal([DisputeWindowRule.Code], Codes(Policy(firstMinuteOfDay121).Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, lateEvening))));
+        Assert.Empty(Policy(lastMinuteOfDay120).Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, lateEvening, Amount)));
+        Assert.Equal([DisputeWindowRule.Code], Codes(Policy(firstMinuteOfDay121).Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, lateEvening, Amount))));
     }
 
     [Fact]
@@ -53,7 +55,7 @@ public sealed class DisputeEligibilityPolicyTests
     {
         DisputeEligibilityPolicy thirtyDays = new([new DisputeWindowRule(new DisputePolicyOptions { WindowDays = 30 })], new FixedClock(Transacted.AddDays(31)));
 
-        Assert.Equal([DisputeWindowRule.Code], Codes(thirtyDays.Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, Transacted))));
+        Assert.Equal([DisputeWindowRule.Code], Codes(thirtyDays.Evaluate(new TransactionSnapshot(TransactionStatus.Posted, TransactionDirection.Debit, Transacted, Amount))));
     }
 
     [Fact]
@@ -61,7 +63,7 @@ public sealed class DisputeEligibilityPolicyTests
         Assert.All(Evaluate(TransactionStatus.Pending, TransactionDirection.Credit, daysLater: 200), violation => Assert.False(string.IsNullOrWhiteSpace(violation.Message)));
 
     private static IReadOnlyList<EligibilityViolation> Evaluate(TransactionStatus status, TransactionDirection direction, int daysLater) =>
-        Policy(new FixedClock(Transacted.AddDays(daysLater))).Evaluate(new TransactionSnapshot(status, direction, Transacted));
+        Policy(new FixedClock(Transacted.AddDays(daysLater))).Evaluate(new TransactionSnapshot(status, direction, Transacted, Amount));
 
     private static DisputeEligibilityPolicy Policy(TimeProvider clock) =>
         new([new PostedRule(), new DebitRule(), new DisputeWindowRule(new DisputePolicyOptions())], clock);

@@ -18,6 +18,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The web form's sensitive-number cases: the backend detector must agree with every one (parity test). -->
+    <Content Include="..\..\web\src\lib\validation-cases.json" Link="validation-cases.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\DisputePortal.Api\DisputePortal.Api.csproj" />
     <ProjectReference Include="..\..\src\DisputePortal.Domain\DisputePortal.Domain.csproj" />
   </ItemGroup>
