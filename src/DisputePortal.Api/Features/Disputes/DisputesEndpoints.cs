@@ -29,7 +29,9 @@ public static class DisputesEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .Produces<DisputeConflictProblem>(StatusCodes.Status409Conflict, ProblemResponses.ContentType)
             .Produces<EligibilityProblem>(StatusCodes.Status422UnprocessableEntity, ProblemResponses.ContentType)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AddOpenApiOperationTransformer(DisputeOpenApi.ETagOn(StatusCodes.Status200OK, StatusCodes.Status201Created))
+            .AddOpenApiOperationTransformer(DisputeOpenApi.LocationOn201);
         disputes.MapGet("/", ListAsync)
             .AddEndpointFilter<ValidationFilter<DisputeListRequest>>()
             .AddOpenApiOperationTransformer(ListQueryParameters.Describe<DisputeStatus>)
@@ -39,7 +41,8 @@ public static class DisputesEndpoints
         disputes.MapGet("/{id:guid}", GetAsync)
             .WithName("GetDispute")
             .WithSummary("One of my disputes with its timeline; the ETag header is its version. Another customer's id is 404.")
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .AddOpenApiOperationTransformer(DisputeOpenApi.ETagOn(StatusCodes.Status200OK));
         disputes.MapPost("/{id:guid}/withdraw", WithdrawAsync)
             .WithName("WithdrawDispute")
             .WithSummary("Withdraw a Submitted or UnderReview dispute. Requires If-Match with the dispute's ETag.")
@@ -47,7 +50,10 @@ public static class DisputesEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
-            .ProducesProblem(StatusCodes.Status428PreconditionRequired);
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .AddOpenApiOperationTransformer(DisputeOpenApi.ETagOn(StatusCodes.Status200OK))
+            .AddOpenApiOperationTransformer(DisputeOpenApi.StaleETagOn412)
+            .AddOpenApiOperationTransformer(DisputeOpenApi.RequireIfMatch);
         return app;
     }
 

@@ -405,6 +405,22 @@
           },
           "201": {
             "description": "Created",
+            "headers": {
+              "ETag": {
+                "description": "The dispute's version (strong, quoted). Send it back as If-Match to change the dispute.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "The new dispute: /api/v1/disputes/{id}.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -415,6 +431,15 @@
           },
           "200": {
             "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "The dispute's version (strong, quoted). Send it back as If-Match to change the dispute.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -601,6 +626,15 @@
           },
           "200": {
             "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "The dispute's version (strong, quoted). Send it back as If-Match to change the dispute.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -642,6 +676,8 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The ETag of the version being withdrawn. Missing: 428; stale, weak or *: 412.",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -670,6 +706,15 @@
           },
           "200": {
             "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "The dispute's version (strong, quoted). Send it back as If-Match to change the dispute.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -700,6 +745,14 @@
           },
           "412": {
             "description": "Precondition Failed",
+            "headers": {
+              "ETag": {
+                "description": "The current version, when the dispute still exists: reload, then retry with it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {
