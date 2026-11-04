@@ -1,15 +1,17 @@
+import { Link } from "@tanstack/react-router";
+
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useUser } from "@/components/user-context";
 
 /**
- * Placeholders for pages that arrive in later PRs. They are not links yet: a role="link"
- * without an href, marked aria-disabled, is the ARIA pattern for a disabled link.
+ * "Agent queue" arrives in a later PR. It is not a link yet: a role="link" without an href,
+ * marked aria-disabled, is the ARIA pattern for a disabled link.
  */
-const PLACEHOLDERS = [
-  { label: "My transactions", description: "Browse your transactions and dispute a charge." },
-  { label: "Agent queue", description: "Review and resolve customer disputes." },
-] as const;
+const AGENT_QUEUE = {
+  label: "Agent queue",
+  description: "Review and resolve customer disputes.",
+} as const;
 
 export function HomePage() {
   const user = useUser();
@@ -41,27 +43,40 @@ export function HomePage() {
 
       <nav aria-label="Main">
         <ul className="grid gap-4 sm:grid-cols-2">
-          {PLACEHOLDERS.map(({ label, description }) => (
-            <li key={label}>
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle as="h2" className="text-base">
-                    <a
-                      role="link"
-                      aria-disabled="true"
-                      className="cursor-not-allowed text-muted-foreground"
-                    >
-                      {label}
-                    </a>
-                  </CardTitle>
-                  <CardDescription>{description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Badge variant="outline">Coming soon</Badge>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
+          <li>
+            <Card className="h-full transition-colors focus-within:ring-[3px] focus-within:ring-ring/50 hover:bg-accent/50">
+              <CardHeader>
+                <CardTitle as="h2" className="text-base">
+                  <Link
+                    to="/transactions"
+                    className="underline-offset-4 outline-none hover:underline"
+                  >
+                    My transactions
+                  </Link>
+                </CardTitle>
+                <CardDescription>Browse your transactions and dispute a charge.</CardDescription>
+              </CardHeader>
+            </Card>
+          </li>
+          <li>
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle as="h2" className="text-base">
+                  <a
+                    role="link"
+                    aria-disabled="true"
+                    className="cursor-not-allowed text-muted-foreground"
+                  >
+                    {AGENT_QUEUE.label}
+                  </a>
+                </CardTitle>
+                <CardDescription>{AGENT_QUEUE.description}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Badge variant="outline">Coming soon</Badge>
+              </CardContent>
+            </Card>
+          </li>
         </ul>
       </nav>
     </div>

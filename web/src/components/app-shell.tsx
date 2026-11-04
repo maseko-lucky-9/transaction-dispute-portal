@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 
 import { logout, useSession } from "@/api/session";
@@ -21,7 +22,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4">
-          <span className="font-semibold">Transactions Dispute Portal</span>
+          <Link to="/" className="font-semibold outline-none focus-visible:underline">
+            Transactions Dispute Portal
+          </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {user ? (
