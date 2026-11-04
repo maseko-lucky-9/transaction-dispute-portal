@@ -125,3 +125,32 @@ test("a customer can never read another customer's transaction (BOLA), and an ag
   expect((await getJson(ag, '/api/v1/transactions')).status).toBe(403);
   await Promise.all([sipho.close(), thandi.close(), agent.close()]);
 });
+
+test('out-of-range and malformed filters are 400 problem documents, never 500', async ({ page }) => {
+  await signIn(page, DEMO.customer);
+  const status = (qs: string) =>
+    page.evaluate(
+      async (u) => {
+        const r = await fetch(u, { headers: { 'X-CSRF': '1' } });
+        return { status: r.status, type: r.headers.get('content-type'), body: await r.json() };
+      },
+      `/api/v1/transactions?${qs}`,
+    );
+  for (const qs of [
+    'to=9999-12-31',
+    'from=9999-12-31&to=9999-12-31',
+    'from=0001-01-01',
+    'limit=0',
+    'limit=101',
+    'limit=abc',
+    'limit=99999999999',
+    'status=Nope',
+    'from=2026-02-30',
+  ]) {
+    const r = await status(qs);
+    expect(r.status, qs).toBe(400);
+    expect(r.type, qs).toContain('application/problem+json');
+    expect(r.body.traceId, qs).toBeTruthy();
+  }
+  expect((await status('cursor=')).status).toBe(200); // an empty cursor means the first page
+});
