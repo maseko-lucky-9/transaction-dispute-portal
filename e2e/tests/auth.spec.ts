@@ -77,12 +77,17 @@ test('edge: security headers per location, no-store on the API, Keycloak admin i
     '/admin/master/console/',
     '/realms/master/.well-known/openid-configuration',
     '/realms/dispute-portal/account/',
+    '/realms/dispute-portal/.well-known/openid-configuration',
+    '/realms/dispute-portal/protocol/openid-connect/token',
+    '/realms/dispute-portal/protocol/openid-connect/certs',
+    '/realms/dispute-portal/clients-registrations/default',
     '/metrics',
     '/health',
   ]) {
     expect((await request.get(`${authUrl}${path}`)).status(), path).toBe(404);
   }
-  const oidc = await request.get(`${authUrl}/realms/dispute-portal/.well-known/openid-configuration`);
-  expect(oidc.status()).toBe(200);
-  expect(oidc.headers()['x-content-type-options']).toBe('nosniff');
+  // The login page itself is reachable and carries exactly one nosniff (Keycloak's duplicate is hidden).
+  const login = await request.get(`${authUrl}/realms/dispute-portal/protocol/openid-connect/auth`, { maxRedirects: 0 });
+  expect([200, 302, 400]).toContain(login.status());
+  expect(login.headers()['x-content-type-options']).toBe('nosniff');
 });

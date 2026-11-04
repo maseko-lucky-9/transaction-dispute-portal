@@ -136,6 +136,8 @@ jobs:
           cache-dependency-path: e2e/package-lock.json
       - name: start the stack
         run: docker compose up -d --wait --no-build
+      - name: a second `up` is idempotent (bootstrap re-runs against existing secrets, Vault and volumes)
+        run: docker compose up -d --wait --no-build
       - run: npm ci --ignore-scripts
         working-directory: e2e
       - run: npx playwright install --with-deps chromium

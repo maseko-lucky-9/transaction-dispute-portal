@@ -6,7 +6,11 @@
 set -eu
 export VAULT_ADDR="${VAULT_ADDR:-http://vault:8200}"
 S=/secrets
-CIDR="${BACKEND_CIDR:-172.28.0.0/16}"
+CIDR="${BACKEND_CIDR:-10.231.28.0/24}"
+
+# A previous run locked the tree read-only (see the end of this script). This container runs without CAP_DAC_OVERRIDE,
+# so as the owner it must make the tree writable again before regenerating anything. Idempotent re-runs depend on it.
+chmod -R u+w "$S" 2>/dev/null || true
 
 gen() { # gen <relative path>: random 32-char alphanumeric secret, created only when missing
   f="$S/$1"
