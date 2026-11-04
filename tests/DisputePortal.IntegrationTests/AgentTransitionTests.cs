@@ -256,7 +256,7 @@ public sealed class AgentTransitionTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
         List<string> messages = [.. logs.Entries.Select(entry => entry.Message)];
         Assert.DoesNotContain(messages, message => message.Contains("ZX-SECRET-NOTE-9931", StringComparison.Ordinal));
-        Assert.DoesNotContain(messages, message => message.Contains("4111", StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, message => message.Contains(Rejected, StringComparison.Ordinal));
         Assert.Contains(logs.Entries, entry => entry.EventId.Id == AgentCommands.DisputeTransitioned.Id
             && entry.Message.Contains(id.ToString(), StringComparison.OrdinalIgnoreCase)
             && entry.Message.Contains(user.Subject, StringComparison.Ordinal));
