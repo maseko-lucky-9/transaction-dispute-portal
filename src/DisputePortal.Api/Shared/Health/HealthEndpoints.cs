@@ -17,9 +17,9 @@ public static class HealthEndpoints
     public static WebApplication MapHealthEndpoints(this WebApplication app)
     {
         app.MapHealthChecks(ManagementSettings.LivePath, new HealthCheckOptions { Predicate = _ => false })
-            .AllowAnonymous().DisableRateLimiting().ExcludeFromDescription();
+            .AllowAnonymous().DisableRateLimiting().ExcludeFromDescription().ServeOnManagementPortOnly();
         app.MapHealthChecks(ManagementSettings.ReadyPath, new HealthCheckOptions { Predicate = check => check.Tags.Contains(ManagementSettings.ReadyTag) })
-            .AllowAnonymous().DisableRateLimiting().ExcludeFromDescription();
+            .AllowAnonymous().DisableRateLimiting().ExcludeFromDescription().ServeOnManagementPortOnly();
         return app;
     }
 }

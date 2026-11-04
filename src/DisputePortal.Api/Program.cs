@@ -87,8 +87,8 @@ builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.C
 
 WebApplication app = builder.Build();
 
-// First, so everything after it (the rate limiter above all) sees the client's address, not nginx's.
-app.UseForwardedHeaders();
+// First, so everything after it (the rate limiter above all) sees the client's address, not nginx's. Public port only.
+app.UseForwardedHeadersOnThePublicPort();
 app.UseExceptionHandler();
 // Bare 401/403/404/429 statuses get a body from the same writer as every other error.
 app.UseStatusCodePages(context => ProblemResponses.WriteAsync(context.HttpContext, new ProblemDetails()));
