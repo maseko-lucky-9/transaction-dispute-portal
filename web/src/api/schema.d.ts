@@ -326,11 +326,11 @@ export interface operations {
     ListTransactions: {
         parameters: {
             query?: {
-                limit?: number | string;
+                limit?: number;
                 cursor?: string;
                 from?: string;
                 to?: string;
-                status?: string;
+                status?: "Pending" | "Posted" | "Reversed";
             };
             header?: never;
             path?: never;

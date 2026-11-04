@@ -103,7 +103,7 @@ describe("transactions page: list and paging", () => {
     expect(rowCount()).toBe(30);
   });
 
-  it("shows loading skeletons while the first page is in flight", async () => {
+  it("shows loading skeletons, and announces loading once, while the first page is in flight", async () => {
     server.use(
       signedIn(),
       http.get("/api/v1/transactions", async () => {
@@ -113,8 +113,11 @@ describe("transactions page: list and paging", () => {
     );
     renderApp("/transactions");
 
-    expect(await screen.findByText("Loading transactions...")).toBeInTheDocument();
+    const summary = await screen.findByRole("status", { name: "Result count" });
+    await waitFor(() => expect(summary).toHaveTextContent("Loading transactions"));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    // One live region, not two: the skeleton itself stays silent inside the page.
+    expect(screen.queryByText("Loading transactions...")).not.toBeInTheDocument();
   });
 
   it("says so when there are no transactions at all", async () => {
@@ -169,6 +172,21 @@ describe("transactions page: filters from the URL", () => {
     ["date that does not exist", "?from=2026-02-30", { limit: "25" }],
     ["garbage from, good to", "?from=banana&to=2026-10-01", { limit: "25", to: "2026-10-01" }],
     ["compact date", "?from=20261001", { limit: "25" }],
+    ["to far in the future (9999-12-31)", "?to=9999-12-31", { limit: "25" }],
+    ["both ends in year 9999", "?from=9999-12-31&to=9999-12-31", { limit: "25" }],
+    ["to one day past the window", "?to=2101-01-01", { limit: "25" }],
+    ["from one day before the window", "?from=1899-12-31", { limit: "25" }],
+    ["from year 0000", "?from=0000-01-01", { limit: "25" }],
+    [
+      "good from, out-of-window to",
+      "?from=2026-10-01&to=9999-12-31",
+      { limit: "25", from: "2026-10-01" },
+    ],
+    [
+      "window edges are kept",
+      "?from=1900-01-01&to=1900-01-01",
+      { limit: "25", from: "1900-01-01", to: "1900-01-01" },
+    ],
     ["unknown status", "?status=Hacked", { limit: "25" }],
     ["lowercase status", "?status=posted", { limit: "25" }],
     [
@@ -330,6 +348,48 @@ describe("transactions page: filter form validation", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("on or after the start date");
   });
 
+  it.each([
+    ["To", "9999-12-31", "Enter a date between 1900 and 2100"],
+    ["To", "2101-01-01", "Enter a date between 1900 and 2100"],
+    ["From", "1899-12-31", "Enter a date between 1900 and 2100"],
+  ] as const)(
+    "rejects %s = %s as out of bounds and sends nothing",
+    async (label, value, message) => {
+      const { api, router } = await openTransactions();
+      await screen.findByRole("table");
+      const before = api.requests.length;
+      const user = userEvent.setup();
+
+      setDate(label, value);
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(message);
+      expect(input(label)).toHaveAttribute("aria-invalid", "true");
+      expect(input(label)).toHaveFocus();
+      expect(api.requests).toHaveLength(before);
+      expect(router.state.location.search).toEqual({});
+    },
+  );
+
+  it("applies a date at the very edge of the window", async () => {
+    const { router } = await openTransactions();
+    await screen.findByRole("table");
+
+    setDate("To", "2100-12-31");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Apply filters" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ to: "2100-12-31" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("tells the native date picker about the supported window", async () => {
+    await openTransactions();
+    for (const label of ["From", "To"] as const) {
+      expect(input(label)).toHaveAttribute("min", "1900-01-01");
+      expect(input(label)).toHaveAttribute("max", "2100-12-31");
+    }
+  });
+
   it("rejects a range over 366 days and accepts exactly 366", async () => {
     await openTransactions();
     await screen.findByRole("table");
@@ -469,6 +529,7 @@ describe("transactions page: errors", () => {
 
     await screen.findByRole("table");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Result count" })).toHaveFocus();
   });
 
   it("treats 503 idp_unavailable as retryable, never as 'sign in again'", async () => {
@@ -542,17 +603,23 @@ describe("transactions page: errors", () => {
     renderApp("/transactions");
     await screen.findByRole("table");
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "Load more" }));
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    await userEvent.setup().click(loadMore);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("We could not load more transactions");
     expect(alert).toHaveTextContent("Reference: trace-next");
     expect(rowCount()).toBe(25);
+    // A keyboard user who pressed Load more has not lost their place: same button, same focus.
+    expect(screen.getByRole("button", { name: "Load more" })).toBe(loadMore);
+    expect(loadMore).toHaveFocus();
 
     failNext = false;
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(rowCount()).toBe(50));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // "Try again" vanished with the error; focus lands on the result summary, not on <body>.
+    expect(screen.getByRole("status", { name: "Result count" })).toHaveFocus();
   });
 });
 
@@ -586,9 +653,11 @@ describe("transactions page: invalid_cursor", () => {
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Load more" }));
 
-    expect(
-      await screen.findByText("Your list was out of date, so we reloaded it from the start."),
-    ).toBeInTheDocument();
+    const notice = await screen.findByText(
+      "Your list was out of date, so we reloaded it from the start.",
+    );
+    // Load more (which had focus) was replaced by the reload: focus moves to the explanation.
+    expect(notice).toHaveFocus();
     expect(cursors).toEqual([null, "page-two", null]);
     expect(rowCount()).toBe(25);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -616,5 +685,92 @@ describe("transactions page: invalid_cursor", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(cursors).toEqual([null, "page-two", null, "page-two", null]));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("status", { name: "Result count" })).toHaveFocus();
+  });
+});
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("transactions page: keyboard focus and live regions", () => {
+  it("keeps Load more mounted, focused and aria-disabled while loading, and ignores a second activation", async () => {
+    const { api, handler } = fakeTransactionsApi(makeTransactions(60), async (url) => {
+      if (url.searchParams.has("cursor")) await wait(150);
+      return undefined;
+    });
+    server.use(signedIn(), handler);
+    renderApp("/transactions");
+    await screen.findByRole("table");
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Load more" });
+
+    await user.click(button);
+
+    const loading = await screen.findByRole("button", { name: "Loading..." });
+    expect(loading).toBe(button); // same element: focus was never at risk
+    expect(loading).toHaveFocus();
+    expect(loading).toHaveAttribute("aria-disabled", "true");
+    expect(loading).not.toBeDisabled(); // `disabled` would drop it from the tab order
+    expect(screen.getByRole("status", { name: "Result count" })).toHaveTextContent(
+      "Loading more transactions",
+    );
+
+    await user.click(loading);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(rowCount()).toBe(50));
+
+    expect(api.requests.filter((url) => url.searchParams.has("cursor"))).toHaveLength(1);
+    expect(button).toHaveFocus();
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveTextContent("Load more");
+  });
+
+  it("announces the result of Apply filters through the SAME live region", async () => {
+    const all = makeTransactions(150).map((item, index) =>
+      index < 3 ? { ...item, status: "Reversed" as const } : item,
+    );
+    const { handler } = fakeTransactionsApi(all, async (url) => {
+      if (url.searchParams.has("status")) await wait(100); // hold the new result open
+      return undefined;
+    });
+    server.use(signedIn(), handler);
+    renderApp("/transactions");
+    await screen.findByRole("table");
+    const summary = screen.getByRole("status", { name: "Result count" });
+    expect(summary).toHaveTextContent("Showing 25 transactions");
+
+    const heard: string[] = [];
+    const observer = new MutationObserver(() => heard.push(summary.textContent ?? ""));
+    observer.observe(summary, { childList: true, characterData: true, subtree: true });
+    const user = userEvent.setup();
+
+    await user.selectOptions(input("Status"), "Reversed");
+    await user.click(screen.getByRole("button", { name: "Apply filters" }));
+    await waitFor(() => expect(summary).toHaveTextContent("Showing 3 transactions, all loaded"));
+    observer.disconnect();
+
+    // Not a new, silent region: the element a screen reader already watches changed.
+    expect(summary.isConnected).toBe(true);
+    expect(screen.getByRole("status", { name: "Result count" })).toBe(summary);
+    expect(heard).toContain("Loading transactions");
+    expect(heard.at(-1)).toBe("Showing 3 transactions, all loaded");
+  });
+
+  it("announces an empty result too, instead of going silent", async () => {
+    server.use(signedIn(), fakeTransactionsApi(makeTransactions(10)).handler);
+    renderApp("/transactions?status=Reversed");
+    await screen.findByText("No transactions match these filters");
+    expect(screen.getByRole("status", { name: "Result count" })).toHaveTextContent(
+      "Showing 0 transactions",
+    );
+  });
+
+  it("says nothing while the list is in error (the alert speaks)", async () => {
+    server.use(
+      signedIn(),
+      http.get("/api/v1/transactions", () => problem(500, { traceId: "t" })),
+    );
+    renderApp("/transactions");
+    await screen.findByRole("alert");
+    expect(screen.getByRole("status", { name: "Result count" })).toBeEmptyDOMElement();
   });
 });

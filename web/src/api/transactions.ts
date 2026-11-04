@@ -1,6 +1,6 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
 
-import type { TransactionFilters } from "@/lib/transaction-filters";
+import type { ListTransactionsQuery, TransactionFilters } from "@/lib/transaction-filters";
 
 import { apiFetch } from "./client";
 import type { components } from "./schema";
@@ -18,11 +18,20 @@ export function fetchTransactionPage(
   cursor: string | undefined,
   signal?: AbortSignal,
 ): Promise<TransactionPage> {
-  const params = new URLSearchParams({ limit: String(filters.limit) });
-  if (filters.from) params.set("from", filters.from);
-  if (filters.to) params.set("to", filters.to);
-  if (filters.status) params.set("status", filters.status);
-  if (cursor) params.set("cursor", cursor);
+  // `satisfies` ties every name and value to the generated operation: a renamed parameter or a
+  // status the API does not have stops compiling.
+  const query = {
+    limit: filters.limit,
+    from: filters.from,
+    to: filters.to,
+    status: filters.status,
+    cursor,
+  } satisfies ListTransactionsQuery;
+
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(name, String(value));
+  }
 
   return apiFetch<TransactionPage>(
     `/api/v1/transactions?${params.toString()}`,

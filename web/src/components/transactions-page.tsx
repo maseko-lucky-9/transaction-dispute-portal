@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 
@@ -40,8 +40,7 @@ export function TransactionsPage() {
         onApply={(next) => void writeFilters(next)}
         onClear={() => void writeFilters({})}
       />
-      {/* Keyed by the filters: a new filter set is a fresh list with fresh one-shot state. */}
-      <TransactionList key={JSON.stringify(filters)} filters={filters} />
+      <TransactionResults filters={filters} />
     </div>
   );
 }
@@ -50,101 +49,153 @@ function isInvalidCursor(error: unknown): boolean {
   return isApiError(error) && error.status === 400 && error.code === "invalid_cursor";
 }
 
-function TransactionList({ filters }: { filters: TransactionFilters }) {
+/** Focus a node that has just replaced the focused one, but never steal focus from the user. */
+function focusIfFocusWasLost(element: HTMLElement | null): void {
+  if (element && (document.activeElement === null || document.activeElement === document.body)) {
+    element.focus();
+  }
+}
+
+/**
+ * An expired or foreign cursor cannot be fixed by retrying the same page, so start again from
+ * the first page, ONCE, and say so. A second failure is left to the error state. Keyed by the
+ * filters by the caller, so every filter set gets a fresh one-shot.
+ */
+function CursorRecovery({ error, onRestart }: { error: unknown; onRestart: () => Promise<void> }) {
+  const [reloaded, setReloaded] = useState(false);
+  const used = useRef(false);
+
+  useEffect(() => {
+    if (!isInvalidCursor(error) || used.current) return;
+    used.current = true;
+    void onRestart().then(() => setReloaded(true));
+  }, [error, onRestart]);
+
+  if (!reloaded) return null;
+  return (
+    // The reload replaced the list (and the Load more button that had focus): land here.
+    <p
+      role="status"
+      tabIndex={-1}
+      ref={focusIfFocusWasLost}
+      className="rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
+    >
+      Your list was out of date, so we reloaded it from the start.
+    </p>
+  );
+}
+
+/**
+ * The list, its Load more button and the result summary. Deliberately NOT keyed by the
+ * filters: the summary is one live region for the whole page, so a screen reader hears the
+ * new result after "Apply filters" instead of meeting a freshly created, silent region.
+ */
+function TransactionResults({ filters }: { filters: TransactionFilters }) {
   const queryClient = useQueryClient();
   const options = useMemo(() => transactionsInfiniteOptions(filters), [filters]);
   const query = useInfiniteQuery(options);
   const { data, error, isPending, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } = query;
+  const summaryRef = useRef<HTMLParagraphElement>(null);
 
-  const [reloadedFromStart, setReloadedFromStart] = useState(false);
-  const autoResetUsed = useRef(false);
-  const statusRef = useRef<HTMLParagraphElement>(null);
-
-  const startOver = () => queryClient.resetQueries({ queryKey: options.queryKey });
-
-  // An expired or foreign cursor cannot be fixed by retrying the same page. Start again from
-  // the first page, once, and say so; a second failure falls through to the error state.
-  useEffect(() => {
-    if (!isInvalidCursor(error) || autoResetUsed.current) return;
-    autoResetUsed.current = true;
-    void startOver().then(() => setReloadedFromStart(true));
-    // startOver only closes over stable values (queryClient, options).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error]);
+  const startOver = useCallback(
+    () => queryClient.resetQueries({ queryKey: options.queryKey }),
+    [queryClient, options.queryKey],
+  );
 
   const items = useMemo(() => (data ? flattenPages(data.pages) : []), [data]);
+  const count = items.length;
+  const hasFilters = Boolean(filters.from || filters.to || filters.status);
 
   async function loadMore() {
+    if (isFetchingNextPage) return; // aria-disabled, unlike `disabled`, still takes clicks
     const result = await fetchNextPage();
     // The button disappears with the last page; do not drop keyboard focus on <body>.
-    if (result.isSuccess && !result.hasNextPage) statusRef.current?.focus();
+    if (result.isSuccess && !result.hasNextPage) summaryRef.current?.focus();
   }
 
-  if (isPending && !error) return <ListSkeleton />;
-  if (!data) {
-    return (
+  /**
+   * "Try again" disappears when it works, taking keyboard focus with it. Land on the summary,
+   * which also announces the outcome.
+   */
+  async function recover(action: () => Promise<unknown>) {
+    await action();
+    if (queryClient.getQueryState(options.queryKey)?.status === "success") {
+      summaryRef.current?.focus();
+    }
+  }
+
+  const retryFirstLoad = () => recover(() => (isInvalidCursor(error) ? startOver() : refetch()));
+  const retryNextPage = () =>
+    recover(() =>
+      isInvalidCursor(error) ? startOver() : hasNextPage ? fetchNextPage() : refetch(),
+    );
+
+  let body: ReactNode;
+  if (isPending) {
+    body = <ListSkeleton announce={false} />;
+  } else if (!data) {
+    body = (
       <ErrorState
         error={error}
         title="We could not load your transactions"
-        onRetry={() => void (isInvalidCursor(error) ? startOver() : refetch())}
+        onRetry={() => void retryFirstLoad()}
       />
     );
+  } else if (count === 0) {
+    body = (
+      <div className="rounded-xl border p-8 text-center">
+        <p className="font-medium">
+          {hasFilters ? "No transactions match these filters" : "You have no transactions yet"}
+        </p>
+        {hasFilters ? (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Try a wider date range, or clear the filters.
+          </p>
+        ) : null}
+      </div>
+    );
+  } else {
+    body = <TransactionsTable items={items} />;
   }
 
-  const hasFilters = Boolean(filters.from || filters.to || filters.status);
-  const count = items.length;
+  let summary = "";
+  if (isPending) summary = "Loading transactions";
+  else if (data && isFetchingNextPage) summary = "Loading more transactions";
+  else if (data) {
+    const noun = count === 1 ? "transaction" : "transactions";
+    summary = `Showing ${count} ${noun}${hasNextPage ? "" : ", all loaded"}`;
+  }
 
   return (
     <section aria-label="Transaction list" className="flex flex-col gap-4">
-      {reloadedFromStart ? (
-        <p role="status" className="rounded-md border bg-muted/50 px-4 py-2 text-sm">
-          Your list was out of date, so we reloaded it from the start.
-        </p>
-      ) : null}
-
-      {count === 0 ? (
-        <div className="rounded-xl border p-8 text-center">
-          <p className="font-medium">
-            {hasFilters ? "No transactions match these filters" : "You have no transactions yet"}
-          </p>
-          {hasFilters ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Try a wider date range, or clear the filters.
-            </p>
-          ) : null}
-        </div>
-      ) : (
-        <TransactionsTable items={items} />
-      )}
-
-      {error ? (
+      <CursorRecovery key={JSON.stringify(filters)} error={error} onRestart={startOver} />
+      {body}
+      {data && error ? (
         <ErrorState
           error={error}
           title="We could not load more transactions"
-          onRetry={() =>
-            void (isInvalidCursor(error) ? startOver() : hasNextPage ? fetchNextPage() : refetch())
-          }
+          onRetry={() => void retryNextPage()}
         />
       ) : null}
-
       <div className="flex items-center gap-4">
-        {hasNextPage && !error ? (
-          <Button variant="outline" onClick={() => void loadMore()} disabled={isFetchingNextPage}>
+        {/* Stays mounted through a failure (and while loading, via aria-disabled) so a keyboard user keeps focus. */}
+        {hasNextPage ? (
+          <Button
+            variant="outline"
+            aria-disabled={isFetchingNextPage ? true : undefined}
+            onClick={() => void loadMore()}
+          >
             {isFetchingNextPage ? "Loading..." : "Load more"}
           </Button>
         ) : null}
-        {/* A live region: the new count is announced after each page. */}
         <p
-          ref={statusRef}
+          ref={summaryRef}
           role="status"
+          aria-label="Result count"
           tabIndex={-1}
           className="text-sm text-muted-foreground outline-none"
         >
-          {count === 0
-            ? ""
-            : isFetchingNextPage
-              ? "Loading more transactions"
-              : `Showing ${count} ${count === 1 ? "transaction" : "transactions"}${hasNextPage ? "" : ", all loaded"}`}
+          {summary}
         </p>
       </div>
     </section>

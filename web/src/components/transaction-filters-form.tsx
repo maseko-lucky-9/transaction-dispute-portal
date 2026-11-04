@@ -8,17 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
   filterFormSchema,
+  MAX_DATE,
+  MIN_DATE,
   TRANSACTION_STATUSES,
   type FilterFormValues,
-  type TransactionStatus,
+  type TransactionFilters,
 } from "@/lib/transaction-filters";
 
 /** The filters as they live in the URL: undefined means "not set". */
-export interface AppliedFilters {
-  from?: string | undefined;
-  to?: string | undefined;
-  status?: TransactionStatus | undefined;
-}
+export type AppliedFilters = Pick<TransactionFilters, "from" | "to" | "status">;
 
 interface TransactionFiltersFormProps {
   applied: AppliedFilters;
@@ -113,6 +111,8 @@ export function TransactionFiltersForm({ applied, onApply, onClear }: Transactio
         <Input
           id="filter-from"
           type="date"
+          min={MIN_DATE}
+          max={MAX_DATE}
           aria-invalid={errors.from ? true : undefined}
           aria-describedby={errors.from ? "filter-from-error" : undefined}
           {...dateField("from", "to")}
@@ -122,6 +122,8 @@ export function TransactionFiltersForm({ applied, onApply, onClear }: Transactio
         <Input
           id="filter-to"
           type="date"
+          min={MIN_DATE}
+          max={MAX_DATE}
           aria-invalid={errors.to ? true : undefined}
           aria-describedby={errors.to ? "filter-to-error" : undefined}
           {...dateField("to", "from")}

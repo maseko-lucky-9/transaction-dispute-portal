@@ -1,7 +1,11 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { TransactionStatus } from "@/lib/transaction-filters";
+import type {
+  ListTransactionsQuery,
+  TRANSACTION_STATUSES,
+  TransactionFilters,
+} from "@/lib/transaction-filters";
 import { server } from "@/test/server";
 import { makeTransaction, makeTransactions } from "@/test/transactions";
 
@@ -120,7 +124,16 @@ describe("flattenPages", () => {
 // drifts from it, the build fails here instead of the filter silently missing a value.
 describe("contract types", () => {
   it("keeps the filter's status list identical to the API's enum", () => {
-    expectTypeOf<TransactionStatus>().toEqualTypeOf<components["schemas"]["TransactionStatus"]>();
+    // Exhaustive both ways: no status missing from the runtime list, none the API lacks.
+    expectTypeOf<(typeof TRANSACTION_STATUSES)[number]>().toEqualTypeOf<
+      components["schemas"]["TransactionStatus"]
+    >();
+    // The request's status parameter and the response's status enum are the same set.
+    expectTypeOf<NonNullable<ListTransactionsQuery["status"]>>().toEqualTypeOf<
+      components["schemas"]["TransactionStatus"]
+    >();
+    // The page size is a number on the wire and always present in the client's filters.
+    expectTypeOf<TransactionFilters["limit"]>().toEqualTypeOf<number>();
     expectTypeOf<ReturnType<typeof makeTransaction>>().toEqualTypeOf<
       components["schemas"]["TransactionItem"]
     >();

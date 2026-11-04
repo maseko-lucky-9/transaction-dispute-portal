@@ -60,18 +60,21 @@ const decodeCursor = (cursor: string): number | null => {
  */
 export function fakeTransactionsApi(
   all: TransactionItem[],
-  /** Return a response to short-circuit the fake (e.g. a 5xx); undefined falls through. */
-  intercept?: (url: URL) => Response | undefined,
+  /**
+   * Return a response to short-circuit the fake (e.g. a 5xx); undefined falls through. May be
+   * async, so a test can hold a response open and observe the loading state.
+   */
+  intercept?: (url: URL) => Response | undefined | Promise<Response | undefined>,
 ): {
   api: FakeApi;
   handler: ReturnType<typeof http.get>;
 } {
   const api: FakeApi = { requests: [] };
 
-  const handler = http.get("/api/v1/transactions", ({ request }) => {
+  const handler = http.get("/api/v1/transactions", async ({ request }) => {
     const url = new URL(request.url);
     api.requests.push(url);
-    const intercepted = intercept?.(url);
+    const intercepted = await intercept?.(url);
     if (intercepted) return intercepted;
     const q = url.searchParams;
 
@@ -81,8 +84,11 @@ export function fakeTransactionsApi(
       errors["limit"] = ["limit must be 1..100"];
     const from = q.get("from");
     const to = q.get("to");
-    if (from && !isIsoDate(from)) errors["from"] = ["from must be a date"];
-    if (to && !isIsoDate(to)) errors["to"] = ["to must be a date"];
+    // The server's window, written out here on purpose rather than imported from the client.
+    const outside = (date: string) => date < "1900-01-01" || date > "2100-12-31";
+    if (from && (!isIsoDate(from) || outside(from)))
+      errors["from"] = ["from must be a date 1900..2100"];
+    if (to && (!isIsoDate(to) || outside(to))) errors["to"] = ["to must be a date 1900..2100"];
     if (from && to && !errors["from"] && !errors["to"] && dateRangeProblem(from, to)) {
       errors["to"] = ["range must be from <= to and at most 366 days"];
     }
