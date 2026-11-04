@@ -18,7 +18,7 @@ public static class RateLimits
     private const string DisputeSubmitSetting = "RateLimiting:DisputeSubmitsPerMinute";
     private const int DefaultDisputeSubmitsPerMinute = 10;
     private const string BackchannelLogoutSetting = "RateLimiting:BackchannelLogoutsPerMinute";
-    private const int DefaultBackchannelLogoutsPerMinute = 60;
+    private const int DefaultBackchannelLogoutsPerMinute = 6000;
 
     /// <summary>The tighter bucket on POST /api/v1/disputes, on top of the global one.</summary>
     public const string DisputeSubmitPolicy = "dispute-submit";
@@ -26,6 +26,9 @@ public static class RateLimits
     /// <summary>
     /// Keycloak's back-channel logout, per socket peer (the management port ignores X-Forwarded-For). A bound on the
     /// signature checks an unauthenticated caller can make us do; the compose network is trusted, but not assumed to be.
+    /// High on purpose (6000 a minute per replica): every Keycloak logout arrives from the same peer, so a low limit would
+    /// let any user who loops sign-in and logout starve the real calls. An RSA verification is cheap and only the data
+    /// network reaches the endpoint, so a 429 here is itself the signal: a flood from inside the data network.
     /// </summary>
     public const string BackchannelLogoutPolicy = "backchannel-logout";
 

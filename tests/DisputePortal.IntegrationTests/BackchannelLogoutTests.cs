@@ -288,25 +288,40 @@ public sealed class BackchannelLogoutTests : IDisposable
         Assert.Equal("session_store_unavailable", (await Problem.ReadAsync(response)).Code);
     }
 
+    // The limit is set low here on purpose; the default is high (see the next test).
     [Fact]
-    public async Task TheEndpointIsRateLimitedPerPeerAndCountsTheRefusal()
+    public async Task TheEndpointIsRateLimitedPerPeer()
     {
         await using WebApplicationFactory<Program> limited = api.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("RateLimiting:BackchannelLogoutsPerMinute", "2");
             builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, PeerAddressFilter>());
         });
-        using MeasurementProbe<long> probe = MeasurementProbe<long>.On(limited, SecurityMetrics.MeterName, "security.events");
 
         HttpStatusCode[] fromKeycloak = [.. await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => PostFromAsync(limited, KeycloakOnTheDataNetwork)))];
         HttpStatusCode otherPeer = await PostFromAsync(limited, "10.231.28.21");
 
         Assert.Equal(2, fromKeycloak.Count(status => status == HttpStatusCode.BadRequest));
-        Assert.Single(fromKeycloak, HttpStatusCode.TooManyRequests);
+        Assert.Equal(1, fromKeycloak.Count(status => status == HttpStatusCode.TooManyRequests));
         Assert.Equal(HttpStatusCode.BadRequest, otherPeer);
-        Assert.Contains(probe.Samples, sample => (string?)sample.Tags["type"] == SecurityMetrics.RateLimited);
     }
 
+    // Every Keycloak logout comes from one peer, so a low default would let a user who loops sign-in and logout starve the
+    // real calls. The default (6000 a minute) lets a burst of a hundred through untouched.
+    [Fact]
+    public async Task TheDefaultLimitLetsAMassLogoutThrough()
+    {
+        await using WebApplicationFactory<Program> replica = api.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, PeerAddressFilter>()));
+        List<HttpStatusCode> statuses = [];
+
+        for (int request = 0; request < 100; request++)
+        {
+            statuses.Add(await PostFromAsync(replica, KeycloakOnTheDataNetwork));
+        }
+
+        Assert.All(statuses, status => Assert.Equal(HttpStatusCode.BadRequest, status));
+    }
 
     // Fix for a lost claim: the jti is claimed before the tickets are deleted. When the deletion fails (Redis refuses the
     // script here, so the claim and its release still work), the claim is released and Keycloak's retry goes through.
