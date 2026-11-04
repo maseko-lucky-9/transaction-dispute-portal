@@ -12,7 +12,8 @@ hand the first credential to each service.
 - A one-shot `bootstrap` container is idempotent. It generates any missing secret into a `secrets` volume,
   initialises or unseals Vault, writes KV v2 `kv/dispute-portal/{database,database-owner,redis,keycloak}`, writes
   two policies and two AppRoles: `dispute-api` (runtime credentials) and `dispute-migrate` (schema owner only).
-  secret_ids are CIDR-bound to the compose network and expire after 24 hours.
+  secret_ids and tokens are CIDR-bound to the `data` network (the internet-facing `web` container is not on it) and
+  secret_ids expire after 24 hours; expired ones are tidied on each run. They stay multi-use so `--scale api=3` works.
 - The API and the migrate job read credentials only from Vault at startup, with bounded backoff, then exit with a
   one-line hint. Secrets are read once; rotation is a rolling restart. The upgrade path is Vault dynamic database
   credentials.
@@ -23,3 +24,9 @@ hand the first credential to each service.
 Honest limitation: locally, `bootstrap` is the trusted orchestrator that delivers secret zero, and anyone who can
 read the `secrets` volume owns the stack. In production, platform identity (for example Kubernetes auth) replaces
 AppRole file delivery.
+
+## Networks
+Three Compose networks keep blast radius small: `edge` (published ports, `web` only), `app` (`web`, `api`, `keycloak`;
+the API trusts `X-Forwarded-*` only from this subnet) and `data` (Vault, Postgres, Redis, migrate, `api`, `keycloak`;
+the AppRoles are bound to this subnet). `web` has no route to Postgres, Redis or Vault. Both subnets default to
+`10.231.28.0/24` and `10.231.29.0/24` and can be overridden with `DATA_SUBNET` / `APP_SUBNET` if they clash.

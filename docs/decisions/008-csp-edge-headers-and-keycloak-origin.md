@@ -10,8 +10,11 @@ Status: accepted (2026-11-04)
 - Security headers are `include`d in every location (nginx drops server-level `add_header` once a location sets its
   own), and tested per location.
 - Keycloak is on its own origin (`AUTH_PORT`), so XSS on the app cannot reach its pages and cookies stay apart. The
-  auth server block allows only `/realms/dispute-portal/` and `/resources/` and returns 404 for everything else
-  (admin console, master realm, metrics). It strips the app cookie, because cookies are not port-scoped. Keycloak
+  auth server block proxies an end-anchored allow-list (`login-actions`, and the openid-connect `auth`, `logout`,
+  `logout/logout-confirm`, `login-status-iframe.html` and `3p-cookies` pages) plus `/resources/`; token, certs,
+  discovery, account console, client registration, admin console, master realm and metrics are 404 there. nginx's
+  own error pages on that origin carry a deny-all CSP. It strips the app cookie (also the `__Host-` form, in first, middle and last position), because cookies are not
+  port-scoped. Keycloak
   keeps its own CSP.
 - `Cache-Control: no-store` on `/api` and `/bff`; hashed assets are immutable; `index.html` is `no-cache`.
 - HSTS is sent only over https and is not counted as a control on localhost.

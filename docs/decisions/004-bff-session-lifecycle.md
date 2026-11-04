@@ -19,6 +19,12 @@ Current OAuth guidance for browser apps keeps tokens out of JavaScript. Keycloak
   end-session with `id_token_hint`, so the next login asks for the password again (an E2E test proves it).
 - Unauthenticated `/api` calls return JSON 401/403, never a redirect. The OIDC challenge happens only at
   `/bff/login`.
+- Parallel requests on different replicas must not redeem the same refresh token (Keycloak rotation with reuse 0 would
+  revoke the session). A Redis lock keyed by the token hash makes one replica refresh while the others wait, re-read the
+  ticket and adopt the rotated tokens; a refusal deletes the ticket only if it still holds the refused token
+  (compare-and-delete). An unreachable identity provider is a 503 `idp_unavailable` that keeps the session; only a
+  refusal ends it.
+- Signing in again revokes the previous ticket found in the incoming cookie.
 - Redis down means auth endpoints return 503 (fail closed).
 - A principal holding both `customer` and `dispute-agent` gets 403 `role_conflict` (segregation of duties).
 
