@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { isApiError } from "@/api/problem";
@@ -7,6 +8,10 @@ interface ErrorStateProps {
   error: unknown;
   /** Heading; defaults to the problem title, then a generic line. */
   title?: string;
+  /** Body text; defaults to the problem detail, then a generic line. */
+  message?: string;
+  /** Extra content under the message (a list of rules, a link to follow). */
+  children?: ReactNode;
   /** Use "h1" when the error replaces the whole page, "h2" (default) when it sits inside one. */
   headingLevel?: "h1" | "h2";
   onRetry?: () => void;
@@ -21,13 +26,15 @@ const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 export function ErrorState({
   error,
   title,
+  message: messageOverride,
+  children,
   headingLevel: Heading = "h2",
   onRetry,
 }: ErrorStateProps) {
   const apiError = isApiError(error) ? error : null;
   const heading = title ?? apiError?.problem.title ?? "Something went wrong";
   // Only ApiError text is meant for users; any other Error message is an internal detail.
-  const message = apiError?.problem.detail ?? GENERIC_MESSAGE;
+  const message = messageOverride ?? apiError?.problem.detail ?? GENERIC_MESSAGE;
   const traceId = apiError?.traceId;
 
   return (
@@ -40,13 +47,14 @@ export function ErrorState({
         <Heading>{heading}</Heading>
       </div>
       <p className="text-sm">{message}</p>
+      {children}
       {traceId ? (
         <p className="text-sm text-muted-foreground">
           Reference: <code className="font-mono text-foreground">{traceId}</code>
         </p>
       ) : null}
       {onRetry ? (
-        <Button variant="outline" size="sm" onClick={onRetry}>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           Try again
         </Button>
       ) : null}

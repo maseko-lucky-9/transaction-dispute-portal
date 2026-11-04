@@ -11,3 +11,10 @@ declare module "@tanstack/react-router" {
     router: ReturnType<typeof createAppRouter>;
   }
 }
+
+declare module "@tanstack/history" {
+  /** One-shot messages carried in history state (never in the URL, so a reload clears them). */
+  interface HistoryState {
+    disputeSubmitted?: boolean;
+  }
+}

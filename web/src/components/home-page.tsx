@@ -59,6 +59,20 @@ export function HomePage() {
             </Card>
           </li>
           <li>
+            <Card className="h-full transition-colors focus-within:ring-[3px] focus-within:ring-ring/50 hover:bg-accent/50">
+              <CardHeader>
+                <CardTitle as="h2" className="text-base">
+                  <Link to="/disputes" className="underline-offset-4 outline-none hover:underline">
+                    My disputes
+                  </Link>
+                </CardTitle>
+                <CardDescription>
+                  Follow your disputes and withdraw one if you need to.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </li>
+          <li>
             <Card className="h-full">
               <CardHeader>
                 <CardTitle as="h2" className="text-base">

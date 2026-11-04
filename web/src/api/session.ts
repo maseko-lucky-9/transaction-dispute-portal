@@ -1,5 +1,5 @@
 import { queryOptions, useQuery, type QueryClient } from "@tanstack/react-query";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 import { isSameOriginUrl, navigate } from "@/lib/navigation";
 

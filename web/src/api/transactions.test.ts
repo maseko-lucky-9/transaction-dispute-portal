@@ -11,12 +11,8 @@ import { makeTransaction, makeTransactions } from "@/test/transactions";
 
 import { ApiError } from "./problem";
 import type { components } from "./schema";
-import {
-  fetchTransactionPage,
-  flattenPages,
-  transactionsInfiniteOptions,
-  transactionsKey,
-} from "./transactions";
+import { flattenPages } from "./paging";
+import { fetchTransactionPage, transactionsInfiniteOptions, transactionsKey } from "./transactions";
 
 function captureRequest() {
   const seen: Request[] = [];

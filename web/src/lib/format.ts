@@ -67,3 +67,15 @@ export function formatDate(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : dateFormat.format(date);
 }
+
+const dateTimeFormat = new Intl.DateTimeFormat(LOCALE, {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "UTC",
+});
+
+/** "4 Nov 2026, 09:00 UTC": a timeline needs the time, and it must say which clock it is. */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : `${dateTimeFormat.format(date)} UTC`;
+}

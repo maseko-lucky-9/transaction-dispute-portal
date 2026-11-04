@@ -18,7 +18,11 @@ export function signedOut() {
 }
 
 /** An RFC 9457 response as the API sends it. */
-export function problem(status: number, body: ProblemDetails = {}) {
+export function problem(
+  status: number,
+  body: ProblemDetails = {},
+  headers: Record<string, string> = {},
+) {
   return HttpResponse.json(
     {
       type: "about:blank",
@@ -30,6 +34,6 @@ export function problem(status: number, body: ProblemDetails = {}) {
       traceId: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       ...body,
     },
-    { status, headers: { "Content-Type": "application/problem+json" } },
+    { status, headers: { "Content-Type": "application/problem+json", ...headers } },
   );
 }
