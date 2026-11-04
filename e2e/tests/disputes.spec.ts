@@ -279,6 +279,8 @@ test('malformed dispute requests are 400/404 problem documents, never 500', asyn
     ['NUL in description', { ...ok, description: 'abcdefghij\u0000k' }, 400],
     ['NUL in reasonCode', { ...ok, reasonCode: 'x\u0000' }, 400],
     // The same card number, written the ways people paste it, is still a card number.
+    // The scan limit is on the raw text, the stored text is trimmed: padding must not slip a number past the scan.
+    ['card, padded past the scan limit', { ...ok, description: ' '.repeat(10_001) + 'paid with 4111111111111111 twice' }, 400, 'sensitive_data'],
     ['card, double spaces', { ...ok, description: 'paid with 4111  1111  1111  1111 twice' }, 400, 'sensitive_data'],
   ];
   const wrong: string[] = [];

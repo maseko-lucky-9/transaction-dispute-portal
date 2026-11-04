@@ -81,6 +81,25 @@ public sealed class CreateDisputeRequestValidatorTests
         Assert.Equal(new ProblemCode(SensitiveNumberDetector.Code), failure.CustomState);
     }
 
+    // What is checked must be what is stored: the command stores Description.Trim(), and the length rule counts the
+    // trimmed text. Padding must not push a plain card number past the scan (the scan limit is on the untrimmed text).
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(5_000, 0)]
+    [InlineData(0, 5_000)]
+    [InlineData(SensitiveNumberDetector.MaxScanLength, 0)]
+    [InlineData(SensitiveNumberDetector.MaxScanLength + 1, 0)]
+    [InlineData(20_000, 20_000)]
+    public async Task APaddedCardNumberIsStillSensitiveData(int leading, int trailing)
+    {
+        string description = new string(' ', leading) + "My card 4111 1111 1111 1111 was charged twice" + new string('\t', trailing);
+
+        ValidationResult result = await ValidateAsync(Valid() with { Description = description });
+
+        ValidationFailure failure = Assert.Single(result.Errors);
+        Assert.Equal(new ProblemCode(SensitiveNumberDetector.Code), failure.CustomState);
+    }
+
     private static CreateDisputeRequest Valid() => new(Id, TransactionId, Known, "Charged twice for one order.", null);
 
     private Task<ValidationResult> ValidateAsync(CreateDisputeRequest request) => validator.ValidateAsync(request);

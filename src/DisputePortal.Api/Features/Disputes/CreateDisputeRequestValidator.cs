@@ -31,9 +31,11 @@ public sealed partial class CreateDisputeRequestValidator : AbstractValidator<Cr
         RuleFor(request => request.Description).Must(description => !SensitiveNumberDetector.ContainsInvalidCharacters(description))
             .WithMessage(InvalidCharactersMessage("description"))
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.InvalidCharactersCode));
+        // Scan what is stored (the command stores Description.Trim()), never the raw text: the scan limit must not be
+        // reachable by padding. Over-long text is skipped only because the length rule above already refuses it.
         RuleFor(request => request.Description)
-            .Must(description => !SensitiveNumberDetector.ContainsSensitiveNumber(description))
-            .When(request => request.Description is { Length: <= SensitiveNumberDetector.MaxScanLength }
+            .Must(description => !SensitiveNumberDetector.ContainsSensitiveNumber(description!.Trim()))
+            .When(request => request.Description?.Trim() is { Length: <= Dispute.DescriptionMaxLength }
                 && !SensitiveNumberDetector.ContainsInvalidCharacters(request.Description))
             .WithMessage("description must not contain a card or ID number; describe the problem without it.")
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.Code));
