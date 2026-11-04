@@ -14,27 +14,27 @@ Format: `[ID] [P?] [Story] description`. Tasks within a PR run in order unless m
 
 ## PR2 — Spec and design
 - [x] T010 Constitution, spec, plan, tasks, ADR-001..010
-- [ ] T011 System-design document (tech-neutral) and neutrality gate
+- [x] T011 System-design document (tech-neutral) and neutrality gate
 
 ## PR3 — Transactions (US1)
-- [ ] T020 `customer_id` denormalisation, indexes, Owner filter + architecture test
-- [ ] T021 Seeder (relative dates), roles/grants migration
-- [ ] T022 GET /transactions (keyset, protected cursor) + GET /transactions/{id}
-- [ ] T023 EXPLAIN test: index scan, no sort
-- [ ] T024 [P] Transactions page with zod `validateSearch`
+- [x] T020 `customer_id` denormalisation, indexes, Owner filter + architecture test
+- [x] T021 Seeder (relative dates), roles/grants migration
+- [x] T022 GET /transactions (keyset, protected cursor) + GET /transactions/{id}
+- [x] T023 EXPLAIN test: index scan, no sort
+- [x] T024 [P] Transactions page with zod `validateSearch`
 
 ## PR4 — Disputes (US2, US3, US4)
-- [ ] T030 Dispute aggregate, transition table, eligibility chain (unit tests incl. 119/120/121 days)
-- [ ] T031 Repositories, UoW, idempotent POST /disputes, GET list/detail with ETag
-- [ ] T032 Withdraw with If-Match; DB-stamped audit
-- [ ] T033 Concurrency tests (23505 raw SQL, barrier interleaving)
-- [ ] T034 Luhn/SA-ID detector (server) + `validation-cases.json` parity
-- [ ] T035 [P] Dispute form (react-hook-form + zod), history, detail
+- [x] T030 Dispute aggregate, transition table, eligibility chain (unit tests incl. 119/120/121 days)
+- [x] T031 Repositories, UoW, idempotent POST /disputes, GET list/detail with ETag
+- [x] T032 Withdraw with If-Match; DB-stamped audit
+- [x] T033 Concurrency tests (23505 raw SQL, barrier interleaving)
+- [x] T034 Luhn/SA-ID detector (server) + `validation-cases.json` parity
+- [x] T035 [P] Dispute form (react-hook-form + zod), history, detail
 
 ## PR5 — Agent (US5)
-- [ ] T040 Agent queue/detail/transitions, segregation of duties, view logging
-- [ ] T040a Free-text rule on the agent's resolution note: same invalid_characters + sensitive_data checks as the description (scan the trimmed text that is stored), same shared validation-cases.json, same 2000 limit (PR4 review N7: `Dispute.Transition(note)` has no check today)
-- [ ] T041 [P] Agent UI
+- [x] T040 Agent queue/detail/transitions, segregation of duties, view logging
+- [x] T040a Free-text rule on the agent's resolution note: same invalid_characters + sensitive_data checks as the description (scan the trimmed text that is stored), same shared validation-cases.json, same 2000 limit (PR4 review N7: `Dispute.Transition(note)` has no check today)
+- [x] T041 [P] Agent UI
 
 ## PR6 — Ops hardening
 - [ ] T050 OTel + security events, rate limits, CSP/header/cookie tests, GHCR publish
