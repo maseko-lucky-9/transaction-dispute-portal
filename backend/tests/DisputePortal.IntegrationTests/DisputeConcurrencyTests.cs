@@ -151,6 +151,25 @@ public sealed class DisputeConcurrencyTests(ApiFactory api)
         Assert.Equal(1, await AdminSql.CountAsync(api.AdminConnectionString, "SELECT count(*) FROM dispute_status_changes WHERE dispute_id = @id", ("id", id)));
     }
 
+    // A transient failure before the COMMIT: the strategy runs the whole attempt again (lock, reads, insert) from a clean
+    // change tracker, so the retry neither trips over the failed attempt's entities nor turns into a 503.
+    [Fact]
+    public async Task ATransientFailureBeforeTheCommitRunsTheWholeSubmitAgainAndCreatesTheDisputeOnce()
+    {
+        (_, Guid transactionId, BrowserSession session) = await EligibleAsync();
+        TransientInsertFailure failure = new();
+        await using WebApplicationFactory<Program> flaky = api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.ConfigureDbContext<DisputePortalDbContext>(options => options.AddInterceptors(failure))));
+        Guid id = Guid.NewGuid();
+        failure.Arm();
+
+        HttpResponseMessage response = await SendAsync(flaky, DisputeRequests.Submit(session, id, transactionId));
+
+        Assert.Equal(1, failure.Fired);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(1, await AdminSql.CountAsync(api.AdminConnectionString, "SELECT count(*) FROM dispute_status_changes WHERE dispute_id = @id", ("id", id)));
+    }
+
     // Outside a transaction pg_advisory_xact_lock is released when its statement ends: refused rather than silently useless.
     [Fact]
     public async Task TheCustomerLockRefusesToRunOutsideATransaction()

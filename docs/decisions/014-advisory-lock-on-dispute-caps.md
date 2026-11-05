@@ -34,12 +34,13 @@ and lock the contended resource, here the customer.
   (`DatabasePrivilegeTests`); SERIALIZABLE adds a retry loop and false-positive aborts.
 
 ## Consequences
-- A customer's submits are serialised for a few milliseconds each; different customers never wait for each other. A
-  lock wait is bounded by the 10 s command timeout, like any other statement.
+- A customer's submits are serialised: each waits for the previous one's transaction to end. Different customers never
+  wait for each other. A lock wait is bounded by the 10 s command timeout, like any other statement.
 - The unique indexes stay as the backstop: the primary key for idempotency and foreign ids, the partial index for one
   active dispute per transaction.
 - Withdrawals and agent transitions take no lock: they never raise either count.
 - The per-transaction cap could only be passed with a withdraw landing inside another submit's read-to-insert window;
   both caps are judged on one read under the same lock, so that window is closed too.
 - Proof: `DisputeConcurrencyTests` gates each racer after its counts until the others are queued on the lock
-  (`AdvisoryLockRendezvous` polls `pg_locks`). Without the lock all eight parallel submits at 19 are created.
+  (`AdvisoryLockRendezvous` polls `pg_locks`). Without the lock, or under REPEATABLE READ, all eight parallel submits
+  at 19 are created. A transient failure before the commit runs the whole attempt again and creates the dispute once.

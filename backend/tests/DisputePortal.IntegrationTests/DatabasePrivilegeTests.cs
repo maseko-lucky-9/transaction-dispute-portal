@@ -15,6 +15,8 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
     [InlineData("INSERT INTO customers (id, keycloak_subject, display_name) VALUES (gen_random_uuid(), 'intruder', 'Intruder')")]
     [InlineData("UPDATE customers SET display_name = 'Changed'")]
     [InlineData("DELETE FROM customers")]
+    // Nor lock a customer row: FOR UPDATE needs UPDATE, which is why the customer lock is an advisory one (ADR-014).
+    [InlineData("SELECT id FROM customers LIMIT 1 FOR UPDATE")]
     [InlineData("UPDATE data_protection_keys SET xml = NULL")]
     [InlineData("DELETE FROM data_protection_keys")]
     [InlineData("SELECT count(*) FROM \"__EFMigrationsHistory\"")]
