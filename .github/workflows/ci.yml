@@ -4,6 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      half:
+        description: "Image to publish (dry run unless dry_run is false, and only from main)"
+        type: choice
+        options: [both, api, web]
+        default: both
+      dry_run:
+        description: "Print what would be pushed; push nothing"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -17,6 +28,67 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
+  changes:
+    # ADR-012: decides which half a change touches, so each half builds and publishes on its own. One workflow keeps
+    # `ci-ok` the single required check; a skipped job passes it. Any trouble computing the diff turns everything on.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      backend: ${{ steps.paths.outputs.backend }}
+      frontend: ${{ steps.paths.outputs.frontend }}
+      stack: ${{ steps.paths.outputs.stack }}
+      halves: ${{ steps.paths.outputs.halves }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: the classifier's table test
+        run: scripts/test-changed-paths.sh
+      - name: classify the change
+        id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HALF: ${{ inputs.half }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files=ALL
+          case "$EVENT" in
+            pull_request)
+              files=$(scripts/changed-files.sh "origin/${BASE_REF}...HEAD") || files=ALL ;;
+            push)
+              # Diff against the last commit whose `ci` run on main SUCCEEDED, not against `event.before`: a run that
+              # failed, or a queued run GitHub replaced with a newer one, never published its images, and its
+              # changes must not be lost to the next push. No such run, or one that is not an ancestor, means ALL.
+              base=$(gh run list --workflow ci.yml --branch main --event push --status success --limit 1 --json headSha --jq '.[0].headSha // empty' 2>/dev/null || true)
+              if [ -n "$base" ] && git merge-base --is-ancestor "$base" "$GITHUB_SHA" 2>/dev/null; then
+                echo "last successful run on main: $base"
+                files=$(scripts/changed-files.sh "$base" "$GITHUB_SHA") || files=ALL
+              fi ;;
+          esac
+          # A prefix that is not whitespace: the runner ignores leading whitespace before a `::` workflow command.
+          echo "changed paths ($EVENT):"; printf '%s\n' "$files" | sed 's/^/changed: /'
+          result=$(printf '%s\n' "$files" | scripts/changed-paths.sh)
+          if [ "$EVENT" = workflow_dispatch ]; then
+            # A manual run builds and verifies both halves; the input only picks what to publish.
+            result=$(printf 'ALL\n' | scripts/changed-paths.sh | grep -v -E '^(api|web)=')
+            case "$HALF" in
+              api)  result="$result"$'\n'"api=true"$'\n'"web=false" ;;
+              web)  result="$result"$'\n'"api=false"$'\n'"web=true" ;;
+              *)    result="$result"$'\n'"api=true"$'\n'"web=true" ;;
+            esac
+          fi
+          echo "$result"
+          api=$(printf '%s\n' "$result" | sed -n 's/^api=//p')
+          web=$(printf '%s\n' "$result" | sed -n 's/^web=//p')
+          halves=$(jq -nc --argjson a "$api" --argjson w "$web" '[(if $a then "api" else empty end), (if $w then "web" else empty end)]')
+          { printf '%s\n' "$result" | grep -E '^(backend|frontend|stack)='; echo "halves=$halves"; } >> "$GITHUB_OUTPUT"
+
   secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -29,6 +101,8 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 detect --source /repo --config /repo/.gitleaks.toml --no-banner --redact -v
 
   backend:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -60,6 +134,8 @@ jobs:
     # Mutation testing of the pure domain, report only (the score goes in the README). It never blocks: the job passes
     # whatever Stryker does (continue-on-error) and it is deliberately not in ci-ok's `needs`, so neither its failure
     # nor its absence can change the required check.
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
@@ -87,6 +163,8 @@ jobs:
           retention-days: 14
 
   frontend:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -115,6 +193,10 @@ jobs:
       - run: npm audit --audit-level=high
 
   images:
+    # Both images are built and scanned whenever the stack is touched: the E2E needs both, and the layer cache keeps the
+    # untouched one cheap. What gets published is decided separately, per half (see `publish`).
+    needs: [changes]
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -152,7 +234,8 @@ jobs:
           retention-days: 1
 
   e2e:
-    needs: [images]
+    needs: [changes, images]
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -189,11 +272,24 @@ jobs:
           retention-days: 3
 
   publish:
-    # Pushes the exact images that were scanned (Trivy) and exercised (E2E): no rebuild, so no drift.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [secrets, backend, frontend, images, e2e]
+    # One leg per half whose image content changed (the `halves` output of `changes`), so a backend change publishes
+    # only the api image and a frontend change only the web image. Each leg pushes the exact image that was scanned
+    # (Trivy) and exercised (E2E): no rebuild, so no drift. It needs `ci-ok`, which passes on skipped jobs. A manual
+    # run is a dry run (it prints what it would push) unless dry_run is false, and it only pushes from main.
+    # `!cancelled()` and the explicit results replace the implicit success(), which is false whenever ANY job upstream
+    # was skipped (a half the change did not touch), and would silently skip every single-half publish.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.images.result == 'success' && needs.ci-ok.result == 'success' && needs.changes.outputs.halves != '[]' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: [changes, images, ci-ok]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        half: ${{ fromJSON(needs.changes.outputs.halves) }}
+    env:
+      HALF: ${{ matrix.half }}
+      EVENT_NAME: ${{ github.event_name }}
+      DO_PUSH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && github.ref == 'refs/heads/main') }}
     permissions:
       contents: read
       packages: write
@@ -204,56 +300,59 @@ jobs:
         with:
           name: images
       - run: docker load -i images.tar
+      - name: what this leg publishes
+        run: echo "dispute-portal-${HALF}:${GITHUB_SHA} (push=${DO_PUSH}, event=${EVENT_NAME})"
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        if: env.DO_PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: push api and web (sha + latest)
+      - name: push the image (sha + latest)
         id: push
+        if: env.DO_PUSH == 'true'
         run: |
-          for name in api web; do
-            local_tag="dispute-portal-${name}:local"
-            remote="ghcr.io/maseko-lucky-9/dispute-portal-${name}"
-            docker tag "$local_tag" "${remote}:${GITHUB_SHA}"
-            docker tag "$local_tag" "${remote}:latest"
-            docker push "${remote}:${GITHUB_SHA}"
-            docker push "${remote}:latest"
-            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${remote}:${GITHUB_SHA}" | cut -d@ -f2)
-            echo "${name}_digest=${digest}" >> "$GITHUB_OUTPUT"
-          done
+          local_tag="dispute-portal-${HALF}:local"
+          remote="ghcr.io/maseko-lucky-9/dispute-portal-${HALF}"
+          docker tag "$local_tag" "${remote}:${GITHUB_SHA}"
+          docker tag "$local_tag" "${remote}:latest"
+          docker push "${remote}:${GITHUB_SHA}"
+          docker push "${remote}:latest"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${remote}:${GITHUB_SHA}" | cut -d@ -f2)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "published ${remote}@${digest}" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: env.DO_PUSH == 'true'
         with:
-          subject-name: ghcr.io/maseko-lucky-9/dispute-portal-api
-          subject-digest: ${{ steps.push.outputs.api_digest }}
+          subject-name: ghcr.io/maseko-lucky-9/dispute-portal-${{ matrix.half }}
+          subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/maseko-lucky-9/dispute-portal-web
-          subject-digest: ${{ steps.push.outputs.web_digest }}
-          push-to-registry: true
-      - name: SBOMs (CycloneDX)
+      - name: SBOM (CycloneDX)
+        if: env.DO_PUSH == 'true'
         run: |
-          for name in api web; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
-              ghcr.io/aquasecurity/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 \
-              image --quiet --format cyclonedx --output "/out/sbom-${name}.cdx.json" "dispute-portal-${name}:local"
-          done
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
+            ghcr.io/aquasecurity/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 \
+            image --quiet --format cyclonedx --output "/out/sbom-${HALF}.cdx.json" "dispute-portal-${HALF}:local"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.DO_PUSH == 'true'
         with:
-          name: sboms
-          path: sbom-*.cdx.json
+          name: sbom-${{ matrix.half }}
+          path: sbom-${{ matrix.half }}.cdx.json
           retention-days: 30
 
   ci-ok:
     if: always()
-    # Not `stryker`: it is report-only (see its job).
-    needs: [secrets, backend, frontend, images, e2e]
+    # Not `stryker`: it is report-only (see its job). Skipped jobs pass (a half the change did not touch); a failed or
+    # cancelled one fails the check, and so does a `changes` job that did not succeed, because a broken classifier
+    # would otherwise read as a green PR full of skips.
+    needs: [changes, secrets, backend, frontend, images, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: aggregate
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHANGES: ${{ needs.changes.result }}
         run: |
           echo "needs results: $RESULTS"
+          if [ "$CHANGES" != success ]; then echo "changes: $CHANGES" >&2; exit 1; fi
           if echo "$RESULTS" | grep -qE 'failure|cancelled'; then exit 1; fi
