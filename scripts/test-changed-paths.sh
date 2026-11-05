@@ -17,6 +17,10 @@ check() {
     echo "changed-paths: '$path' -> '$got', expected '$want'" >&2
     fail=1
   fi
+  # publish downloads the images artifact, which only exists when the stack ran
+  case ",$got," in
+    *,api,*|*,web,*) case ",$got," in *,stack,*) ;; *) echo "changed-paths: '$path' publishes without the stack ('$got')" >&2; fail=1 ;; esac ;;
+  esac
 }
 everything="backend,frontend,stack,api,web"
 verify="backend,frontend,stack"
@@ -55,6 +59,21 @@ check ".github/workflows/release.yml" "$verify"
 check "scripts/changed-paths.sh" "$verify"
 check "scripts/changed-files.sh" "$verify"
 check "scripts/test-changed-paths.sh" "$verify"
+# real files under each rule, so narrowing a pattern is caught
+check "backend/src/DisputePortal.Api/DisputePortal.Api.csproj" "backend,stack,api"
+check "backend/src/DisputePortal.Api/packages.lock.json" "backend,stack,api"
+check "backend/src/My File.cs" "backend,stack,api"
+check "frontend/package.json" "frontend,stack,web"
+check "frontend/vite.config.ts" "frontend,stack,web"
+check "deploy/bootstrap/bootstrap.sh" "stack"
+check "deploy/vault/policies/dispute-api.hcl" "stack"
+check "deploy/postgres/init.sh" "backend,stack"
+check "e2e/playwright.config.ts" "stack"
+check "scripts/check-constraints.sh" "backend"
+# near misses: similar names that must not trigger anything
+check "dockerfile" "$verify"
+check "docs/ALL" ""
+check "frontend.md" ""
 # inert: nothing to build
 check "README.md" ""
 check "docs/runbook.md" ""
@@ -83,6 +102,14 @@ fi
 got=$(printf '' | classify)
 if [ -n "$got" ]; then
   echo "changed-paths: empty diff -> '$got', expected nothing" >&2
+  fail=1
+fi
+
+# the output contract: all five lines, true or false, and a zero exit
+out=$(printf 'README.md\n' | scripts/changed-paths.sh); rc=$?
+want_out=$(printf 'backend=false\nfrontend=false\nstack=false\napi=false\nweb=false')
+if [ "$rc" != 0 ] || [ "$out" != "$want_out" ]; then
+  echo "changed-paths: output contract broken (rc=$rc): $out" >&2
   fail=1
 fi
 
