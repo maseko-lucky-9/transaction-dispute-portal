@@ -7,6 +7,7 @@ using DisputePortal.Api.Shared.OpenApi;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Template;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DisputePortal.IntegrationTests;
@@ -111,6 +112,7 @@ public sealed class EndpointOutageTests(ApiFactory api)
     {
         OutageRoute route = Table.Single(candidate => candidate.Method == method && candidate.Pattern == pattern);
         using HttpRequestMessage request = await route.Request(api);
+        AssertTheRequestIsForTheRow(route, request);
         await using WebApplicationFactory<Program> offline = api.WithUnreachableDatabase();
 
         using HttpResponseMessage response = await AgentApi.SendAsync(offline, request);
@@ -125,6 +127,23 @@ public sealed class EndpointOutageTests(ApiFactory api)
         if (route.Verify is not null)
         {
             await route.Verify(response);
+        }
+    }
+
+    // The enumeration test compares the table's patterns with the mapped ones; this ties each row's request to its own pattern,
+    // so a row cannot name one route and send another (any customer route answers 503, so a copy-paste slip would stay green).
+    private static void AssertTheRequestIsForTheRow(OutageRoute route, HttpRequestMessage request)
+    {
+        Uri uri = request.RequestUri ?? throw new InvalidOperationException($"{route.Method} {route.Pattern}: the row built a request without a URI.");
+        string path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString.Split('?')[0];
+        TemplateMatcher matcher = new(TemplateParser.Parse(route.Pattern.Trim('/')), new RouteValueDictionary());
+
+        Assert.True(
+            matcher.TryMatch(new PathString("/" + path.Trim('/')), new RouteValueDictionary()),
+            $"{route.Method} {route.Pattern}: the row sends {path}, which is not that route.");
+        if (route.Method != AnyMethod)
+        {
+            Assert.True(route.Method == request.Method.Method, $"{route.Method} {route.Pattern}: the row sends a {request.Method.Method}.");
         }
     }
 

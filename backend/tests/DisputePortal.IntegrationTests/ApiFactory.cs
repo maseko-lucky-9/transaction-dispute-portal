@@ -133,12 +133,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             builder.ConfigureTestServices(services =>
                 services.ConfigureDbContext<DisputePortalDbContext>(options => options.UseNpgsql(npgsql => npgsql.EnableRetryOnFailure(0))));
         });
-        // Touching Services starts the host, which passes the startup gate through the relay.
-        offline.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("warm-up").Protect([0]);
-        relay.Cut();
-        // Idle connections opened through the relay are dead; drop them so every query meets the closed port.
-        offline.Services.GetRequiredService<NpgsqlDataSource>().Clear();
-        return offline;
+        try
+        {
+            // Touching Services starts the host, which passes the startup gate through the relay.
+            offline.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("warm-up").Protect([0]);
+            relay.Cut();
+            // Idle connections opened through the relay are dead; drop them so every query meets the closed port.
+            offline.Services.GetRequiredService<NpgsqlDataSource>().Clear();
+            return offline;
+        }
+        catch
+        {
+            // A half-built host would leak its data source and Redis connection.
+            offline.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
