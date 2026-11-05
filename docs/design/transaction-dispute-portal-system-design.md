@@ -1,5 +1,7 @@
 # Transactions Dispute Portal — System Design
 
+> Path map (ADR-012): this document predates the folder split. Read `src/` as `backend/src/`, `tests/` as `backend/tests/` and `web/` as `frontend/`.
+
 > Technology-neutral blueprint: components and technology *categories* with trade-offs, no code. Concrete choices
 > and their rationale are recorded as architecture decision records in [decisions/](../decisions/). Capacity figures
 > are assumptions; every scaling decision cites the figure that motivates it.

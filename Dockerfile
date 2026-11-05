@@ -8,18 +8,18 @@ FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a
 WORKDIR /src
 # Restore on its own layer so a source-only change reuses the cached packages.
 COPY global.json Directory.Build.props .editorconfig ./
-COPY src/DisputePortal.Domain/DisputePortal.Domain.csproj src/DisputePortal.Domain/packages.lock.json src/DisputePortal.Domain/
-COPY src/DisputePortal.Api/DisputePortal.Api.csproj src/DisputePortal.Api/packages.lock.json src/DisputePortal.Api/
-RUN dotnet restore src/DisputePortal.Api/DisputePortal.Api.csproj --locked-mode
-COPY src/ src/
-RUN dotnet publish src/DisputePortal.Api/DisputePortal.Api.csproj -c Release \
+COPY backend/src/DisputePortal.Domain/DisputePortal.Domain.csproj backend/src/DisputePortal.Domain/packages.lock.json backend/src/DisputePortal.Domain/
+COPY backend/src/DisputePortal.Api/DisputePortal.Api.csproj backend/src/DisputePortal.Api/packages.lock.json backend/src/DisputePortal.Api/
+RUN dotnet restore backend/src/DisputePortal.Api/DisputePortal.Api.csproj --locked-mode
+COPY backend/src/ backend/src/
+RUN dotnet publish backend/src/DisputePortal.Api/DisputePortal.Api.csproj -c Release \
     --no-restore -p:UseAppHost=false -o /app/publish
 
 FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS web-build
 WORKDIR /web
-COPY web/package.json web/package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY web/ ./
+COPY frontend/ ./
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e AS web
@@ -27,8 +27,8 @@ FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c68
 USER root
 RUN apk upgrade --no-cache
 USER nginx
-COPY web/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY web/nginx/security-headers.conf web/nginx/csp-app.conf web/nginx/csp-deny.conf /etc/nginx/
+COPY frontend/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx/security-headers.conf frontend/nginx/csp-app.conf frontend/nginx/csp-deny.conf /etc/nginx/
 COPY --from=web-build /web/dist /usr/share/nginx/html
 EXPOSE 8080 8180
 

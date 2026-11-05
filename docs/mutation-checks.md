@@ -1,5 +1,7 @@
 # Manual mutation checks
 
+> Path map (ADR-012): this document predates the folder split. Read `src/` as `backend/src/`, `tests/` as `backend/tests/` and `web/` as `frontend/`.
+
 Short version: for each guard the plan names (the 120-day window, the Owner filter, `If-Match`) and for a few more
 (sensitive-data check, CSRF, the unique-violation path, optimistic concurrency), I broke the code on purpose, ran the
 unit and integration suites, and recorded which tests went red. Every mutation was temporary: applied, tested,

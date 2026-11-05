@@ -9,7 +9,7 @@ there is none ([ADR-009](decisions/009-local-and-ci-deploy.md)): the stack runs 
 | Component | Compose service | Network | Notes |
 |---|---|---|---|
 | nginx (SPA, `/api`, `/bff`, Keycloak origin) | `web` | edge, app | Only published container. Ports `127.0.0.1:${APP_PORT:-8080}` and `127.0.0.1:${AUTH_PORT:-8180}`. JSON access log on stdout with `request_id` |
-| API (.NET 10) | `api` | app, data (alias `api-mgmt`) | Stateless; an unpublished management port 8081 serves health (`/health/live`, `/health/ready`; `src/DisputePortal.Api/Shared/Health/ManagementSettings.cs`) and Keycloak's back-channel logout (`POST /bff/backchannel-logout`, only as `api-mgmt` from the data network; [ADR-011](decisions/011-backchannel-logout.md)). Readiness checks Postgres and Redis |
+| API (.NET 10) | `api` | app, data (alias `api-mgmt`) | Stateless; an unpublished management port 8081 serves health (`/health/live`, `/health/ready`; `backend/src/DisputePortal.Api/Shared/Health/ManagementSettings.cs`) and Keycloak's back-channel logout (`POST /bff/backchannel-logout`, only as `api-mgmt` from the data network; [ADR-011](decisions/011-backchannel-logout.md)). Readiness checks Postgres and Redis |
 | Migrate job | `migrate` | data | Same image with `--migrate`; uses the `dispute-migrate` AppRole (schema owner) |
 | Postgres 17 | `postgres` | data | Volume `pgdata`. Holds the app database `disputes`, the `keycloak` database and the DataProtection keys |
 | Redis 8 | `redis` | data | Volume `redisdata`, AOF, `noeviction`, ACL user `dispute_api` limited to `~bff:*`. Holds encrypted session tickets (`bff:ticket:*`), the Keycloak-session index (`bff:sid:<sha256 of sid>`, ticket ids only), refresh locks and used logout-token ids (`bff:logout-jti:*`, hashed, 3-minute TTL) only |
@@ -35,7 +35,7 @@ command timeout 10 s (`Shared/Persistence/DatabaseSettings.cs`, `PersistenceRegi
 
 ## 3. Telemetry: names exactly as in code
 
-Custom meters (source: `src/DisputePortal.Api/Shared/Observability/`):
+Custom meters (source: `backend/src/DisputePortal.Api/Shared/Observability/`):
 
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|

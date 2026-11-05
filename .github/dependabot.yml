@@ -8,7 +8,7 @@ updates:
     groups: { nuget: { update-types: [minor, patch] } }
     ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: npm
-    directory: /web
+    directory: /frontend
     schedule: { interval: weekly }
     groups: { web: { update-types: [minor, patch] } }
     ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]

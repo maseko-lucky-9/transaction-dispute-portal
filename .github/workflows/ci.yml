@@ -71,19 +71,19 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet tool restore
-      - name: Stryker.NET on DisputePortal.Domain (tests/DisputePortal.UnitTests/stryker-config.json)
-        working-directory: tests/DisputePortal.UnitTests
+      - name: Stryker.NET on DisputePortal.Domain (backend/tests/DisputePortal.UnitTests/stryker-config.json)
+        working-directory: backend/tests/DisputePortal.UnitTests
         run: |
           set -o pipefail
           dotnet tool run dotnet-stryker 2>&1 | tee stryker.log
       - name: mutation score in the job summary
         if: always()
-        run: grep -h 'final mutation score' tests/DisputePortal.UnitTests/stryker.log >> "$GITHUB_STEP_SUMMARY" || true
+        run: grep -h 'final mutation score' backend/tests/DisputePortal.UnitTests/stryker.log >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: stryker-report
-          path: tests/DisputePortal.UnitTests/StrykerOutput
+          path: backend/tests/DisputePortal.UnitTests/StrykerOutput
           retention-days: 14
 
   frontend:
@@ -91,7 +91,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: web
+        working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,7 +100,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npm run typecheck
