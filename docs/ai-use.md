@@ -17,7 +17,7 @@ and what is not.
   thread. The repository itself does not record which sub-agent wrote which file. [UNVERIFIED per file]
 - **Review.** The plan requires a `code-reviewer` on every PR and says the author never approves its own work; the
   security-auditor was to review PR1 and PR4. Some test comments cite reviewer findings (for example
-  `tests/DisputePortal.IntegrationTests/AuthHardeningTests.cs`: "Gaps the independent test review found by mutation
+  `backend/tests/DisputePortal.IntegrationTests/AuthHardeningTests.cs`: "Gaps the independent test review found by mutation
   (PR #1)"; `specs/001-transaction-disputes/tasks.md` T040a: "PR4 review N7"). The review reports themselves are not in
   the repository, so the review outcomes cannot be audited from here. [UNVERIFIED]
 - **This document set.** The README evidence tables, runbook, threat model and this file were drafted by a Claude Code

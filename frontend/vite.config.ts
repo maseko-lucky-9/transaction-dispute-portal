@@ -10,7 +10,7 @@ const apiTarget = process.env["DISPUTE_API_URL"] ?? "http://localhost:8080";
 
 // The committed OpenAPI snapshot, handed to the contract test as plain data (see
 // src/api/contract.test.ts). Read here, in Node, so the browser code and the dev server never
-// touch files outside web/. Null in a web-only checkout, which skips that test.
+// touch files outside frontend/. Null in a frontend-only checkout, which skips that test.
 const openApiPath = fileURLToPath(new URL("../docs/openapi.json", import.meta.url));
 const openApiSpec = existsSync(openApiPath) ? readFileSync(openApiPath, "utf8") : null;
 

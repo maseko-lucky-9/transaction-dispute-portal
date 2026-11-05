@@ -22,10 +22,10 @@ common=(
   "/p:ExcludeByFile=**/Migrations/**/*.cs"
 )
 
-dotnet test tests/DisputePortal.UnitTests "${common[@]}" \
+dotnet test backend/tests/DisputePortal.UnitTests "${common[@]}" \
   /p:CoverletOutputFormat=json "/p:CoverletOutput=$OUT/unit/"
 
-dotnet test tests/DisputePortal.IntegrationTests "${common[@]}" \
+dotnet test backend/tests/DisputePortal.IntegrationTests "${common[@]}" \
   "/p:MergeWith=$OUT/unit/coverage.json" \
   /p:CoverletOutputFormat=cobertura "/p:CoverletOutput=$OUT/" \
   "/p:Threshold=$MIN_LINE_COVERAGE" /p:ThresholdType=line /p:ThresholdStat=total

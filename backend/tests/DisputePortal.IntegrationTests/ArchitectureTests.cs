@@ -18,6 +18,15 @@ public sealed partial class ArchitectureTests
     // A connection or command of its own skips EF, and the filter with it; the migration runner and the health check need one.
     private static readonly string[] DirectNpgsqlAllowedIn = [PersistenceFolder, HealthFolder, AgentFeature];
 
+    // Guards the guards: every rule below scans ApiSources(), which would pass on nothing if the scan read an empty
+    // or wrongly rebased folder (the folder split of ADR-012 is the way that can happen).
+    [Theory]
+    [InlineData(AgentFeature)]
+    [InlineData(PersistenceFolder)]
+    [InlineData(HealthFolder)]
+    public void TheScanSeesSourcesInEveryAllowListedFolder(string folder) =>
+        Assert.Contains(RepositoryFiles.ApiSources(), file => file.Path.StartsWith(folder, StringComparison.Ordinal));
+
     [Fact]
     public void OnlyTheAgentFeatureMayBypassQueryFilters()
     {

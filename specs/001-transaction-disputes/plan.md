@@ -1,5 +1,7 @@
 # Implementation Plan: Transaction Disputes
 
+> Path map (ADR-012): this document predates the folder split. Read `src/` as `backend/src/`, `tests/` as `backend/tests/` and `web/` as `frontend/`.
+
 **Spec**: [spec.md](spec.md) · **Constitution check**: pass (see below) · **Authoritative detail**: `docs/design/transaction-dispute-portal-system-design.md` and `docs/decisions/`.
 
 ## Technical context

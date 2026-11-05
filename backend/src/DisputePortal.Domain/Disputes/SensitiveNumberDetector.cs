@@ -6,7 +6,7 @@ namespace DisputePortal.Domain.Disputes;
 
 /// <summary>
 /// The free-text rules a dispute description must pass, identical on the web form
-/// (web/src/lib/validation-cases.json is the shared contract):
+/// (frontend/src/lib/validation-cases.json is the shared contract):
 /// <list type="number">
 /// <item><b>invalid_characters</b>: any control character (Unicode Cc) other than tab, line feed and carriage return.
 /// Checked first; a NUL would otherwise reach PostgreSQL, which refuses it.</item>

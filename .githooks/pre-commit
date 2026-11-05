@@ -5,9 +5,9 @@ if command -v gitleaks >/dev/null 2>&1; then gitleaks protect --staged --no-bann
 if [ -f DisputePortal.slnx ]; then
   dotnet format whitespace DisputePortal.slnx --verify-no-changes
   dotnet build DisputePortal.slnx --nologo -v q
-  [ -d tests/DisputePortal.UnitTests ] && dotnet test tests/DisputePortal.UnitTests --no-build --nologo -v q
+  [ -d backend/tests/DisputePortal.UnitTests ] && dotnet test backend/tests/DisputePortal.UnitTests --no-build --nologo -v q
 fi
 scripts/check-constraints.sh
-if git diff --cached --name-only | grep -q '^web/' && [ -d web/node_modules ]; then
-  npm --prefix web run lint && npm --prefix web run typecheck
+if git diff --cached --name-only | grep -q '^frontend/' && [ -d frontend/node_modules ]; then
+  npm --prefix frontend run lint && npm --prefix frontend run typecheck
 fi
