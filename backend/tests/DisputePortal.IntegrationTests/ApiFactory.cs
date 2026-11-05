@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using DisputePortal.Api.Shared.Eligibility;
+using DisputePortal.Api.Shared.OpenApi;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -89,6 +90,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // As compose: Keycloak reaches the management port under this name, from the data network (ADR-011).
         builder.UseSetting("Ports:InternalHost", InternalHost);
         builder.UseSetting("Ports:InternalNetwork", InternalNetwork);
+        // Off by default everywhere, so the suite that reads the document turns it on; SwaggerUiTests derives hosts without it.
+        builder.UseSetting(ApiDocumentation.EnabledSetting, "true");
         builder.ConfigureTestServices(services =>
         {
             // The real OIDC handler, with metadata supplied in memory and the back channel answered by the fake.

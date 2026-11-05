@@ -1,4 +1,5 @@
 using DisputePortal.Api.Shared.Health;
+using DisputePortal.Api.Shared.OpenApi;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Http;
 
@@ -48,5 +49,26 @@ public sealed class CsrfRuleTests
         }
 
         Assert.Equal(exempt, CsrfMiddleware.IsManagementPortEndpoint(context, ManagementPort));
+    }
+
+    // A browser cannot send the header on a page load, so the Swagger UI and the document are exempt for reads, and only
+    // when the routed endpoint carries the documentation marker: an unmarked /api/swagger path (UI switched off) is not.
+    [Theory]
+    [InlineData("GET", true, true)]
+    [InlineData("HEAD", true, true)]
+    [InlineData("POST", true, false)]
+    [InlineData("DELETE", true, false)]
+    [InlineData("GET", false, false)]
+    public void OnlyAReadOfAMarkedDocumentationEndpointIsExempt(string method, bool marked, bool exempt)
+    {
+        DefaultHttpContext context = new();
+        context.Request.Method = method;
+        context.Request.Path = "/api/swagger/index.html";
+        if (marked)
+        {
+            context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(ApiDocumentationEndpoint.Instance), "swagger"));
+        }
+
+        Assert.Equal(exempt, CsrfMiddleware.IsApiDocumentationRead(context));
     }
 }

@@ -158,6 +158,8 @@ services:
       Ports__InternalHost: api-mgmt
       Ports__InternalNetwork: ${DATA_SUBNET:-10.231.28.0/24}
       ASPNETCORE_ENVIRONMENT: Production
+      # Swagger UI at /api/swagger and the OpenAPI document at /api/openapi/v1.json (ADR-013). Off unless OPENAPI_ENABLED=true.
+      OpenApi__Enabled: ${OPENAPI_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-}
     volumes:
       - { type: volume, source: secrets, target: /run/approle, read_only: true, volume: { subpath: approle/api } }

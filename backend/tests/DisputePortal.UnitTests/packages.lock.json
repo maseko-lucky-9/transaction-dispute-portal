@@ -624,6 +624,11 @@
           "System.IO.Hashing": "10.0.13"
         }
       },
+      "Swashbuckle.AspNetCore.SwaggerUI": {
+        "type": "Transitive",
+        "resolved": "10.2.3",
+        "contentHash": "nthWONRs/FJ4yyG206g1cC52WEG8EqrjuMWjGdR+5XG7lbjFto6NqcI9EMICgVFom/UivIjUVwI76ZHbHwTPfQ=="
+      },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
         "resolved": "6.0.0",
@@ -725,6 +730,7 @@
           "OpenTelemetry.Instrumentation.AspNetCore": "[1.20.1, )",
           "OpenTelemetry.Instrumentation.Http": "[1.20.1, )",
           "StackExchange.Redis": "[3.4.31, )",
+          "Swashbuckle.AspNetCore.SwaggerUI": "[10.2.3, )",
           "VaultSharp": "[1.17.5.1, )"
         }
       },

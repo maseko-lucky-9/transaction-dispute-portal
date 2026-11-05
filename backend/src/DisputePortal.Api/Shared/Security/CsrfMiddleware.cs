@@ -1,6 +1,7 @@
 using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Health;
 using DisputePortal.Api.Shared.Observability;
+using DisputePortal.Api.Shared.OpenApi;
 using Microsoft.Extensions.Options;
 
 namespace DisputePortal.Api.Shared.Security;
@@ -8,7 +9,8 @@ namespace DisputePortal.Api.Shared.Security;
 /// <summary>
 /// Requires <c>X-CSRF: 1</c> on every /api request and every non-GET /bff request. A cross-site page cannot add a
 /// custom header without a CORS preflight, and the API has no CORS policy, so the preflight always fails.
-/// Runs before authentication, so a forged request is refused before its cookie is even read.
+/// Runs before authentication, so a forged request is refused before its cookie is even read. Two exemptions: an endpoint
+/// marked for the management port, reached on it, and a GET or HEAD of a public documentation endpoint.
 /// </summary>
 public sealed class CsrfMiddleware(RequestDelegate next, SecurityMetrics metrics, IOptions<ManagementSettings> ports)
 {
@@ -20,6 +22,7 @@ public sealed class CsrfMiddleware(RequestDelegate next, SecurityMetrics metrics
     {
         if (RequiresHeader(context.Request)
             && !IsManagementPortEndpoint(context, ports.Value.Management)
+            && !IsApiDocumentationRead(context)
             && !string.Equals(context.Request.Headers[HeaderName], RequiredValue, StringComparison.Ordinal))
         {
             metrics.Record(SecurityMetrics.CsrfRejected);
@@ -43,4 +46,13 @@ public sealed class CsrfMiddleware(RequestDelegate next, SecurityMetrics metrics
     /// </summary>
     public static bool IsManagementPortEndpoint(HttpContext context, int managementPort) =>
         context.Connection.LocalPort == managementPort && ManagementPortEndpoint.IsMarked(context);
+
+    /// <summary>
+    /// The other exemption: a GET or HEAD of the Swagger UI or the OpenAPI document (<see cref="ApiDocumentationEndpoint"/>),
+    /// which a browser cannot send the header on. They are anonymous and read-only (nothing to forge) and are mapped only
+    /// when OpenApi:Enabled is on. The routes the document describes keep the rule.
+    /// </summary>
+    public static bool IsApiDocumentationRead(HttpContext context) =>
+        (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+        && ApiDocumentationEndpoint.IsMarked(context);
 }
