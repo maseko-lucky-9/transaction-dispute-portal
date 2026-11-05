@@ -2,12 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DisputePortal.Api.Features.Disputes;
+using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Domain.Disputes;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace DisputePortal.IntegrationTests;
 
@@ -189,6 +191,71 @@ public sealed class DisputeConcurrencyTests(ApiFactory api)
     }
 
     /// <param name="customerLock">False for the backstop races: <see cref="NoCustomerLock"/> lets both racers into the window.</param>
+    [Fact]
+    public async Task TwoDifferentCustomersHeldTogetherInsideTheirLocksDoNotBlockEachOther()
+    {
+        (_, Guid firstTransaction, BrowserSession first) = await EligibleAsync();
+        (_, Guid secondTransaction, BrowserSession second) = await EligibleAsync();
+        // A plain rendezvous: each holder waits, inside its own lock, for the other to be inside its lock too. A lock that
+        // was not per customer would deadlock it until the rendezvous timeout, and the test would fail.
+        await using WebApplicationFactory<Program> gated = Gated(afterSubmissionFacts: new Rendezvous(2).ArriveAsync, afterFind: null, customerLock: true);
+
+        HttpResponseMessage[] responses = await Task.WhenAll(
+            SendAsync(gated, DisputeRequests.Submit(first, Guid.NewGuid(), firstTransaction)),
+            SendAsync(gated, DisputeRequests.Submit(second, Guid.NewGuid(), secondTransaction)));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+    }
+
+    [Fact]
+    public async Task ACancelledWaitForTheCustomerLockEndsPromptlyAndLeavesNoQueuedLock()
+    {
+        Guid customerId = Guid.NewGuid();
+        await using NpgsqlConnection holder = new(api.AdminConnectionString);
+        await using NpgsqlTransaction held = await HoldCustomerLockAsync(holder, customerId);
+        await using AsyncServiceScope scope = api.Services.CreateAsyncScope();
+        DisputePortalDbContext db = scope.ServiceProvider.GetRequiredService<DisputePortalDbContext>();
+        ICustomerLock customerLock = scope.ServiceProvider.GetRequiredService<ICustomerLock>();
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction = await db.Database.BeginTransactionAsync();
+        using CancellationTokenSource cancel = new(TimeSpan.FromMilliseconds(300));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => customerLock.AcquireAsync(customerId, cancel.Token));
+        await transaction.RollbackAsync();
+
+        Assert.Equal(0, await AdminSql.CountAsync(api.AdminConnectionString, "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"));
+    }
+
+    // Production connections carry statement_timeout=5000, which cancels a queued lock wait. The test uses a short one so
+    // it runs in a moment: the cancelled wait must surface as the 503 the API documents, not as a 500 internal_error.
+    [Fact]
+    public async Task AWaitForTheCustomerLockPastTheStatementTimeoutIsADatabaseUnavailable503()
+    {
+        Guid customerId = Guid.NewGuid();
+        await using NpgsqlConnection holder = new(api.AdminConnectionString);
+        await using NpgsqlTransaction held = await HoldCustomerLockAsync(holder, customerId);
+        await using AsyncServiceScope scope = api.Services.CreateAsyncScope();
+        DisputePortalDbContext db = scope.ServiceProvider.GetRequiredService<DisputePortalDbContext>();
+        ICustomerLock customerLock = scope.ServiceProvider.GetRequiredService<ICustomerLock>();
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlRawAsync("SET LOCAL statement_timeout = '300ms'");
+
+        DatabaseUnavailableException refusal = await Assert.ThrowsAsync<DatabaseUnavailableException>(
+            () => customerLock.AcquireAsync(customerId, CancellationToken.None));
+
+        Assert.Equal((int)HttpStatusCode.ServiceUnavailable, refusal.Status);
+    }
+
+    /// <summary>Takes the customer's advisory lock on a separate admin connection, so a request for that customer has to wait.</summary>
+    private static async Task<NpgsqlTransaction> HoldCustomerLockAsync(NpgsqlConnection holder, Guid customerId)
+    {
+        await holder.OpenAsync();
+        NpgsqlTransaction held = await holder.BeginTransactionAsync();
+        await using NpgsqlCommand take = new("SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))", holder, held);
+        take.Parameters.AddWithValue("key", customerId.ToString("D"));
+        await take.ExecuteNonQueryAsync();
+        return held;
+    }
+
     private WebApplicationFactory<Program> Gated(Func<CancellationToken, Task>? afterSubmissionFacts, Func<CancellationToken, Task>? afterFind, bool customerLock) =>
         api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {

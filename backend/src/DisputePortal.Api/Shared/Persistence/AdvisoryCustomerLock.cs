@@ -1,4 +1,6 @@
+using DisputePortal.Api.Shared.Errors;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace DisputePortal.Api.Shared.Persistence;
 
@@ -17,6 +19,15 @@ public sealed class AdvisoryCustomerLock(DisputePortalDbContext db) : ICustomerL
         }
 
         string key = customerId.ToString("D");
-        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken);
+        try
+        {
+            await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken);
+        }
+        catch (PostgresException timeout) when (timeout.SqlState == PostgresErrorCodes.QueryCanceled)
+        {
+            // The connection's statement_timeout cancelled the wait: a holder kept the customer's lock longer than the
+            // timeout. That is an overloaded or stalled database, so answer 503 like any other timeout, and do not retry.
+            throw new DatabaseUnavailableException(timeout);
+        }
     }
 }

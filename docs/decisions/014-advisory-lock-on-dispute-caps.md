@@ -35,7 +35,8 @@ and lock the contended resource, here the customer.
 
 ## Consequences
 - A customer's submits are serialised: each waits for the previous one's transaction to end. Different customers never
-  wait for each other. A lock wait is bounded by the 10 s command timeout, like any other statement.
+  wait for each other. A lock wait is bounded by the connection's `statement_timeout` (5 s); a wait past it is answered 503
+  `database_unavailable` and not retried (`AdvisoryCustomerLock` maps SQLSTATE 57014).
 - The unique indexes stay as the backstop: the primary key for idempotency and foreign ids, the partial index for one
   active dispute per transaction.
 - Withdrawals and agent transitions take no lock: they never raise either count.
@@ -44,3 +45,8 @@ and lock the contended resource, here the customer.
 - Proof: `DisputeConcurrencyTests` gates each racer after its counts until the others are queued on the lock
   (`AdvisoryLockRendezvous` polls `pg_locks`). Without the lock, or under REPEATABLE READ, all eight parallel submits
   at 19 are created. A transient failure before the commit runs the whole attempt again and creates the dispute once.
+- Known limit: nothing on the server bounds how long an *idle* transaction may hold the lock. If the app's connection goes
+  half-open between the lock and the commit, that customer's submits answer 503 until the server notices the dead
+  connection (TCP keepalive, hours by default). Only that customer is affected. Upgrade path:
+  `idle_in_transaction_session_timeout` in the application connection options, set above the 15 s the gated tests hold
+  racers idle.
