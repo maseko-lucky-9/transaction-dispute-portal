@@ -82,8 +82,16 @@ public sealed class EndpointOutageTests(ApiFactory api)
             }),
         new OutageRoute("POST", BackchannelLogoutEndpoint.Path, BackchannelLogoutRequestAsync, HttpStatusCode.OK, null,
             "Token validation, the jti replay check and the delete-by-sid are all Redis: no Postgres call, so a Keycloak logout still lands while the database is down."),
-        new OutageRoute("GET", "/openapi/{documentName}.json", _ => Task.FromResult(new HttpRequestMessage(HttpMethod.Get, ApiDocumentation.DocumentPath)), HttpStatusCode.OK, null,
-            "Generated from the endpoint metadata in memory. Mapped here because the test host is not Production."),
+        new OutageRoute("GET", "/api/openapi/{documentName}.json", _ => Task.FromResult(new HttpRequestMessage(HttpMethod.Get, ApiDocumentation.DocumentPath)), HttpStatusCode.OK, null,
+            "Generated from the endpoint metadata in memory. Mapped here because the test fixture turns OpenApi:Enabled on (ADR-013)."),
+        // The Swagger UI catch-all is mapped for any method and, being flag-gated and anonymous, answers without a session or the CSRF header.
+        new OutageRoute(AnyMethod, "api/swagger/{**path}", _ => Task.FromResult(new HttpRequestMessage(HttpMethod.Get, "/api/swagger/index.html")), HttpStatusCode.OK, null,
+            "Static assets embedded in the API; no Postgres, no Redis. Mapped here because the test fixture turns OpenApi:Enabled on (ADR-013).",
+            response =>
+            {
+                Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+                return Task.CompletedTask;
+            }),
 
         // Health checks, on the management port: no HTTP method restriction, and a plain-text body, not Problem Details.
         new OutageRoute(AnyMethod, ManagementSettings.LivePath, _ => Task.FromResult(Management(ManagementSettings.LivePath)), HttpStatusCode.OK, null,
