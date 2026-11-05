@@ -30,6 +30,12 @@ those two variables, but the realm is imported only into an empty database: on a
 (verified). Use Chromium or Firefox for the local demo (Safari's handling of `Secure` cookies on
 `http://localhost` is unverified).
 
+**API docs** (Swagger UI, off by default in every environment, [ADR-013](docs/decisions/013-interactive-api-docs.md)):
+`OPENAPI_ENABLED=true docker compose up --build`, then <http://localhost:8080/api/swagger>. The document is at
+`/api/openapi/v1.json`. Reading the contract works. "Try it out" works for `/bff` GETs after signing in at `/bff/login`
+in the same browser; `/api/*` calls answer `403 csrf_required` because the document attaches no security requirement, so
+the UI never sends `X-CSRF` (and the CSP forbids the script that would). Use `docs/openapi.json` and `api.http` for calls.
+
 Demo users (local-only, imported from `deploy/keycloak/`):
 
 | User | Password | Role |
@@ -60,13 +66,13 @@ docker compose up -d --wait --build && (cd e2e && npm ci && npx playwright insta
 
 ## Measured results
 
-Raw summary lines (macOS, 2026-11-04). Unit, Integration, Backend and Build are from `feat/backchannel-logout`
-(`scripts/coverage.sh` after `dotnet build -c Release -warnaserror`); Web is from the hardening-pass branch (`npm run test:coverage`):
+Raw summary lines (macOS). Unit, Integration and Backend are from `main` at 781426e, 2026-11-05 (`scripts/coverage.sh` after
+`dotnet build -c Release -warnaserror`); Web is from the hardening-pass branch, 2026-11-04 (`npm run test:coverage`):
 
 ```
-Unit        Passed!  - Failed:     0, Passed:   579, Skipped:     0, Total:   579, Duration: 2 s - DisputePortal.UnitTests.dll (net10.0)
-Integration Passed!  - Failed:     0, Passed:   363, Skipped:     0, Total:   363, Duration: 21 s - DisputePortal.IntegrationTests.dll (net10.0)
-Backend     line coverage, unit + integration merged: 91.67% (gate: scripts/coverage.sh fails below 80%)
+Unit        Passed!  - Failed:     0, Passed:   584, Skipped:     0, Total:   584, Duration: 2 s - DisputePortal.UnitTests.dll (net10.0)
+Integration Passed!  - Failed:     0, Passed:   416, Skipped:     0, Total:   416, Duration: 25 s - DisputePortal.IntegrationTests.dll (net10.0)
+Backend     line coverage, unit + integration merged: 91.81% (gate: scripts/coverage.sh fails below 80%)
 Web         Test Files  40 passed (40)
                  Tests  1046 passed (1046)
             Lines : 99.53% ( 857/861 )   Branches : 95.46% ( 715/749 )   (vitest v8 coverage; floor 80% in frontend/vite.config.ts)
@@ -97,7 +103,7 @@ isolated from any other stack. Raw observations from that run (2026-11-04):
 |---|---|
 | Startup | api, web, postgres, redis, keycloak healthy in 38.6 s with cached layers; `bootstrap` and `migrate` exit 0 |
 | No cookie | `GET /api/v1/disputes` with `X-CSRF: 1` is `401 application/problem+json`, no redirect |
-| No `X-CSRF` | `403 csrf_required`. CSRF is checked before authentication, so a bare `curl` with no headers gets 403, not 401 |
+| No `X-CSRF` | `403 csrf_required`. CSRF is checked before authentication, so a bare `curl` with no headers gets 403, not 401. The one exception is a GET or HEAD of the flag-gated API docs (see "API docs") |
 | `--scale api=3` | 24 requests on one session cookie all 200, spread 9 / 9 / 8 across the three replicas (nginx upstream log) |
 | `APP_PORT=9090` | login works end to end on fresh volumes; fails after a plain `down` (see "Run it") |
 | Headers | `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP and a strict CSP on every app location; `no-store` on `/api` and `/bff`; auth origin `/admin` and `/realms/master` return 404 |
@@ -188,11 +194,11 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 
 | Layer | Where | Count (commit `15c3b67`; Unit, Integration and E2E on `feat/backchannel-logout`) | Proves | Does not prove |
 |---|---|---|---|---|
-| Unit (xUnit 2.9.3) | `backend/tests/DisputePortal.UnitTests/` | 579 | The state-machine table, every eligibility rule and the 119/120/121-day boundary with a fake clock, `Money`, the card and ID detector (shared cases with the web), request validators, cursor protectors, CSRF rule and its management-port exemption, the management-port split (port, internal host, peer network), logout-token validation (one negative test per Back-Channel Logout rule), refresh single-flight, Vault provider retry, seeding, ETag format | Anything that needs real SQL, grants, HTTP, Redis or Keycloak. Services run against substitutes, so repository SQL is not exercised here |
-| Integration (WebApplicationFactory + Testcontainers Postgres and Redis, connecting as `dispute_app`) | `backend/tests/DisputePortal.IntegrationTests/` | 363 | Endpoint behaviour and status codes, owner filter and BOLA 404s, idempotent submit, 23505 backstop and forced interleavings, `If-Match` 412/428, DB grants and append-only history, production auth stack (401 not 302, CSRF, cookie flags, ticket encryption, refresh, Redis down), back-channel logout (ticket and sid-index deletion, generic refusals, replay across two hosts, reachability by port, host and peer, per-peer limit, no ids in logs), keyset plan (index scan, no Sort, 50k rows), OpenAPI snapshot, architecture rules, security metrics | A real Keycloak (the IdP is a test double here; e2e covers the real one), real nginx headers, TLS, browser behaviour, multi-replica scale-out beyond the two-replica refresh test, performance |
+| Unit (xUnit 2.9.3) | `backend/tests/DisputePortal.UnitTests/` | 584 | The state-machine table, every eligibility rule and the 119/120/121-day boundary with a fake clock, `Money`, the card and ID detector (shared cases with the web), request validators, cursor protectors, CSRF rule and its management-port exemption, the management-port split (port, internal host, peer network), logout-token validation (one negative test per Back-Channel Logout rule), refresh single-flight, Vault provider retry, seeding, ETag format | Anything that needs real SQL, grants, HTTP, Redis or Keycloak. Services run against substitutes, so repository SQL is not exercised here |
+| Integration (WebApplicationFactory + Testcontainers Postgres and Redis, connecting as `dispute_app`) | `backend/tests/DisputePortal.IntegrationTests/` | 416 | Endpoint behaviour and status codes, owner filter and BOLA 404s, idempotent submit, 23505 backstop and forced interleavings, `If-Match` 412/428, DB grants and append-only history, production auth stack (401 not 302, CSRF, cookie flags, ticket encryption, refresh, Redis down), back-channel logout (ticket and sid-index deletion, generic refusals, replay across two hosts, reachability by port, host and peer, per-peer limit, no ids in logs), keyset plan (index scan, no Sort, 50k rows), OpenAPI snapshot, architecture rules, security metrics | A real Keycloak (the IdP is a test double here; e2e covers the real one), real nginx headers, TLS, browser behaviour, multi-replica scale-out beyond the two-replica refresh test, performance |
 | Frontend (Vitest + Testing Library + MSW) | `frontend/src/**/*.test.ts(x)` | 1046 in 40 files (`npm run test:coverage`, 2026-11-04: `Tests  1046 passed (1046)`) | Form and filter validation, shared `validation-cases.json` parity, server-error mapping (400, 409, 412, 422), focus and `traceId` display, role guards, session gate, axe checks in `a11y.test.tsx`, generated-type contract | The real API (MSW stubs it), real CSP enforcement, real browsers beyond jsdom |
 | E2E (Playwright, Chromium, full compose stack) | `e2e/tests/*.spec.ts` | 20 | Real login and logout through Keycloak, back-channel logout from real Keycloak (a logout at Keycloak itself; an admin deleting the session with `kcadm`), journeys for customer and agent, BOLA over HTTP, CSRF, per-location headers, nginx's own 404 for the back-channel path, zero CSP violations, axe, Keycloak admin 404 | Other browsers (Safari unverified), load, failure injection, anything that needs a second replica |
-| Coverage gate | `scripts/coverage.sh`, CI job `backend` | 91.67% line (`feat/backchannel-logout`) | Total line coverage of `DisputePortal.Api` and `DisputePortal.Domain` (migrations excluded) stays at or above 80% | That the covered lines are asserted on; branch coverage is not gated. The frontend has its own 80% threshold in `frontend/vite.config.ts` |
+| Coverage gate | `scripts/coverage.sh`, CI job `backend` | 91.81% line (`main` at 781426e) | Total line coverage of `DisputePortal.Api` and `DisputePortal.Domain` (migrations excluded) stays at or above 80% | That the covered lines are asserted on; branch coverage is not gated. The frontend has its own 80% threshold in `frontend/vite.config.ts` |
 | Stryker.NET (non-blocking) | CI job `stryker`, `backend/tests/DisputePortal.UnitTests/stryker-config.json` | 86.80% on Domain | How many injected Domain mutants the unit tests kill. Not in `ci-ok`'s `needs`, so it can never block a merge | Mutation strength of the API, authorization or SQL code (only `DisputePortal.Domain` is mutated) |
 | Trivy | CI job `images` | n/a | No fixable CRITICAL finding in the `api` and `web` images at build time (`--ignore-unfixed`, `.trivyignore` empty) | HIGH findings, unfixed findings, runtime exposure, the base-image supply chain beyond digest pinning |
 | gitleaks | pre-commit hook (if installed) and CI job `secrets` | n/a | No secret matching the default ruleset in the checked history; the documented demo passwords are the only allowlist entry (`.gitleaks.toml`) | Secrets that do not match a rule; secrets outside git |
@@ -209,7 +215,7 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 | DataProtection keys sit unencrypted in Postgres, guarded by grants | A Redis write alone cannot forge a session | `ProtectKeysWithCertificate` with a key held in Vault |
 | Keycloak and the data stores are not `read_only` | They need writable state; capabilities are dropped | Per-image tmpfs mounts |
 | Database credentials are read once at start-up | Rotation means a rolling restart | Vault dynamic database credentials |
-| The 20-active and 3-per-transaction dispute caps can be overshot by concurrent submits | They limit abuse; they are not money invariants. One active dispute per transaction is a unique index | An advisory lock around count and insert |
+| A customer's submits are serialised by one advisory lock ([ADR-014](docs/decisions/014-advisory-lock-on-dispute-caps.md)); an idle transaction that loses its connection can hold it until the server notices | Only that customer's submits answer 503, the lock lasts one short transaction, and submits are limited to 10 a minute per user | `idle_in_transaction_session_timeout` on the application connection |
 | A caller can learn that a client-chosen dispute id exists (409 versus 201), though never its content | The id is random, 122 bits, seen only by its owner, and submits are limited to 10 a minute | Scope the idempotency key per customer |
 | The app's database role can change a dispute's own columns without a matching history row (history itself is append-only) | It needs a stolen app credential; grants are column-scoped | A terminal-state guard trigger and DB-written history |
 | The card and ID number check deters accidental disclosure, not deliberate obfuscation by the customer about their own number (five or more separators, words between digit groups, invisible non-format code points such as variation selectors, circled or superscript digits, fullwidth punctuation as separators) | Free text is also never logged; PCI scope is documented in the threat model | None without a tokenisation service |
@@ -235,5 +241,5 @@ stretch in the plan):
 - An outbox and event publishing.
 - Agent TOTP (stretch).
 - Run the k6 smoke test in CI against the compose stack (today it is a documented manual run), and add a capacity test that raises the per-subject limits to find where latency degrades.
-- Scalar API docs at `/api/docs` (stretch). `docs/openapi.json` is the contract.
+- A request-level security scheme in `docs/openapi.json`, so Swagger UI's "Try it out" can call `/api/*` (see "API docs" above). `docs/openapi.json` is the contract.
 - Dynamic database credentials and a distributed rate limiter (see "Known limits").
