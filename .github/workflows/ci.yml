@@ -33,6 +33,9 @@ jobs:
     # `ci-ok` the single required check; a skipped job passes it. Any trouble computing the diff turns everything on.
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       backend: ${{ steps.paths.outputs.backend }}
       frontend: ${{ steps.paths.outputs.frontend }}
@@ -50,21 +53,26 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
-          BEFORE: ${{ github.event.before }}
           HALF: ${{ inputs.half }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -uo pipefail
-          zeros=0000000000000000000000000000000000000000
+          set -euo pipefail
           files=ALL
           case "$EVENT" in
             pull_request)
-              files=$(git diff --name-only "origin/${BASE_REF}...HEAD") || files=ALL ;;
+              files=$(scripts/changed-files.sh "origin/${BASE_REF}...HEAD") || files=ALL ;;
             push)
-              if [ -n "$BEFORE" ] && [ "$BEFORE" != "$zeros" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-                files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA") || files=ALL
+              # Diff against the last commit whose `ci` run on main SUCCEEDED, not against `event.before`: a run that
+              # failed, or a queued run GitHub replaced with a newer one, never published its images, and its
+              # changes must not be lost to the next push. No such run, or one that is not an ancestor, means ALL.
+              base=$(gh run list --workflow ci.yml --branch main --event push --status success --limit 1 --json headSha --jq '.[0].headSha // empty' 2>/dev/null || true)
+              if [ -n "$base" ] && git merge-base --is-ancestor "$base" "$GITHUB_SHA" 2>/dev/null; then
+                echo "last successful run on main: $base"
+                files=$(scripts/changed-files.sh "$base" "$GITHUB_SHA") || files=ALL
               fi ;;
           esac
-          echo "changed paths ($EVENT):"; printf '%s\n' "$files" | sed 's/^/  /'
+          # A prefix that is not whitespace: the runner ignores leading whitespace before a `::` workflow command.
+          echo "changed paths ($EVENT):"; printf '%s\n' "$files" | sed 's/^/changed: /'
           result=$(printf '%s\n' "$files" | scripts/changed-paths.sh)
           if [ "$EVENT" = workflow_dispatch ]; then
             # A manual run builds and verifies both halves; the input only picks what to publish.
@@ -268,8 +276,10 @@ jobs:
     # only the api image and a frontend change only the web image. Each leg pushes the exact image that was scanned
     # (Trivy) and exercised (E2E): no rebuild, so no drift. It needs `ci-ok`, which passes on skipped jobs. A manual
     # run is a dry run (it prints what it would push) unless dry_run is false, and it only pushes from main.
-    if: needs.changes.outputs.halves != '[]' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [changes, ci-ok]
+    # `!cancelled()` and the explicit results replace the implicit success(), which is false whenever ANY job upstream
+    # was skipped (a half the change did not touch), and would silently skip every single-half publish.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.images.result == 'success' && needs.ci-ok.result == 'success' && needs.changes.outputs.halves != '[]' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: [changes, images, ci-ok]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -278,6 +288,7 @@ jobs:
         half: ${{ fromJSON(needs.changes.outputs.halves) }}
     env:
       HALF: ${{ matrix.half }}
+      EVENT_NAME: ${{ github.event_name }}
       DO_PUSH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && github.ref == 'refs/heads/main') }}
     permissions:
       contents: read
@@ -290,7 +301,7 @@ jobs:
           name: images
       - run: docker load -i images.tar
       - name: what this leg publishes
-        run: echo "dispute-portal-${HALF}:${GITHUB_SHA} (push=${DO_PUSH}, event=${{ github.event_name }})"
+        run: echo "dispute-portal-${HALF}:${GITHUB_SHA} (push=${DO_PUSH}, event=${EVENT_NAME})"
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         if: env.DO_PUSH == 'true'
         with:

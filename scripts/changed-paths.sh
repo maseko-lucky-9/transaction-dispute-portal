@@ -6,8 +6,11 @@
 #   stack     build and scan both images and run the full-stack E2E
 #   api       publish the api image (its content changed)
 #   web       publish the web image (its content changed)
-# A first line of `ALL` (used when the diff could not be computed) turns everything on: a broken filter must
-# over-build, never under-build. A path that matches nothing (docs, specs, README) turns nothing on.
+# Fail closed: a first line of `ALL` (the diff could not be computed) or a path that looks quoted turns everything on,
+# and a path that matches no rule at all runs the verification jobs (backend, frontend, stack), so a new kind of file
+# is built until someone classifies it. Only the explicit inert list below (docs, specs, README, hooks, ...) turns
+# nothing on. Publishing is narrower on purpose: an image is published only for the paths that change its content,
+# and scripts/test-changed-paths.sh checks that every path the Dockerfile copies is one of them.
 # Plain variables and `case`, so it also runs on macOS bash 3.2.
 set -uo pipefail
 
@@ -20,11 +23,11 @@ web=false
 while IFS= read -r path; do
   [ -z "$path" ] && continue
   case "$path" in
-    ALL)
+    ALL|\"*)
       backend=true; frontend=true; stack=true; api=true; web=true ;;
     backend/src/*)
       backend=true; stack=true; api=true ;;
-    backend/*|DisputePortal.slnx|.config/*|scripts/*)
+    backend/*|DisputePortal.slnx|.config/*)
       backend=true ;;
     global.json|Directory.Build.props)
       backend=true; stack=true; api=true ;;
@@ -37,7 +40,8 @@ while IFS= read -r path; do
       # The contract: the backend snapshot test and the frontend type generation both check it.
       backend=true; frontend=true ;;
     .editorconfig)
-      backend=true; frontend=true ;;
+      # Copied into the api build stage by the Dockerfile (it can change analyzer results) and read by both jobs.
+      backend=true; frontend=true; stack=true; api=true ;;
     Dockerfile|.dockerignore)
       backend=true; stack=true; api=true; web=true ;;
     docker-compose.yml)
@@ -47,7 +51,14 @@ while IFS= read -r path; do
       backend=true; stack=true ;;
     deploy/*|e2e/*|.trivyignore)
       stack=true ;;
-    .github/workflows/ci.yml)
+    .github/workflows/*|scripts/changed-paths.sh|scripts/changed-files.sh|scripts/test-changed-paths.sh)
+      # The pipeline and its classifier: verify everything, publish nothing (no image content changed).
+      backend=true; frontend=true; stack=true ;;
+    scripts/*)
+      backend=true ;;
+    docs/*|specs/*|perf/*|.specify/*|.claude/*|.githooks/*|.github/dependabot.yml|.gitleaks.toml|*.md|api.http|.gitignore|.gitattributes)
+      : ;;
+    *)
       backend=true; frontend=true; stack=true ;;
   esac
 done

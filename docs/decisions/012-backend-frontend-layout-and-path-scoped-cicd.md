@@ -21,8 +21,13 @@ web image, without splitting the repository.
   images and run the E2E) and the halves whose image content changed. Backend and frontend jobs run only for their
   half; `images` and `e2e` run when the stack is touched; `publish` is a matrix with one leg per changed image, so a
   backend change publishes `dispute-portal-api` only and a frontend change `dispute-portal-web` only. A change to
-  docs, specs or the README builds and publishes nothing. If the diff cannot be computed, everything runs: the filter
-  may over-build, never under-build. `scripts/test-changed-paths.sh` is the table test and runs in the `changes` job.
+  docs, specs or the README builds and publishes nothing. The classifier fails closed: if the diff cannot be computed
+  or a path looks quoted, everything runs, and a path no rule knows runs the verification jobs. On a push the diff is
+  taken against the last commit whose `ci` run on the default branch succeeded, not against the previous commit, so a
+  failed run or a queued run GitHub replaced cannot lose an image publish. Paths come from `scripts/changed-files.sh`
+  (NUL-delimited, no rename detection) because a plain `git diff --name-only` C-quotes non-ASCII paths and lists only
+  the new path of a rename. `publish` gates on explicit job results (`!cancelled()`), because the implicit `success()`
+  is false whenever any upstream job was skipped. `scripts/test-changed-paths.sh` is the table test and runs in the `changes` job.
 - The two shared inputs are classified explicitly: `frontend/src/lib/validation-cases.json` is read by the backend
   unit tests, so it triggers both halves; `docs/openapi.json` makes both the backend and the frontend job run (the
   snapshot test and the type generation check it) without publishing an image.
@@ -30,7 +35,7 @@ web image, without splitting the repository.
   `dry_run` is false, and it only pushes from `main`.
 
 ## Consequences
-- No behaviour change: image contents, tags and the OpenAPI snapshot are unchanged.
+- No behaviour change to the images themselves: contents and the OpenAPI snapshot are unchanged. Tags are now per image: a commit has `:<sha>` only for the image it changed, so a rollback or deploy pins each image to its own last published sha or digest (runbook).
 - `RepositoryFiles.ApiSources()` reads `backend/src/DisputePortal.Api` and reports paths relative to `backend/`, so
   the architecture-test path rules still read `src/DisputePortal.Api/...`.
 - Historical evidence (`docs/mutation-checks.md`, `docs/design/`, `specs/`) keeps the old `src/`, `tests/` and

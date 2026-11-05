@@ -214,7 +214,7 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
 
-**Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`); redeploy the previous sha. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]
+**Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`), but only for the image a commit changed (ADR-012), so a commit has an `api` tag, a `web` tag, both or neither. Roll each image back on its own: redeploy the previous sha that published it (the package's tag list, or the `publish` job summary of the earlier run), or pin by digest. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]
 
 ## 9. Local-stack caveats
 
