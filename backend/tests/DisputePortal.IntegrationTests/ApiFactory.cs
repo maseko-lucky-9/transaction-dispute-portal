@@ -1,13 +1,16 @@
 using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using DisputePortal.Api.Shared.Eligibility;
 using DisputePortal.Api.Shared.OpenApi;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using DotNet.Testcontainers.Containers;
@@ -109,6 +112,34 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>A client that behaves like a browser tab with cookies off: no redirects followed, cookies sent by hand.</summary>
     public HttpClient CreateBrowserClient(string baseAddress = PublicBaseUrl) =>
         CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri(baseAddress) });
+
+    /// <summary>
+    /// A second host on this fixture's Redis and Keycloak whose database has gone away, as it does for a replica that is
+    /// already serving: the host starts through a <see cref="TcpRelay"/> (Program waits for Postgres before it listens, so a
+    /// host that began with no database would never start), loads its Data Protection key ring, which lives in Postgres and
+    /// which a replica keeps cached for a day, and then the relay is cut. The data source now points at a closed loopback
+    /// port, refused at once, and EF keeps its retrying strategy with zero retries, so the first transient failure surfaces
+    /// as the <see cref="Microsoft.EntityFrameworkCore.Storage.RetryLimitExceededException"/> production maps to 503
+    /// instead of sitting out the three-retry back-off. Sessions signed in on this fixture's own host are valid on it
+    /// (same Redis, same key ring). Dispose the returned host.
+    /// </summary>
+    public WebApplicationFactory<Program> WithUnreachableDatabase()
+    {
+        using TcpRelay relay = new(postgres.Hostname, postgres.GetMappedPublicPort(PostgreSqlBuilder.PostgreSqlPort));
+        WebApplicationFactory<Program> offline = WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Database:Host", IPAddress.Loopback.ToString());
+            builder.UseSetting("Database:Port", relay.Port.ToString(CultureInfo.InvariantCulture));
+            builder.ConfigureTestServices(services =>
+                services.ConfigureDbContext<DisputePortalDbContext>(options => options.UseNpgsql(npgsql => npgsql.EnableRetryOnFailure(0))));
+        });
+        // Touching Services starts the host, which passes the startup gate through the relay.
+        offline.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("warm-up").Protect([0]);
+        relay.Cut();
+        // Idle connections opened through the relay are dead; drop them so every query meets the closed port.
+        offline.Services.GetRequiredService<NpgsqlDataSource>().Clear();
+        return offline;
+    }
 
     /// <summary>
     /// Takes Redis commands away from the app's ACL user, or gives them back (each was allowed by the compose rule below),
