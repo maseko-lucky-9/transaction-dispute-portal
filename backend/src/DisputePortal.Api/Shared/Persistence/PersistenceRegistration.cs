@@ -34,6 +34,7 @@ public static class PersistenceRegistration
                 provider.GetRequiredService<IOptions<DisputePolicyOptions>>().Value,
                 cancellationToken)));
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<ICustomerLock, AdvisoryCustomerLock>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         return services;

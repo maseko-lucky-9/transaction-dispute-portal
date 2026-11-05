@@ -110,6 +110,25 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
         Assert.Equal(1, inserted);
     }
 
+    // The customer lock of ADR-014: roles.sql revokes no function from PUBLIC, so the app role may take it.
+    [Fact]
+    public async Task TheAppRoleCanTakeTheTransactionScopedCustomerLock()
+    {
+        await using NpgsqlConnection connection = new(api.AppConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+        await using NpgsqlCommand take = new("SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))", connection, transaction);
+        take.Parameters.AddWithValue("key", Guid.NewGuid().ToString("D"));
+        await using NpgsqlCommand count = new(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()", connection, transaction);
+
+        await take.ExecuteNonQueryAsync();
+        long held = (long)(await count.ExecuteScalarAsync())!;
+        await transaction.RollbackAsync();
+
+        Assert.Equal(1, held);
+    }
+
     [Fact]
     public async Task MigrationsSeededBothCustomersAndADataProtectionKey()
     {
