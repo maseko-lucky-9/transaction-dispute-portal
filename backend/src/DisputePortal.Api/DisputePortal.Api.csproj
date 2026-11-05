@@ -29,6 +29,8 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.20.1" />
     <PackageReference Include="StackExchange.Redis" Version="3.4.31" />
+    <!-- The UI only: the document stays Microsoft.AspNetCore.OpenApi's, so the committed snapshot is unaffected. -->
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
     <PackageReference Include="VaultSharp" Version="1.17.5.1" />
   </ItemGroup>
 

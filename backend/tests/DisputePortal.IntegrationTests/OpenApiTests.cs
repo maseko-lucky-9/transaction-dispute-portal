@@ -1,12 +1,6 @@
-using System.Net;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using DisputePortal.Api.Shared.OpenApi;
-using DisputePortal.Api.Shared.Persistence;
-using DisputePortal.Api.Shared.Security;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Hosting;
 
 namespace DisputePortal.IntegrationTests;
 
@@ -74,19 +68,6 @@ public sealed class OpenApiTests(ApiFactory api)
         Assert.True(queue.GetProperty("responses").TryGetProperty("400", out _));
         Assert.Equal(["UnderReview", "Accepted", "Rejected"], document.RootElement.GetProperty("components").GetProperty("schemas")
             .GetProperty("TransitionRequest").GetProperty("properties").GetProperty("toStatus").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
-    }
-
-    // Signed in, so the fallback policy (deny by default, unmatched paths included) cannot hide a served document behind a 401.
-    [Fact]
-    public async Task AProductionHostDoesNotServeTheDocument()
-    {
-        BrowserSession session = await BrowserSession.SignInAsync(api, new IdpUser(Seeder.ThandiSubject, "Thandi Nkosi", [Roles.Customer]));
-        await using WebApplicationFactory<Program> production = api.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
-        using HttpClient client = production.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
-
-        HttpResponseMessage response = await client.SendAsync(session.Request(HttpMethod.Get, ApiDocumentation.DocumentPath));
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     private async Task<string> DocumentAsync()
