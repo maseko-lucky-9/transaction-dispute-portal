@@ -27,11 +27,18 @@ public sealed class DisputeNotFoundTests : IDisposable
     public DisputeNotFoundTests()
     {
         FixedClock clock = new(Now);
+        // The unit of work runs the submit transaction's work as the real one does, minus the database.
+        IUnitOfWork unitOfWork = Substitute.For<IUnitOfWork>();
+        unitOfWork.SaveInTransactionAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<Func<CancellationToken, Task<bool>>>()(call.Arg<CancellationToken>()));
+        ICurrentCustomer currentCustomer = Substitute.For<ICurrentCustomer>();
+        currentCustomer.CustomerId.Returns(Guid.NewGuid());
         commands = new DisputeCommands(
             disputes,
             transactions,
-            Substitute.For<IUnitOfWork>(),
-            Substitute.For<ICurrentCustomer>(),
+            unitOfWork,
+            Substitute.For<ICustomerLock>(),
+            currentCustomer,
             new DisputeEligibilityPolicy([], clock),
             clock,
             meters.Disputes,

@@ -12,13 +12,15 @@ namespace DisputePortal.Api.Features.Disputes;
 
 /// <summary>
 /// The customer's state changes. Order of checks (ADR-007): ownership (404), idempotent replay, existing dispute (409),
-/// eligibility (422), then the write, whose unique indexes back up the checks when requests race.
+/// eligibility (422), then the write. A submission decides under the customer's lock (ADR-014), so the counts the caps
+/// are judged on cannot move before the insert; the unique indexes still back up the checks if anything bypasses it.
 /// Logs carry ids and codes only, never the description.
 /// </summary>
 public sealed class DisputeCommands(
     IDisputeRepository disputes,
     ITransactionRepository transactions,
     IUnitOfWork unitOfWork,
+    ICustomerLock customerLock,
     ICurrentCustomer currentCustomer,
     DisputeEligibilityPolicy eligibility,
     TimeProvider time,
@@ -31,45 +33,53 @@ public sealed class DisputeCommands(
     /// <exception cref="EligibilityFailedException">One or more eligibility rules refuse it.</exception>
     public async Task<SubmitOutcome> SubmitAsync(CreateDisputeRequest request, string subject, CancellationToken cancellationToken)
     {
-        Guid id = Guid.ParseExact(request.Id!, "D");
         Guid transactionId = Guid.ParseExact(request.TransactionId!, "D");
-        TransactionSnapshot? transaction = await transactions.GetSnapshotAsync(transactionId, cancellationToken);
-        if (transaction is null)
+        // The app cannot write the read model, so the snapshot needs no lock, and a probe of a foreign id never takes one.
+        TransactionSnapshot transaction = await transactions.GetSnapshotAsync(transactionId, cancellationToken) ?? throw TransactionNotFound();
+        DisputeSubmission submission = new(
+            Guid.ParseExact(request.Id!, "D"), transactionId, CustomerId(), request.ReasonCode!, request.Description!.Trim(), AmountOf(request, transaction));
+        bool created;
+        try
         {
-            securityMetrics.Record(SecurityMetrics.Bola404);
-            throw new NotFoundException("transaction_not_found", "No transaction with this id.");
+            created = await unitOfWork.SaveInTransactionAsync(token => DecideAsync(submission, transaction, subject, token), cancellationToken);
+        }
+        catch (DuplicateKeyException duplicate)
+        {
+            // Resolved after the rollback: the lock is released, and the reads do not depend on the failed transaction.
+            return await ResolveDuplicateAsync(submission.Id, transactionId, duplicate, cancellationToken);
         }
 
-        if (await disputes.FindTransactionIdAsync(id, cancellationToken) is { } usedFor)
+        if (created)
         {
-            return await ReplayAsync(id, transactionId, usedFor, cancellationToken);
+            metrics.Submitted(submission.ReasonCode);
+            logger.LogInformation("Dispute {DisputeId} submitted on transaction {TransactionId} with reason {ReasonCode}", submission.Id, transactionId, submission.ReasonCode);
         }
 
-        SubmissionFacts facts = await disputes.GetSubmissionFactsAsync(transactionId, cancellationToken);
+        return new SubmitOutcome(await DetailAsync(submission.Id, cancellationToken), created);
+    }
+
+    /// <summary>
+    /// One attempt of the submit transaction; the lock is its first statement. The replay check sits inside it, so the
+    /// second of two identical requests waits for the first and replays it, and so does a retry after a lost commit
+    /// acknowledgement. Queues the dispute and returns true, or returns false for a replay; never writes.
+    /// </summary>
+    private async Task<bool> DecideAsync(DisputeSubmission submission, TransactionSnapshot transaction, string subject, CancellationToken cancellationToken)
+    {
+        await customerLock.AcquireAsync(submission.CustomerId, cancellationToken);
+        if (await disputes.FindTransactionIdAsync(submission.Id, cancellationToken) is { } usedFor)
+        {
+            return usedFor == submission.TransactionId ? false : throw DisputeConflictException.KeyReused();
+        }
+
+        SubmissionFacts facts = await disputes.GetSubmissionFactsAsync(submission.TransactionId, cancellationToken);
         if (facts.BlockingDisputeId is { } existing)
         {
             throw DisputeConflictException.Exists(existing);
         }
 
-        Money amount = request.Amount is null
-            ? transaction.Amount
-            : Money.Of(decimal.Parse(request.Amount, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture), transaction.Amount.Currency);
-        EnsureEligible(transaction, amount, facts);
-        Dispute dispute = Dispute.Submit(
-            new DisputeSubmission(id, transactionId, CustomerId(), request.ReasonCode!, request.Description!.Trim(), amount), subject, time.GetUtcNow());
-        disputes.Add(dispute);
-        try
-        {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (DuplicateKeyException duplicate)
-        {
-            return await ResolveDuplicateAsync(id, transactionId, duplicate, cancellationToken);
-        }
-
-        metrics.Submitted(dispute.ReasonCode);
-        logger.LogInformation("Dispute {DisputeId} submitted on transaction {TransactionId} with reason {ReasonCode}", id, transactionId, dispute.ReasonCode);
-        return new SubmitOutcome(await DetailAsync(id, cancellationToken), Created: true);
+        EnsureEligible(transaction, submission.DisputedAmount, facts);
+        disputes.Add(Dispute.Submit(submission, subject, time.GetUtcNow()));
+        return true;
     }
 
     /// <summary>
@@ -154,6 +164,17 @@ public sealed class DisputeCommands(
 
         throw DisputeConflictException.IdTaken();
     }
+
+    private NotFoundException TransactionNotFound()
+    {
+        securityMetrics.Record(SecurityMetrics.Bola404);
+        return new NotFoundException("transaction_not_found", "No transaction with this id.");
+    }
+
+    private static Money AmountOf(CreateDisputeRequest request, TransactionSnapshot transaction) =>
+        request.Amount is null
+            ? transaction.Amount
+            : Money.Of(decimal.Parse(request.Amount, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture), transaction.Amount.Currency);
 
     // A dispute the customer's own command just found, wrote or replayed that is no longer visible to them: still a customer 404, so counted.
     private async Task<VersionedDispute> DetailAsync(Guid id, CancellationToken cancellationToken) =>

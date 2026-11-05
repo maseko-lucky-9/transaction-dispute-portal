@@ -15,6 +15,8 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
     [InlineData("INSERT INTO customers (id, keycloak_subject, display_name) VALUES (gen_random_uuid(), 'intruder', 'Intruder')")]
     [InlineData("UPDATE customers SET display_name = 'Changed'")]
     [InlineData("DELETE FROM customers")]
+    // Nor lock a customer row: FOR UPDATE needs UPDATE, which is why the customer lock is an advisory one (ADR-014).
+    [InlineData("SELECT id FROM customers LIMIT 1 FOR UPDATE")]
     [InlineData("UPDATE data_protection_keys SET xml = NULL")]
     [InlineData("DELETE FROM data_protection_keys")]
     [InlineData("SELECT count(*) FROM \"__EFMigrationsHistory\"")]
@@ -108,6 +110,25 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
 
         Assert.True(customers >= Seeder.Customers.Count);
         Assert.Equal(1, inserted);
+    }
+
+    // The customer lock of ADR-014: roles.sql revokes no function from PUBLIC, so the app role may take it.
+    [Fact]
+    public async Task TheAppRoleCanTakeTheTransactionScopedCustomerLock()
+    {
+        await using NpgsqlConnection connection = new(api.AppConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+        await using NpgsqlCommand take = new("SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))", connection, transaction);
+        take.Parameters.AddWithValue("key", Guid.NewGuid().ToString("D"));
+        await using NpgsqlCommand count = new(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()", connection, transaction);
+
+        await take.ExecuteNonQueryAsync();
+        long held = (long)(await count.ExecuteScalarAsync())!;
+        await transaction.RollbackAsync();
+
+        Assert.Equal(1, held);
     }
 
     [Fact]
