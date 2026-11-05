@@ -20,7 +20,8 @@ async function sessionStatus(page: Page): Promise<number> {
 async function keycloakSessionId(page: Page): Promise<string> {
   const user = await page.evaluate(async () => (await fetch('/bff/user', { headers: { 'X-CSRF': '1' } })).json());
   const sid = new URL(user.logoutUrl, 'http://app.invalid').searchParams.get('sid');
-  expect(sid).toMatch(/^[0-9a-f-]{36}$/);
+  // Keycloak 26.4 uses a UUID, 26.8 an opaque 24-character id; only shell-safe characters may reach kcadm.
+  expect(sid).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
   return sid!;
 }
 
