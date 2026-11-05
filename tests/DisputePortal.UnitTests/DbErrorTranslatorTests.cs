@@ -30,6 +30,23 @@ public sealed class DbErrorTranslatorTests
         Assert.Equal((503, "database_unavailable"), (refusal?.Status, refusal?.Code));
     }
 
+    // Defence in depth behind the validators: a value PostgreSQL refuses as data is the client's 400, never a 500.
+    [Theory]
+    [InlineData("22021")]
+    [InlineData("22001")]
+    [InlineData("22P02")]
+    public void ADataExceptionIsA400InvalidValue(string sqlState)
+    {
+        ApiException? onSave = DbErrorTranslator.Translate(new DbUpdateException("save", Postgres(sqlState)));
+        ApiException? onQuery = DbErrorTranslator.Translate(Postgres(sqlState));
+
+        Assert.Equal((400, "invalid_value"), (onSave?.Status, onSave?.Code));
+        Assert.Equal((400, "invalid_value"), (onQuery?.Status, onQuery?.Code));
+    }
+
+    [Fact]
+    public void AQueryErrorOutsideClass22IsADefect() => Assert.Null(DbErrorTranslator.Translate(Postgres("42P01")));
+
     // A CHECK violation means a guard was missing: a defect, answered with 500.
     [Fact]
     public void AnythingElseIsADefect() =>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using DisputePortal.Api.Shared.Eligibility;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -27,6 +28,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string OwnerRole = "dispute_owner";
     public const string PublicBaseUrl = "http://localhost";
 
+    /// <summary>The management port under the compose alias Keycloak uses for back-channel logout.</summary>
+    public const string InternalHost = "api-mgmt";
+    public const string ManagementBaseUrl = "http://" + InternalHost + ":8081";
+    public const int ManagementPort = 8081;
+
+    /// <summary>The compose data network, and Keycloak's address on it: the peer a management-port request comes from by default.</summary>
+    public const string InternalNetwork = "10.231.28.0/24";
+    public const string KeycloakPeer = "10.231.28.20";
+
     /// <summary>The compose ACL user (deploy/bootstrap/bootstrap.sh), so every Redis command the app sends is proven under it.</summary>
     public const string RedisUser = "dispute_api";
 
@@ -46,12 +56,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public string AppConnectionString => RoleConnectionString(AppRole, appPassword);
 
+    /// <summary>The role that owns the schema (what migrations and a core-banking feed would write as).</summary>
+    public string OwnerConnectionString => RoleConnectionString(OwnerRole, ownerPassword);
+
+    /// <summary>The container's superuser on the app database: test-data setup only, never what the API connects as.</summary>
+    public string AdminConnectionString => postgres.GetConnectionString();
+
     public async Task InitializeAsync()
     {
         await Task.WhenAll(postgres.StartAsync(), redis.StartAsync());
         await PrepareRedisUserAsync();
         await PrepareRolesAsync();
-        await MigrateAsOwnerAsync();
+        Assert.Equal(0, await MigrateAsync(DatabaseName, OwnerRole, ownerPassword, TimeProvider.System));
     }
 
     // UseSetting reaches Program's configuration before Build(); hosts derived with WithWebHostBuilder inherit it.
@@ -70,6 +86,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Keycloak:Authority", FakeIdentityProvider.Issuer);
         builder.UseSetting("Keycloak:ClientSecret", IdentityProvider.ClientSecret);
         builder.UseSetting("Forwarded:KnownNetwork", "172.28.0.0/16");
+        // As compose: Keycloak reaches the management port under this name, from the data network (ADR-011).
+        builder.UseSetting("Ports:InternalHost", InternalHost);
+        builder.UseSetting("Ports:InternalNetwork", InternalNetwork);
         builder.ConfigureTestServices(services =>
         {
             // The real OIDC handler, with metadata supplied in memory and the back channel answered by the fake.
@@ -87,6 +106,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>A client that behaves like a browser tab with cookies off: no redirects followed, cookies sent by hand.</summary>
     public HttpClient CreateBrowserClient(string baseAddress = PublicBaseUrl) =>
         CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri(baseAddress) });
+
+    /// <summary>
+    /// Takes Redis commands away from the app's ACL user, or gives them back (each was allowed by the compose rule below),
+    /// to make one kind of Redis call fail while the others work. ACL changes apply to open connections at once.
+    /// </summary>
+    public async Task SetRedisCommandsAsync(bool allowed, params string[] commands)
+    {
+        ExecResult result = await redis.ExecAsync(
+            ["redis-cli", "ACL", "SETUSER", RedisUser, .. commands.Select(command => (allowed ? "+" : "-") + command)]);
+        Assert.Equal("OK", result.Stdout.Trim());
+    }
 
     // The same rule as compose's users.acl: bff:* keys only, no channels, no admin or dangerous commands.
     private async Task PrepareRedisUserAsync()
@@ -120,29 +150,49 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         }
     }
 
-    // The --migrate code path itself (MigrationRunner), on the owner's credentials, as the compose migrate job runs it.
-    private async Task MigrateAsOwnerAsync()
+    /// <summary>
+    /// The --migrate code path itself (MigrationRunner, which also seeds), as the compose migrate job runs it. The fixture
+    /// uses the owner's credentials; the seeder test points it at a fresh database with a fixed clock.
+    /// </summary>
+    public async Task<int> MigrateAsync(string database, string username, string password, TimeProvider clock)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["DatabaseOwner:Host"] = postgres.Hostname,
                 ["DatabaseOwner:Port"] = postgres.GetMappedPublicPort(PostgreSqlBuilder.PostgreSqlPort).ToString(CultureInfo.InvariantCulture),
-                ["DatabaseOwner:Name"] = DatabaseName,
-                ["DatabaseOwner:Username"] = OwnerRole,
-                ["DatabaseOwner:Password"] = ownerPassword,
+                ["DatabaseOwner:Name"] = database,
+                ["DatabaseOwner:Username"] = username,
+                ["DatabaseOwner:Password"] = password,
             })
             .Build();
         ServiceCollection services = new();
         services.AddSingleton(configuration);
         services.AddLogging();
-        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(clock);
         services.AddPersistence(DatabaseUse.Migrations);
         services.AddDataProtectionKeyRing();
+        services.AddDisputeEligibility();
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
-        int exitCode = await MigrationRunner.RunAsync(provider, CancellationToken.None);
-        Assert.Equal(0, exitCode);
+        return await MigrationRunner.RunAsync(provider, CancellationToken.None);
     }
+
+    /// <summary>A new, empty database on the same server, reachable with <see cref="AdminConnectionString"/>'s superuser.</summary>
+    public async Task<(string Name, string Username, string Password)> CreateEmptyDatabaseAsync()
+    {
+        string name = "t" + Guid.NewGuid().ToString("N");
+        await using NpgsqlConnection connection = new(AdminConnectionString);
+        await connection.OpenAsync();
+        // CREATE DATABASE takes no parameters; the name is generated above, never input.
+        await using NpgsqlCommand command = new("CREATE DATABASE " + name, connection);
+        await command.ExecuteNonQueryAsync();
+        NpgsqlConnectionStringBuilder admin = new(AdminConnectionString);
+        return (name, admin.Username!, admin.Password!);
+    }
+
+    /// <summary>A connection string for another database on the same server, as the superuser.</summary>
+    public string AdminConnectionStringFor(string database) =>
+        new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = database }.ConnectionString;
 
     private string RoleConnectionString(string role, string password) =>
         new NpgsqlConnectionStringBuilder(postgres.GetConnectionString()) { Username = role, Password = password, Database = DatabaseName }.ConnectionString;

@@ -62,7 +62,10 @@ public sealed record Money
         return Amount > other.Amount;
     }
 
-    public override string ToString() => Amount.ToString("0.00##", CultureInfo.InvariantCulture) + " " + Currency;
+    public override string ToString() => FormatAmount(Amount) + " " + Currency;
+
+    /// <summary>The wire form of an amount: an invariant decimal string with at least two decimals ("5.00", "123.4567"), never a float.</summary>
+    public static string FormatAmount(decimal amount) => amount.ToString("0.00##", CultureInfo.InvariantCulture);
 
     private void EnsureSameCurrency(Money other)
     {

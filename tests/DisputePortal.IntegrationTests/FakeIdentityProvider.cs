@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using DisputePortal.Api.Features.Bff;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -13,7 +15,8 @@ namespace DisputePortal.IntegrationTests;
 /// <summary>
 /// Keycloak's token endpoint in memory: the real OIDC handler runs the whole code + PKCE flow against it, with no
 /// network. It checks the PKCE verifier and the client secret like Keycloak, signs ID tokens with its own RSA key and
-/// rotates refresh tokens.
+/// rotates refresh tokens. It also mints back-channel logout tokens shaped like Keycloak 26.4's (captured from the real
+/// one: typ logout+jwt, RS256 with the realm key's kid, iat, exp = iat + 120 s, jti, sid, sub, events, no nonce).
 /// </summary>
 public sealed class FakeIdentityProvider
 {
@@ -176,6 +179,36 @@ public sealed class FakeIdentityProvider
             Expires = DateTime.UtcNow.AddMinutes(5),
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256),
         });
+    }
+
+    /// <summary>
+    /// A logout token for <paramref name="sessionId"/>, signed with this provider's key unless <paramref name="key"/> is
+    /// given. <paramref name="tamper"/> edits the claims before signing, to break one rule at a time.
+    /// </summary>
+    public string LogoutToken(string sessionId, string? subject = null, Action<Dictionary<string, object>>? tamper = null, SecurityKey? key = null)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Dictionary<string, object> claims = new(StringComparer.Ordinal)
+        {
+            ["iss"] = Issuer,
+            ["aud"] = ClientId,
+            ["iat"] = now,
+            ["exp"] = now + 120,
+            ["jti"] = Guid.NewGuid().ToString(),
+            ["sid"] = sessionId,
+            ["typ"] = "Logout",
+            ["events"] = new Dictionary<string, object> { [LogoutTokenValidator.BackchannelLogoutEvent] = new Dictionary<string, object>() },
+        };
+        if (subject is not null)
+        {
+            claims["sub"] = subject;
+        }
+
+        tamper?.Invoke(claims);
+        return new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false }.CreateToken(
+            JsonSerializer.Serialize(claims),
+            new SigningCredentials(key ?? signingKey, SecurityAlgorithms.RsaSha256),
+            new Dictionary<string, object> { ["typ"] = LogoutTokenValidator.TokenType });
     }
 
     private static HttpResponseMessage Error(string error) =>

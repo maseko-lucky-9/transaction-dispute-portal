@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -6,6 +7,12 @@ import { defineConfig } from "vitest/config";
 // Where the dev server proxies the BFF/API paths. Override when something else
 // already holds 8080 (DISPUTE_API_URL=http://localhost:8081 npm run dev).
 const apiTarget = process.env["DISPUTE_API_URL"] ?? "http://localhost:8080";
+
+// The committed OpenAPI snapshot, handed to the contract test as plain data (see
+// src/api/contract.test.ts). Read here, in Node, so the browser code and the dev server never
+// touch files outside web/. Null in a web-only checkout, which skips that test.
+const openApiPath = fileURLToPath(new URL("../docs/openapi.json", import.meta.url));
+const openApiSpec = existsSync(openApiPath) ? readFileSync(openApiPath, "utf8") : null;
 
 // Paths owned by the backend. In production nginx routes these; in dev Vite does.
 const backendPaths = ["/api", "/bff", "/signin-oidc", "/signout-callback-oidc"];
@@ -33,6 +40,10 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     clearMocks: true,
+    // Generous on purpose: the heaviest tests render 150 rows and, on a loaded machine, the
+    // lazy route chunks too. A test that is wrong still fails; it just is not killed for being slow.
+    testTimeout: 20_000,
+    provide: { openApiSpec },
     unstubGlobals: true,
     coverage: {
       provider: "v8",

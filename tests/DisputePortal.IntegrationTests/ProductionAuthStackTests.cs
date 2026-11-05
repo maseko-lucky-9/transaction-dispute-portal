@@ -123,12 +123,16 @@ public sealed class ProductionAuthStackTests : IDisposable
     public async Task TheSessionTicketInRedisIsEncryptedAndExpiresWithTheAbsoluteLifetime()
     {
         IdpUser user = Thandi();
-        await BrowserSession.SignInAsync(api, user);
         IConnectionMultiplexer redis = api.Services.GetRequiredService<IConnectionMultiplexer>();
         IServer server = redis.GetServer(redis.GetEndPoints().Single());
 
-        RedisKey[] keys = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
-        Assert.NotEmpty(keys);
+        // Redis is shared with the other tests of this fixture: assert only on the ticket THIS sign-in created, not on
+        // whichever other key SCAN happens to list last (their lifetimes and plaintext differ).
+        HashSet<RedisKey> before = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*")];
+        await BrowserSession.SignInAsync(api, user);
+
+        RedisKey[] keys = [.. server.Keys(pattern: RedisTicketStore.KeyPrefix + "*").Where(key => !before.Contains(key))];
+        Assert.Single(keys);
         foreach (RedisKey key in keys)
         {
             byte[] payload = (byte[])(await redis.GetDatabase().StringGetAsync(key))!;
@@ -257,6 +261,30 @@ public sealed class ProductionAuthStackTests : IDisposable
         Assert.Contains(BrowserSession.SetCookies(logout), cookie => cookie.Name == BffAuthentication.CookieName && cookie.Expires < DateTimeOffset.UtcNow);
         // The old cookie no longer opens anything: its ticket is gone from Redis.
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+    }
+
+    // ADR-011: Keycloak logs the session out (a logout at Keycloak, an admin ending it) and posts a signed logout token
+    // to the management port. The very next request is refused, long before the 5-minute access token would expire.
+    [Fact]
+    public async Task ABackchannelLogoutFromKeycloakEndsTheSessionOnTheNextRequest()
+    {
+        IdpUser user = Thandi();
+        BrowserSession session = await BrowserSession.SignInAsync(api, user);
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpClient keycloak = api.CreateBrowserClient(ApiFactory.ManagementBaseUrl);
+        HttpResponseMessage before = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+        int refreshesBefore = api.IdentityProvider.RefreshCount;
+
+        HttpResponseMessage logout = await keycloak.PostAsync(BackchannelLogoutEndpoint.Path,
+            new FormUrlEncodedContent([new KeyValuePair<string, string>("logout_token", api.IdentityProvider.LogoutToken(user.SessionId, user.Subject))]));
+        HttpResponseMessage after = await browser.SendAsync(session.Request(HttpMethod.Get, "/api/v1/me"));
+
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+        Assert.Equal("unauthorized", (await Problem.ReadAsync(after)).Code);
+        // Ended by the back channel alone: no refresh was attempted (the access token still had minutes to live).
+        Assert.Equal(refreshesBefore, api.IdentityProvider.RefreshCount);
     }
 
     // A second sign-in from the same browser must revoke the first server-side ticket, not just rotate the cookie:

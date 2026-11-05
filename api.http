@@ -1,0 +1,441 @@
+# Dispute Portal API requests, for the REST Client extension (VS Code) and the HTTP Client (JetBrains).
+#
+# HOW TO GET THE COOKIE
+#   1. Start the stack (README, "Run it") and sign in at http://localhost:8080 in a browser with a demo user.
+#      The users and their passwords are listed in README.md only; they are deliberately not repeated here.
+#      Use the customer (thandi) for @cookie and, in a second browser profile or a private window, the agent
+#      user for @agentCookie.
+#   2. The API is a BFF: the browser never holds a token, only the HttpOnly cookie `dp_session`. Open dev tools >
+#      Application (Chrome) or Storage (Firefox) > Cookies > http://localhost:8080, and copy the VALUE of
+#      `dp_session` into @cookie / @agentCookie below.
+#   3. The value is a local-only opaque session id (the tokens stay encrypted in Redis). Paste it only into your
+#      working copy of this file; do not commit a filled-in value.
+#   4. Cookies expire: 15 minutes idle (sliding) and 8 hours absolute, and logging out ends them at once. A 401 means
+#      sign in again and paste a fresh value.
+#
+# Every /api and /bff call needs the header `X-CSRF: 1` (otherwise 403 csrf_required) and the cookie.
+# If you changed APP_PORT, change @baseUrl.
+#
+# HOW TO USE
+#   Send the requests top to bottom. Later requests reuse earlier responses ({{name.response.body.$.x}}, or the
+#   ETag header for If-Match), so a named request has to be sent once before the ones that reference it.
+#   Each request notes the status it returns on a fresh database ("Expect"). The order also carries state:
+#   section 4 submits a dispute, section 5 (agent) decides it, section 6 submits and withdraws a second one,
+#   and section 7 logs out. Change the three dispute ids below to run the whole flow again on the same database.
+#   POST /disputes is limited to 10 per minute per user (429 with Retry-After beyond that).
+
+@baseUrl = http://localhost:8080
+@cookie = PASTE_CUSTOMER_dp_session_VALUE
+@agentCookie = PASTE_AGENT_dp_session_VALUE
+
+# Client-generated dispute ids. They are idempotency keys: re-sending the same id replays the stored result (200)
+# instead of creating a second dispute. Any new v4 UUID works.
+@disputeId = 100d6d35-16ab-4a57-8c1c-1708df3d912c
+@otherDisputeId = 6d555fd8-c1bc-4790-a400-a6e71334be68
+@withdrawDisputeId = dc05c18b-323a-4c89-b730-750fc399b7c4
+
+
+### 1. Session (BFF)
+
+# The signed-in user: { name, roles, logoutUrl }. 401 problem+json when the cookie is missing or expired.
+# Expect: 200
+# @name user
+GET {{baseUrl}}/bff/user
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# The customer id, subject and roles as the API sees them.
+# Expect: 200
+GET {{baseUrl}}/api/v1/me
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Starts sign-in: a redirect to Keycloak. It needs a browser to finish (the login form, then the callback), so here
+# you only see the 302 and its Location. Only local returnUrl values are accepted.
+# Expect: 302
+# @no-redirect
+GET {{baseUrl}}/bff/login?returnUrl=/
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+
+### 2. Transactions (customer: only your own)
+
+# Newest first. limit 1..100 (default 25); nextCursor is null on the last page.
+# Each item has isDisputable, disputeBlockReasons and dispute { id, status } when one exists.
+# Expect: 200
+# @name transactions
+GET {{baseUrl}}/api/v1/transactions
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Filters: status Pending|Posted|Reversed, from/to as yyyy-MM-dd (at most 366 days apart), limit.
+# Expect: 200
+# @name postedPage1
+GET {{baseUrl}}/api/v1/transactions?status=Posted&from=2026-09-01&to=2026-11-04&limit=10
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Next page: the same filters plus the opaque cursor from the previous page. The cursor is signed and bound to your
+# user and to these filters, so changing a filter with an old cursor is rejected.
+# Expect: 200
+# @name postedPage2
+GET {{baseUrl}}/api/v1/transactions?status=Posted&from=2026-09-01&to=2026-11-04&limit=10&cursor={{postedPage1.response.body.$.nextCursor}}
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# A tampered or foreign cursor.
+# Expect: 400 (problem+json; the cursor is not accepted)
+GET {{baseUrl}}/api/v1/transactions?status=Posted&limit=10&cursor=not-a-real-cursor
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# One transaction, here the first item of the list above. Another customer's id answers 404, same as an unknown id.
+# Expect: 200
+GET {{baseUrl}}/api/v1/transactions/{{transactions.response.body.$.items[0].id}}
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Expect: 404
+GET {{baseUrl}}/api/v1/transactions/00000000-0000-4000-8000-000000000000
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+
+### 3. Dispute reasons
+
+# The reason codes accepted by POST /disputes: { code, label, description }.
+# Expect: 200
+GET {{baseUrl}}/api/v1/dispute-reasons
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+
+### 4. Disputes (customer)
+
+# Two posted transactions to dispute: items[0] here, items[1] in section 6. A fresh database has both disputable.
+# Expect: 200
+# @name newestPosted
+GET {{baseUrl}}/api/v1/transactions?status=Posted&limit=2
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Submit a dispute. amount is optional (a partial dispute; omit it to dispute the whole transaction).
+# Expect: 201 (Location and ETag headers). Sending it again with the same id is a replay, see the next request.
+# @name submit
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{disputeId}}",
+  "transactionId": "{{newestPosted.response.body.$.items[0].id}}",
+  "reasonCode": "duplicate_charge",
+  "description": "Charged twice on the same day for one order.",
+  "amount": "100.00"
+}
+
+###
+
+# The same id again: 200 with the same body, and nothing new is created. Safe to retry after a timeout.
+# Expect: 200
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{disputeId}}",
+  "transactionId": "{{newestPosted.response.body.$.items[0].id}}",
+  "reasonCode": "duplicate_charge",
+  "description": "Charged twice on the same day for one order.",
+  "amount": "100.00"
+}
+
+###
+
+# A different id for a transaction that already has an open dispute: existingDisputeId points at it.
+# Expect: 409 (code dispute_exists)
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{otherDisputeId}}",
+  "transactionId": "{{newestPosted.response.body.$.items[0].id}}",
+  "reasonCode": "other",
+  "description": "A second dispute on the same transaction."
+}
+
+###
+
+# A transaction that cannot be disputed. Pending transactions fail the "posted" rule; the same 422 carries
+# violations[] for the other rules (window, debit only, amount, caps).
+# Expect: 200
+# @name pending
+GET {{baseUrl}}/api/v1/transactions?status=Pending&limit=1
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Expect: 422 (code eligibility_failed, violations[] with not_posted)
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{otherDisputeId}}",
+  "transactionId": "{{pending.response.body.$.items[0].id}}",
+  "reasonCode": "other",
+  "description": "Trying to dispute a pending transaction."
+}
+
+###
+
+# Failing validation (description is shorter than 10 characters).
+# Expect: 400 (validation_failed with errors{})
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{otherDisputeId}}",
+  "transactionId": "{{newestPosted.response.body.$.items[0].id}}",
+  "reasonCode": "other",
+  "description": "short"
+}
+
+###
+
+# A transaction id that does not exist or is not yours.
+# Expect: 404
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{otherDisputeId}}",
+  "transactionId": "00000000-0000-4000-8000-000000000000",
+  "reasonCode": "other",
+  "description": "Disputing a transaction that is not mine."
+}
+
+###
+
+# History: all of your disputes, every status, newest first. status filter: Submitted|UnderReview|Accepted|Rejected|Withdrawn.
+# Expect: 200
+GET {{baseUrl}}/api/v1/disputes?limit=25
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# Expect: 200
+GET {{baseUrl}}/api/v1/disputes?status=Submitted&limit=10
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# One dispute with its timeline (who did what: ActorType only) and a transaction summary. The ETag header is the
+# version; withdraw needs it in If-Match.
+# Expect: 200
+# @name detail
+GET {{baseUrl}}/api/v1/disputes/{{disputeId}}
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+
+### 5. Agent (the agent session: @agentCookie)
+
+# The agent policy applies: a customer cookie is refused.
+# Expect: 403
+GET {{baseUrl}}/api/v1/agent/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# The queue across all customers, newest first. status filter and cursor paging work as in the history.
+# Expect: 200
+GET {{baseUrl}}/api/v1/agent/disputes?limit=25
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
+# Expect: 200
+GET {{baseUrl}}/api/v1/agent/disputes?status=Submitted&limit=10
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
+# Detail including the actor ids in the timeline (opening it is logged as agent.dispute.viewed). ETag for If-Match.
+# Expect: 200
+# @name agentDetail
+GET {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
+# Without If-Match the change is refused.
+# Expect: 428
+POST {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/transitions
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+Content-Type: application/json
+
+{
+  "toStatus": "UnderReview"
+}
+
+###
+
+# Move to UnderReview. If-Match is the ETag of the version you read; a stale one answers 412. The response carries
+# the new ETag.
+# Expect: 200
+# @name toReview
+POST {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/transitions
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+If-Match: {{agentDetail.response.headers.ETag}}
+Content-Type: application/json
+
+{
+  "toStatus": "UnderReview"
+}
+
+###
+
+# Decide. toStatus is UnderReview|Accepted|Rejected; a note is required to accept or reject and the customer sees it.
+# Change "Accepted" to "Rejected" for the other outcome. Both are final.
+# Expect: 200
+# @name decide
+POST {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/transitions
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+If-Match: {{toReview.response.headers.ETag}}
+Content-Type: application/json
+
+{
+  "toStatus": "Accepted",
+  "note": "Duplicate charge confirmed with the merchant; refund issued."
+}
+
+###
+
+# A final dispute cannot move again, even with the current ETag.
+# Expect: 409 (code invalid_transition)
+POST {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/transitions
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+If-Match: {{decide.response.headers.ETag}}
+Content-Type: application/json
+
+{
+  "toStatus": "Rejected",
+  "note": "Trying to change a final decision."
+}
+
+
+### 6. Withdraw (customer)
+
+# A second dispute, on the second posted transaction, to withdraw.
+# Expect: 201
+POST {{baseUrl}}/api/v1/disputes
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+Content-Type: application/json
+
+{
+  "id": "{{withdrawDisputeId}}",
+  "transactionId": "{{newestPosted.response.body.$.items[1].id}}",
+  "reasonCode": "subscription_cancelled",
+  "description": "I cancelled this subscription last month."
+}
+
+###
+
+# Expect: 200
+# @name detailToWithdraw
+GET {{baseUrl}}/api/v1/disputes/{{withdrawDisputeId}}
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# If-Match is required.
+# Expect: 428
+POST {{baseUrl}}/api/v1/disputes/{{withdrawDisputeId}}/withdraw
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# A stale version.
+# Expect: 412
+POST {{baseUrl}}/api/v1/disputes/{{withdrawDisputeId}}/withdraw
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+If-Match: "0"
+
+###
+
+# Withdraw with the current ETag.
+# Expect: 200 (status Withdrawn)
+# @name withdraw
+POST {{baseUrl}}/api/v1/disputes/{{withdrawDisputeId}}/withdraw
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+If-Match: {{detailToWithdraw.response.headers.ETag}}
+
+###
+
+# Already withdrawn, even with the current ETag.
+# Expect: 409 (code invalid_transition)
+POST {{baseUrl}}/api/v1/disputes/{{withdrawDisputeId}}/withdraw
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+If-Match: {{withdraw.response.headers.ETag}}
+
+
+### 7. Logout (last: it ends the customer session, so every request after it is a 401 until you sign in again)
+
+# sid must be the id of the session in the cookie (it is the logoutUrl from GET /bff/user).
+# Expect: 400 (code invalid_logout_request)
+GET {{baseUrl}}/bff/logout?sid=not-my-session
+X-CSRF: 1
+Cookie: dp_session={{cookie}}
+
+###
+
+# logoutUrl is /bff/logout?sid=<session id>. This deletes the session and redirects to Keycloak's end-session.
+# Expect: 302
+# @no-redirect
+GET {{baseUrl}}{{user.response.body.$.logoutUrl}}
+X-CSRF: 1
+Cookie: dp_session={{cookie}}

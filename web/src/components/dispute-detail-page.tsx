@@ -1,0 +1,143 @@
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
+
+import { disputeDetailOptions, disputeReasonsOptions } from "@/api/disputes";
+import { isApiError } from "@/api/problem";
+import { DisputeOverview } from "@/components/dispute-overview";
+import { DisputeStatusBadge } from "@/components/dispute-status-badge";
+import { DisputeTimeline } from "@/components/dispute-timeline";
+import { ErrorState } from "@/components/error-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WithdrawDispute } from "@/components/withdraw-dispute";
+import { formatDateTime } from "@/lib/format";
+import { isGuid } from "@/lib/guid";
+
+// getRouteApi avoids importing the route here (the route imports this component).
+const route = getRouteApi("/disputes/$disputeId");
+
+function focusOnMount(element: HTMLElement | null) {
+  element?.focus();
+}
+
+export function DisputeDetailPage() {
+  const { disputeId } = route.useParams();
+  const validId = isGuid(disputeId);
+  // A malformed id cannot be a dispute: no request, same page as an unknown id.
+  const query = useQuery({ ...disputeDetailOptions(disputeId), enabled: validId });
+  const reasons = useQuery(disputeReasonsOptions);
+
+  if (!validId || (isApiError(query.error) && query.error.status === 404)) {
+    return <NotFoundDispute />;
+  }
+  if (query.isPending) {
+    return (
+      <div role="status" aria-busy="true" className="flex flex-col gap-4">
+        <span className="sr-only">Loading dispute...</span>
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+  if (!query.data) {
+    return (
+      <ErrorState
+        error={query.error}
+        title="We could not load this dispute"
+        headingLevel="h1"
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+
+  const { dispute, etag } = query.data;
+
+  return (
+    <div className="flex flex-col gap-8">
+      <title>Dispute - Transactions Dispute Portal</title>
+
+      <SubmissionNotice key={dispute.id} />
+
+      <div className="flex flex-col gap-2">
+        <Link to="/disputes" className="text-sm underline underline-offset-4">
+          Back to my disputes
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">Dispute: {dispute.merchantName}</h1>
+          <DisputeStatusBadge status={dispute.status} />
+        </div>
+        <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
+      </div>
+
+      <DisputeOverview
+        dispute={dispute}
+        reasons={reasons.data}
+        summaryHeading="Your dispute"
+        descriptionHeading="What you told us"
+        timeline={<DisputeTimeline entries={dispute.timeline} />}
+      />
+
+      <WithdrawDispute id={dispute.id} current={{ dispute, etag }} />
+    </div>
+  );
+}
+
+/**
+ * The "just submitted" banner. It arrives in history state from the form and must be shown
+ * ONCE: read at mount, kept in this component's state, and wiped from the history entry as soon
+ * as it is on screen, so a reload or Back/Forward to this page cannot bring it back (even after
+ * the dispute was withdrawn). Keyed by dispute, so it cannot follow the customer to another.
+ */
+function SubmissionNotice() {
+  const router = useRouter();
+  const [notice] = useState(() => {
+    const { state } = router.history.location;
+    return {
+      submitted: state.disputeSubmitted === true,
+      earlierDetailsKept: state.earlierDetailsKept === true,
+    };
+  });
+
+  useEffect(() => {
+    if (!notice.submitted) return;
+    // Same URL, empty state; the router keeps its own bookkeeping keys.
+    router.history.replace(router.history.location.href, {});
+  }, [notice.submitted, router]);
+
+  if (!notice.submitted) return null;
+  return (
+    // One live region, focused, so the whole message is heard at once.
+    <div
+      role="status"
+      tabIndex={-1}
+      ref={focusOnMount}
+      className="flex flex-col gap-1 rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
+    >
+      <p className="font-medium">
+        Your dispute was submitted. We will review it and update the timeline below.
+      </p>
+      {notice.earlierDetailsKept ? (
+        <p>
+          We had already received your request, so we kept what you sent the first time. A submitted
+          dispute cannot be edited: if the text, reason or amount below is not what you meant,
+          withdraw this dispute and raise a new one.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function NotFoundDispute() {
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <h1 className="text-2xl font-semibold">Dispute not found</h1>
+      <p className="text-muted-foreground">
+        We could not find that dispute. It may belong to someone else or no longer exist.
+      </p>
+      <Link to="/disputes" className="underline underline-offset-4">
+        Back to my disputes
+      </Link>
+    </div>
+  );
+}

@@ -28,11 +28,23 @@ function resolveSameOrigin(path: string): URL {
   return url;
 }
 
+/** A successful response: the parsed body plus what the headers carry (ETag, Location, ...). */
+export interface ApiResponse<T> {
+  data: T;
+  status: number;
+  headers: Headers;
+}
+
 /**
- * Fetch `path` and return the parsed JSON body (`undefined` for 204).
- * Throws `ApiError` for non-2xx responses (parsed from problem details) and network failures.
+ * Fetch `path` and return the parsed JSON body together with the status and headers
+ * (`data` is `undefined` for 204). Use this when a header matters, e.g. the ETag that
+ * optimistic concurrency needs. Throws `ApiError` for non-2xx responses (parsed from problem
+ * details, with the response headers attached) and for network failures.
  */
-export async function apiFetch<T = unknown>(path: string, init: ApiFetchInit = {}): Promise<T> {
+export async function apiRequest<T = unknown>(
+  path: string,
+  init: ApiFetchInit = {},
+): Promise<ApiResponse<T>> {
   const { json, headers: initHeaders, ...rest } = init;
   const url = resolveSameOrigin(path);
 
@@ -58,10 +70,16 @@ export async function apiFetch<T = unknown>(path: string, init: ApiFetchInit = {
   }
 
   if (!response.ok) throw await toApiError(response);
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) {
+    return { data: undefined as T, status: response.status, headers: response.headers };
+  }
 
   try {
-    return (await response.json()) as T;
+    return {
+      data: (await response.json()) as T,
+      status: response.status,
+      headers: response.headers,
+    };
   } catch (cause) {
     throw new ApiError(
       response.status,
@@ -70,7 +88,12 @@ export async function apiFetch<T = unknown>(path: string, init: ApiFetchInit = {
         detail: "The server sent a response we could not read.",
         status: response.status,
       },
-      { cause },
+      { cause, headers: response.headers },
     );
   }
+}
+
+/** Like `apiRequest`, for callers that only want the parsed body. */
+export async function apiFetch<T = unknown>(path: string, init: ApiFetchInit = {}): Promise<T> {
+  return (await apiRequest<T>(path, init)).data;
 }

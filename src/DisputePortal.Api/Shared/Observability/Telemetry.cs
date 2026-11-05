@@ -39,7 +39,7 @@ public static class Telemetry
                         activity.SetTag("url.full", request.RequestUri?.GetLeftPart(UriPartial.Path)))
                 .AddNpgsql())
             .WithMetrics(metrics => metrics
-                .AddMeter(SecurityMetrics.MeterName)
+                .AddMeter(SecurityMetrics.MeterName, DisputeMetrics.MeterName)
                 // The framework's own meters (.NET 8+): request duration, Kestrel connections, HttpClient, Npgsql pool.
                 .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Net.Http", "Npgsql"))
             // Reads OTEL_EXPORTER_OTLP_ENDPOINT (and the other OTEL_* variables) itself.
