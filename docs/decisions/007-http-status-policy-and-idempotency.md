@@ -1,6 +1,6 @@
 # 007. HTTP status policy, idempotent submit and optimistic concurrency
 
-Status: accepted (2026-11-04)
+Status: accepted (2026-11-04). The submit paragraph on retries (no explicit execution-strategy block) is superseded by [ADR-014](014-advisory-lock-on-dispute-caps.md).
 
 ## Decision
 - 400 malformed or failing validation; 401 unauthenticated; 403 forbidden, CSRF failure or role conflict;
