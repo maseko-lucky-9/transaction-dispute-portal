@@ -9,7 +9,9 @@ namespace DisputePortal.Api.Shared.Validation;
 public sealed class ValidationFilter<T>(IValidator<T> validator) : IEndpointFilter
 {
     // Set here: the fallback detail for a 400 describes an unreadable request, which this is not.
-    private const string Detail = "One or more fields are invalid.";
+    public const string InvalidFieldsDetail = "One or more fields are invalid.";
+
+    public const string DefaultCode = "validation_failed";
 
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -25,11 +27,12 @@ public sealed class ValidationFilter<T>(IValidator<T> validator) : IEndpointFilt
         Dictionary<string, string[]> errors = result.Errors
             .GroupBy(failure => JsonNamingPolicy.CamelCase.ConvertName(failure.PropertyName))
             .ToDictionary(group => group.Key, group => group.Select(failure => failure.ErrorMessage).ToArray());
+        string code = result.Errors.Select(failure => failure.CustomState).OfType<ProblemCode>().FirstOrDefault()?.Code ?? DefaultCode;
         return ProblemResponses.Result(new HttpValidationProblemDetails(errors)
         {
             Status = StatusCodes.Status400BadRequest,
-            Detail = Detail,
-            Extensions = { ["code"] = "validation_failed" },
+            Detail = InvalidFieldsDetail,
+            Extensions = { ["code"] = code },
         });
     }
 }

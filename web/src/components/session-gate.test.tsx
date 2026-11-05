@@ -8,6 +8,7 @@ import { navigate } from "@/lib/navigation";
 import { alice, problem, signedIn, signedOut } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
+import { fakeTransactionsApi, makeTransactions } from "@/test/transactions";
 
 vi.mock("@/lib/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof Navigation>()),
@@ -38,17 +39,31 @@ describe("session gate: signed in (200)", () => {
     expect(await screen.findByText("none assigned")).toBeInTheDocument();
   });
 
-  it("offers the later pages only as disabled placeholders", async () => {
+  it("links My transactions and My disputes for a customer, and shows no agent queue", async () => {
     server.use(signedIn());
     renderApp();
     await screen.findByText(/Signed in as/);
 
-    for (const name of ["My transactions", "Agent queue"]) {
-      const placeholder = screen.getByRole("link", { name });
-      expect(placeholder).toHaveAttribute("aria-disabled", "true");
-      expect(placeholder).not.toHaveAttribute("href");
-    }
-    expect(screen.getAllByText("Coming soon")).toHaveLength(2);
+    const transactions = screen.getByRole("link", { name: "My transactions" });
+    expect(transactions).toHaveAttribute("href", "/transactions");
+    expect(transactions).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("link", { name: "My disputes" })).toHaveAttribute("href", "/disputes");
+    expect(screen.queryByText("Agent queue")).not.toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /queue/i })).not.toBeInTheDocument();
+  });
+
+  it("opens the transactions page from Home", async () => {
+    const { handler } = fakeTransactionsApi(makeTransactions(3));
+    server.use(signedIn(), handler);
+    const { router } = renderApp();
+    await screen.findByText(/Signed in as/);
+
+    await userEvent.setup().click(screen.getByRole("link", { name: "My transactions" }));
+
+    expect(await screen.findByRole("heading", { name: "Transactions" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/transactions");
+    await screen.findByRole("table");
   });
 
   it("calls /bff/user exactly once on load", async () => {

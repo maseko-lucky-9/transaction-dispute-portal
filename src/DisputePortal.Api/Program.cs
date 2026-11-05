@@ -1,5 +1,10 @@
+using System.Text.Json.Serialization;
+using DisputePortal.Api.Features.Agent;
 using DisputePortal.Api.Features.Bff;
+using DisputePortal.Api.Features.Disputes;
 using DisputePortal.Api.Features.Me;
+using DisputePortal.Api.Features.Transactions;
+using DisputePortal.Api.Shared.Eligibility;
 using DisputePortal.Api.Shared.Errors;
 using DisputePortal.Api.Shared.Health;
 using DisputePortal.Api.Shared.Hosting;
@@ -49,6 +54,8 @@ catch (VaultUnavailableException exception)
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddPersistence(migrate ? DatabaseUse.Migrations : DatabaseUse.Application);
 builder.Services.AddDataProtectionKeyRing();
+// Before the migrate branch too: the seeder dates its demo data against the same configured window.
+builder.Services.AddDisputeEligibility();
 
 if (migrate)
 {
@@ -72,11 +79,16 @@ builder.Services.AddPerSubjectRateLimiter(builder.Configuration);
 builder.Services.AddRequestTimeouts(options => options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(30) });
 builder.Services.AddApiDocumentation();
 builder.Services.AddSingleton<IValidator<LoginRequest>, LoginRequestValidator>();
+builder.Services.AddTransactions();
+builder.Services.AddDisputes();
+builder.Services.AddAgent();
+// Enums cross the wire by name ("Posted"), and the OpenAPI document lists their values for the generated TS types.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 WebApplication app = builder.Build();
 
-// First, so everything after it (the rate limiter above all) sees the client's address, not nginx's.
-app.UseForwardedHeaders();
+// First, so everything after it (the rate limiter above all) sees the client's address, not nginx's. Public port only.
+app.UseForwardedHeadersOnThePublicPort();
 app.UseExceptionHandler();
 // Bare 401/403/404/429 statuses get a body from the same writer as every other error.
 app.UseStatusCodePages(context => ProblemResponses.WriteAsync(context.HttpContext, new ProblemDetails()));
@@ -91,6 +103,9 @@ app.UseRequestTimeouts();
 app.MapHealthEndpoints();
 app.MapBffEndpoints();
 app.MapMeEndpoints();
+app.MapTransactionsEndpoints();
+app.MapDisputesEndpoints();
+app.MapAgentEndpoints();
 app.MapApiDocumentation();
 
 if (!await DependencyGate.WaitAsync(app.Services, app.Logger, CancellationToken.None))

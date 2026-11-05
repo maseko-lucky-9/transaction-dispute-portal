@@ -73,6 +73,17 @@ test('edge: security headers per location, no-store on the API, Keycloak admin i
   expect(api.headers()['cache-control']).toContain('no-store');
   expect(api.headers()['x-content-type-options']).toBe('nosniff');
 
+  // Keycloak's back-channel logout lives only on the API's unpublished management port (ADR-011): the public origin
+  // answers 404 for it in any spelling, and so does the auth origin. nginx answers itself (an HTML page, not the API's
+  // problem+json), so the request never reaches the API; the API refuses the route on its public port as well.
+  for (const path of ['/bff/backchannel-logout', '/BFF/Backchannel-Logout', '/bff/backchannel-logout/']) {
+    const post = await request.post(path, { form: { logout_token: 'x' }, maxRedirects: 0 });
+    expect(post.status(), `POST ${path}`).toBe(404);
+    expect(post.headers()['content-type'], `POST ${path}`).toContain('text/html');
+    expect((await request.get(path, { maxRedirects: 0 })).status(), `GET ${path}`).toBe(404);
+  }
+  expect((await request.post(`${authUrl}/bff/backchannel-logout`, { form: { logout_token: 'x' } })).status()).toBe(404);
+
   for (const path of [
     '/admin/master/console/',
     '/realms/master/.well-known/openid-configuration',

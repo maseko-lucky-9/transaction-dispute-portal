@@ -48,6 +48,34 @@ public sealed class OpenApiTests(ApiFactory api)
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me", out _));
     }
 
+    // The agent routes' contract: If-Match required on the move, 412 and 428 documented, ETag on the 200s and the 412.
+    [Fact]
+    public async Task TheAgentRoutesDocumentIfMatchTheETagAnd412And428()
+    {
+        using JsonDocument document = JsonDocument.Parse(await DocumentAsync());
+        JsonElement paths = document.RootElement.GetProperty("paths");
+        JsonElement move = paths.GetProperty("/api/v1/agent/disputes/{id}/transitions").GetProperty("post");
+        JsonElement detail = paths.GetProperty("/api/v1/agent/disputes/{id}").GetProperty("get");
+        JsonElement queue = paths.GetProperty("/api/v1/agent/disputes").GetProperty("get");
+
+        JsonElement ifMatch = move.GetProperty("parameters").EnumerateArray().Single(parameter => parameter.GetProperty("name").GetString() == "If-Match");
+        Assert.True(ifMatch.GetProperty("required").GetBoolean());
+        Assert.Equal("header", ifMatch.GetProperty("in").GetString());
+        JsonElement moveResponses = move.GetProperty("responses");
+        foreach (string status in new[] { "200", "400", "401", "403", "404", "409", "412", "428" })
+        {
+            Assert.True(moveResponses.TryGetProperty(status, out _), "transition " + status);
+        }
+
+        Assert.True(moveResponses.GetProperty("200").GetProperty("headers").TryGetProperty("ETag", out _));
+        Assert.True(moveResponses.GetProperty("412").GetProperty("headers").TryGetProperty("ETag", out _));
+        Assert.True(detail.GetProperty("responses").GetProperty("200").GetProperty("headers").TryGetProperty("ETag", out _));
+        Assert.True(detail.GetProperty("responses").TryGetProperty("404", out _));
+        Assert.True(queue.GetProperty("responses").TryGetProperty("400", out _));
+        Assert.Equal(["UnderReview", "Accepted", "Rejected"], document.RootElement.GetProperty("components").GetProperty("schemas")
+            .GetProperty("TransitionRequest").GetProperty("properties").GetProperty("toStatus").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
     // Signed in, so the fallback policy (deny by default, unmatched paths included) cannot hide a served document behind a 401.
     [Fact]
     public async Task AProductionHostDoesNotServeTheDocument()

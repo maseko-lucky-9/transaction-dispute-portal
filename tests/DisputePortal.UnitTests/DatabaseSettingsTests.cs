@@ -24,6 +24,14 @@ public sealed class DatabaseSettingsTests
         Assert.True(string.IsNullOrEmpty(migrations.Options));
     }
 
+    // The API fails fast so an unhealthy replica is replaced; the one-shot migrate job waits out a busy host.
+    [Fact]
+    public void TheMigrationConnectionWaitsLongerToOpenThanTheApi()
+    {
+        Assert.Equal(5, new NpgsqlConnectionStringBuilder(Settings.ToConnectionString(DatabaseUse.Application)).Timeout);
+        Assert.Equal(30, new NpgsqlConnectionStringBuilder(Settings.ToConnectionString(DatabaseUse.Migrations)).Timeout);
+    }
+
     // Three replicas at 20 stay under Postgres's default max_connections of 100.
     [Fact]
     public void ThePoolDefaultsTo20AndIsConfigurable()

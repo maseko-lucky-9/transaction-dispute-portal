@@ -25,7 +25,25 @@ export default defineConfig([
     },
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",
+      // zod must be configured for the CSP before any schema exists: see src/lib/zod.ts.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "zod",
+              message:
+                'Import { z } from "@/lib/zod": it applies the CSP-safe zod configuration first.',
+            },
+          ],
+        },
+      ],
     },
+  },
+  {
+    // The two files that ARE the zod entry point, and the test that pins the configuration.
+    files: ["src/lib/zod.ts", "src/lib/zod-csp.ts", "src/lib/zod-csp.test.ts"],
+    rules: { "no-restricted-imports": "off" },
   },
   {
     // Node-side files: build config and the post-build guard.

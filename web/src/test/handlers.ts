@@ -9,6 +9,20 @@ export const alice: User = {
   logoutUrl: "/bff/logout?sid=abc123",
 };
 
+/** A back-office agent: the `dispute-agent` role and no customer role. */
+export const bob: User = {
+  name: "Bob Agent",
+  roles: ["dispute-agent"],
+  logoutUrl: "/bff/logout?sid=agent456",
+};
+
+/** Both roles at once, which the server refuses everywhere. */
+export const carol: User = {
+  name: "Carol Both",
+  roles: ["customer", "dispute-agent"],
+  logoutUrl: "/bff/logout?sid=both789",
+};
+
 export function signedIn(user: User = alice) {
   return http.get("/bff/user", () => HttpResponse.json(user));
 }
@@ -18,7 +32,11 @@ export function signedOut() {
 }
 
 /** An RFC 9457 response as the API sends it. */
-export function problem(status: number, body: ProblemDetails = {}) {
+export function problem(
+  status: number,
+  body: ProblemDetails = {},
+  headers: Record<string, string> = {},
+) {
   return HttpResponse.json(
     {
       type: "about:blank",
@@ -30,6 +48,6 @@ export function problem(status: number, body: ProblemDetails = {}) {
       traceId: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       ...body,
     },
-    { status, headers: { "Content-Type": "application/problem+json" } },
+    { status, headers: { "Content-Type": "application/problem+json", ...headers } },
   );
 }

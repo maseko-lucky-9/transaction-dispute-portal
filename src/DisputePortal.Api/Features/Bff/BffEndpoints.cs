@@ -35,6 +35,7 @@ public static class BffEndpoints
             .WithSummary("The signed-in user, for the SPA's auth gate.")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
+        bff.MapBackchannelLogout();
         return app;
     }
 
@@ -42,7 +43,8 @@ public static class BffEndpoints
         [AsParameters] LoginRequest request, RedisTicketStore sessions, IOptionsMonitor<OpenIdConnectOptions> oidcOptions, CancellationToken cancellationToken)
     {
         await sessions.EnsureAvailableAsync();
-        await EnsureIdentityProviderAsync(oidcOptions.Get(OpenIdConnectDefaults.AuthenticationScheme), cancellationToken);
+        // The challenge needs the metadata; without it the OIDC handler throws and the user would see a 500.
+        await IdentityProviderMetadata.GetAsync(oidcOptions.Get(OpenIdConnectDefaults.AuthenticationScheme), cancellationToken);
         AuthenticationProperties properties = new() { RedirectUri = request.ReturnUrl ?? Home };
         return TypedResults.Challenge(properties, [OpenIdConnectDefaults.AuthenticationScheme]);
     }
@@ -71,20 +73,6 @@ public static class BffEndpoints
         return TypedResults.SignOut(
             new AuthenticationProperties { RedirectUri = Home },
             [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
-    }
-
-    // The challenge needs the metadata; without it the OIDC handler throws and the user would see a 500.
-    // A cached configuration is returned even while a refresh of it fails, so only a cold miss lands here.
-    private static async Task EnsureIdentityProviderAsync(OpenIdConnectOptions options, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await options.ConfigurationManager!.GetConfigurationAsync(cancellationToken);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw new IdentityProviderUnavailableException(exception);
-        }
     }
 
     private static Ok<BffUserResponse> GetUser(ClaimsPrincipal user) =>
