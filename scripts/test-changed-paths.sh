@@ -40,7 +40,7 @@ check "scripts/check-image-pins.sh" "backend"
 # frontend only: the web image changes, the api image does not
 check "frontend/src/components/transactions-page.tsx" "frontend,stack,web"
 check "frontend/package-lock.json" "frontend,stack,web"
-check "frontend/nginx/default.conf" "frontend,stack,web"
+check "frontend/nginx/default.conf.template" "frontend,stack,web"
 # shared fixtures and contract
 check "frontend/src/lib/validation-cases.json" "backend,frontend,stack,web"
 check "docs/openapi.json" "backend,frontend"
