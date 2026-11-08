@@ -2,7 +2,7 @@
 log_format json escape=json '{"time":"$time_iso8601","request_id":"$request_id","remote_addr":"$remote_addr","method":"$request_method","uri":"$uri","status":$status,"bytes":$body_bytes_sent,"rt":$request_time,"upstream_rt":"$upstream_response_time","upstream":"$upstream_addr","host":"$http_host","ua":"$http_user_agent"}';
 access_log /dev/stdout json;
 
-resolver 127.0.0.11 valid=10s ipv6=off;
+resolver ${DP_RESOLVER} valid=10s ipv6=off;
 
 # Throttle credential POSTs only (Keycloak also locks accounts out). Docker Desktop NATs every host client to one
 # address, so GETs are never limited here and the rates are generous. 429 rather than the default 503.
@@ -16,12 +16,12 @@ limit_req_status 429;
 
 upstream api_up {
   zone api_up 64k;
-  server api:8080 resolve;
+  server ${DP_API_UPSTREAM} resolve;
   keepalive 16;
 }
 upstream keycloak_up {
   zone keycloak_up 64k;
-  server keycloak:8080 resolve;
+  server ${DP_KEYCLOAK_UPSTREAM} resolve;
 }
 
 # The app cookie is not port-scoped, so the browser also sends it to the auth origin. Strip it there, keeping the

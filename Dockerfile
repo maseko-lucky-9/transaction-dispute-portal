@@ -27,7 +27,13 @@ FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c68
 USER root
 RUN apk upgrade --no-cache
 USER nginx
-COPY frontend/nginx/default.conf /etc/nginx/conf.d/default.conf
+# The image's entrypoint renders /etc/nginx/templates/*.template into conf.d at start. Only DP_* variables are
+# substituted (nginx's own $vars stay). The defaults are the compose values; k8s overrides them (ADR-015).
+ENV NGINX_ENVSUBST_FILTER=^DP_ \
+    DP_RESOLVER=127.0.0.11 \
+    DP_API_UPSTREAM=api:8080 \
+    DP_KEYCLOAK_UPSTREAM=keycloak:8080
+COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY frontend/nginx/security-headers.conf frontend/nginx/csp-app.conf frontend/nginx/csp-deny.conf /etc/nginx/
 COPY --from=web-build /web/dist /usr/share/nginx/html
 EXPOSE 8080 8180

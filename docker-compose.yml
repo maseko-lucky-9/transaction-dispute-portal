@@ -193,7 +193,8 @@ services:
       retries: 12
     <<: *hardened
     read_only: true
-    tmpfs: [/tmp]
+    # conf.d is rendered from the template at start, so it must be writable (as the nginx user).
+    tmpfs: [/tmp, "/etc/nginx/conf.d:uid=101,gid=101,mode=0755"]
     networks: [edge, app]
 
   # docker compose --profile observability up   (set OTEL_ENDPOINT=http://lgtm:4317 for the api)
