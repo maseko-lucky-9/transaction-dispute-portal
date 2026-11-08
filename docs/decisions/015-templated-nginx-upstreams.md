@@ -16,5 +16,5 @@ Status: accepted (2026-11-08). Prerequisite D0 of the per-half rollout (ADR-012)
 ## Consequences
 
 - A cluster sets the three variables (the resolver is the cluster DNS service IP). Nothing else in the image changes.
-- A wrong upstream still starts nginx and answers 502 for that route, as before.
+- A non-empty but unreachable upstream still starts nginx and answers 502 for that route, as before. An empty variable renders an invalid config and nginx exits at start, so a deployment must set all three or none.
 - Not covered: the CSP, cookie and Host handling assume the compose topology (two origins, ports 8080 and 8180). Ingress hostnames are a separate decision (Part D1).
