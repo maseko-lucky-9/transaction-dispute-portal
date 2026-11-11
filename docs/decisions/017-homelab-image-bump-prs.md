@@ -138,7 +138,7 @@ bot authorship, tokens that live one hour and are minted per run, and permission
   did publish: that half's bump waits for a later push that publishes it again, a re-run of the failed jobs, or a
   dispatch of that half.
 - Re-running an old run's `bump-homelab` job is harmless: it sees the newer open or merged bump PR and stops. It does
-  not see a newer bump that was closed without merging, so after such a close an old re-run would open its PR again.
+  not see a newer bump that was closed without merging, so after such a close an old re-run would open its PR again. Re-running a job for a commit whose bump PR was merged and later reverted re-opens that bump (the merged PR is its own branch, not a newer one).
 - The contract rule is stated in every PR, not detected: the job does not know whether the published range touched
   `docs/openapi.json`.
 - The cross-repository steps (clone, push, PR, label, close) need the secret and cannot run locally; their script is

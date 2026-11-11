@@ -90,6 +90,12 @@ setup() {
   git -C "$sc/remote.git" symbolic-ref HEAD refs/heads/master
   quiet_git clone -q --depth=1 --branch master "file://$sc/remote.git" "$sc/runner/homelab-infra" 2>/dev/null
 }
+# seed_branch <branch> <api digest>: the remote branch gets a commit that differs from master (an earlier attempt)
+seed_branch() {
+  ( cd "$w/sc/seed" && quiet_git checkout -q -B "$1" master &&
+    sed "s|digest: $API0|digest: $2|" apps/dispute-portal/kustomization.yaml > k.tmp && mv k.tmp apps/dispute-portal/kustomization.yaml &&
+    quiet_git commit -q -am "earlier attempt" && git push -q origin "HEAD:refs/heads/$1" ) >/dev/null 2>&1
+}
 own_pr() { printf '%s %s %s\n' "$1" "$2" "https://github.com/maseko-lucky-9/homelab-infra/pull/$2" >> "$STUB/heads"; }
 
 # run <half> <digest> <sha>: sets $out and $rc
@@ -97,7 +103,7 @@ run() {
   cases=$((cases + 1))
   out=$(cd "$w" && env PATH="$w/bin:$PATH" STUB="$STUB" HALF="$1" DIGEST="$2" GITHUB_SHA="$3" GH_TOKEN=stub \
     HOMELAB_REPO=maseko-lucky-9/homelab-infra HOMELAB_FILE=apps/dispute-portal/kustomization.yaml \
-    HOMELAB_DIR="$w/sc/runner/homelab-infra" PORTAL_DIR="$portal" BUMP_SCRIPT="$root/scripts/bump-homelab-image.sh" \
+    HOMELAB_DIR="$w/sc/runner/homelab-infra" PORTAL_DIR="${PORTAL_OVERRIDE:-$portal}" BUMP_SCRIPT="$root/scripts/bump-homelab-image.sh" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=maseko-lucky-9/transaction-dispute-portal GITHUB_RUN_ID=42 \
     RUNNER_TEMP="$w/sc/runner" bash "$OPEN_PR" 2>&1)
   rc=$?
@@ -151,15 +157,20 @@ called '^pr close 51 ' || bad "S5: this run's own no-op PR #51 was not closed"
 called '^pr close 52 ' || bad "S5: the older PR #52 was not closed"
 called '^pr (create|edit) ' && bad "S5: a no-op run created or edited a PR"
 
-# --- S6: a re-run of the same commit with a rebuilt digest: the branch is replaced, the PR reused and refreshed
+# --- S6: a re-run of the same commit with a rebuilt digest: the branch is replaced, the PR reused and refreshed.
+# The remote branch already holds an earlier attempt (digest D1) that is not an ancestor of the new commit, so only a
+# forced push can replace it.
 setup "$(pr 61 api "$c3" OPEN yes)"
+seed_branch "$(br api "$c3")" "$D1"
+git -C "$w/sc/remote.git" show "$(br api "$c3"):apps/dispute-portal/kustomization.yaml" | grep -q "digest: $D1" || bad "S6: the seeded branch does not differ from master"
 own_pr "$(br api "$c3")" 61
 run api "$D2" "$c3"
 [ "$rc" -eq 0 ] || bad "S6: exit $rc: $out"
 called '^pr edit https://github.com/maseko-lucky-9/homelab-infra/pull/61 .*--add-label ci-bump .*--body-file ' || bad "S6: the open PR was not refreshed: $(cat "$STUB/log")"
 called '^pr create ' && bad "S6: a second PR was created for the same branch"
 called '^pr close ' && bad "S6: a PR was closed"
-git -C "$w/sc/remote.git" show "$(br api "$c3"):apps/dispute-portal/kustomization.yaml" | grep -q "digest: $D2" || bad "S6: the branch does not carry the new digest"
+k=$(git -C "$w/sc/remote.git" show "$(br api "$c3"):apps/dispute-portal/kustomization.yaml")
+printf '%s\n' "$k" | grep -q "digest: $D2" && ! printf '%s\n' "$k" | grep -q "digest: $D1" || bad "S6: the branch was not replaced by the new digest"
 grep -q "$D2" "$w/sc/runner/bump-pr-body.md" || bad "S6: the body does not carry the new digest"
 
 # --- S7: a digest the bump script refuses: fails, changes nothing
@@ -180,6 +191,15 @@ called '^pr close (81|83) ' && bad "S8: an api PR was closed by a web run"
 setup
 run api "$D1" "0123456789abcdef0123456789abcdef01234567"
 [ "$rc" -ne 0 ] && ! called "$mutating" || bad "S9: an unknown GITHUB_SHA was not refused (rc $rc)"
+
+# --- S10: a shallow portal checkout fails closed before any decision (the ancestry checks would silently say "no")
+setup "$(pr 101 api "$c1" OPEN yes)"
+quiet_git clone -q --depth 1 "file://$portal" "$w/shallow" 2>/dev/null
+PORTAL_OVERRIDE="$w/shallow" run api "$D1" "$c3"
+[ "$rc" -ne 0 ] || bad "S10: a shallow portal clone was accepted"
+case "$out" in *"shallow clone"*) ;; *) bad "S10: no 'shallow clone' message: $out" ;; esac
+called "$mutating" && bad "S10: a shallow run changed PRs"
+remote_has "$(br api "$c3")" && bad "S10: a shallow run pushed"
 
 if [ "$fail" -eq 0 ]; then
   echo "test-open-homelab-bump-pr: $cases cases passed"

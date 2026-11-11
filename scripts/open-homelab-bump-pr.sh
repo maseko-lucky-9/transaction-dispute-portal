@@ -38,6 +38,10 @@ title="chore(dispute-portal): bump ${HALF} image to ${short}"
 portal_commit="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
 run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
+# A shallow clone makes `merge-base --is-ancestor` answer "no" for related commits, which would silently turn the stale
+# guard off: refuse it before any ancestry decision.
+[ "$(git -C "$PORTAL_DIR" rev-parse --is-shallow-repository)" = false ] ||
+  die "$PORTAL_DIR is a shallow clone; the ancestry checks need full history (actions/checkout fetch-depth: 0)"
 git -C "$PORTAL_DIR" cat-file -e "${GITHUB_SHA}^{commit}" 2>/dev/null || die "$GITHUB_SHA is not in $PORTAL_DIR (it needs full history)"
 
 # --- ordering: decide before touching anything
