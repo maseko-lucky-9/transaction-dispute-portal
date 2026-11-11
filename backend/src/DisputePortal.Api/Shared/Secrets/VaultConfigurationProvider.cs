@@ -51,6 +51,9 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
                 return;
             case VaultAuthMethod.Kubernetes when string.IsNullOrWhiteSpace(settings.KubernetesRole):
                 throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes but Vault:KubernetesRole is empty");
+            // The service-account token is a replayable credential: never send it over plain http.
+            case VaultAuthMethod.Kubernetes when !settings.Address.StartsWith("https://", StringComparison.OrdinalIgnoreCase):
+                throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes, so Vault:Address must use https://");
             case VaultAuthMethod.Kubernetes:
                 return;
             default:
@@ -88,7 +91,7 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
     {
         if (settings.AuthMethod == VaultAuthMethod.Kubernetes)
         {
-            string jwt = (await File.ReadAllTextAsync(settings.JwtFile)).Trim();
+            string jwt = (await ReadTokenAsync(settings.JwtFile)).Trim();
             if (jwt.Length == 0)
             {
                 // Retryable like a missing file; the token itself is never part of a message.
@@ -101,6 +104,19 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
         string roleId = (await File.ReadAllTextAsync(settings.RoleIdFile)).Trim();
         string secretId = (await File.ReadAllTextAsync(settings.SecretIdFile)).Trim();
         return new AppRoleAuthMethodInfo(roleId, secretId);
+    }
+
+    // A token file the process cannot read yet (permissions or the mount still settling) is retried like a missing one.
+    private static async Task<string> ReadTokenAsync(string path)
+    {
+        try
+        {
+            return await File.ReadAllTextAsync(path);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new IOException($"The service-account token file {path} cannot be read", exception);
+        }
     }
 
     // A missing file, a refused connection or a Vault error (sealed, 403 before the policy or role exists) may all clear

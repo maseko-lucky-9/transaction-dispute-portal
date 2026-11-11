@@ -11,6 +11,9 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 {
     private const string Address = "http://vault.test:8200";
 
+    // Kubernetes auth refuses plain http; the in-memory handler answers either scheme.
+    private const string HttpsAddress = "https://vault.test:8200";
+
     // A distinctive stand-in for the service-account token, so a leak into a message is easy to spot.
     private const string Jwt = "test-service-account-token-7f3c9a";
 
@@ -112,7 +115,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         IConfiguration configuration = Load(Kubernetes(), AnswerVault);
 
         Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
-        Assert.Contains($"POST {Address}/v1/auth/kubernetes/login", requested);
+        Assert.Contains($"POST {HttpsAddress}/v1/auth/kubernetes/login", requested);
         Assert.DoesNotContain(requested, request => request.Contains("approle", StringComparison.Ordinal));
         JsonElement login = Assert.Single(logins);
         Assert.Equal("dispute-api", login.GetProperty("role").GetString());
@@ -126,8 +129,8 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 
         Load(Kubernetes(mountPoint: "k8s-homelab"), AnswerVault);
 
-        Assert.Contains($"POST {Address}/v1/auth/k8s-homelab/login", requested);
-        Assert.DoesNotContain($"POST {Address}/v1/auth/kubernetes/login", requested);
+        Assert.Contains($"POST {HttpsAddress}/v1/auth/k8s-homelab/login", requested);
+        Assert.DoesNotContain($"POST {HttpsAddress}/v1/auth/kubernetes/login", requested);
     }
 
     // The kubelet rotates the projected token, so a retry must send the current file, not the one first read.
@@ -217,6 +220,60 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Empty(requested);
     }
 
+    // The service-account token is replayable, so it never goes over plain http.
+    [Fact]
+    public void KubernetesOverPlainHttpFailsAtOnceWithoutARequest()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() =>
+            Load(Kubernetes(address: Address, firstRetryDelay: TimeSpan.FromSeconds(5)), AnswerVault));
+
+        Assert.Contains("https://", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
+    [Fact]
+    public void KubernetesAcceptsAnUpperCaseHttpsScheme()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        Load(Kubernetes(address: "HTTPS://vault.test:8200"), AnswerVault);
+
+        Assert.Single(logins);
+    }
+
+    // Compose talks to Vault over http://vault:8200 on the internal network; AppRole keeps working there.
+    [Fact]
+    public void AppRoleOverPlainHttpStillLoads()
+    {
+        IConfiguration configuration = Build(migrate: false, AnswerVault);
+
+        Assert.StartsWith("http://", Address, StringComparison.Ordinal);
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+    }
+
+    // A token file the process cannot read yet (here a directory in its place) is retried like a missing one.
+    [Fact]
+    public async Task AnUnreadableTokenFileIsRetriedUntilItCanBeRead()
+    {
+        Directory.CreateDirectory(TokenFile);
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+        Task fixedUp = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            Directory.Delete(TokenFile);
+            await File.WriteAllTextAsync(TokenFile, Jwt);
+        });
+
+        IConfiguration configuration = Load(Kubernetes(firstRetryDelay: TimeSpan.FromSeconds(1)), AnswerVault);
+        await fixedUp;
+
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+        Assert.Equal(Jwt, Assert.Single(logins).GetProperty("jwt").GetString());
+        Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(900), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
+    }
+
     // A typo in the method name fails in the binder, before the provider; it is reported like any other bad setting.
     [Fact]
     public void AnUnknownAuthMethodNameIsReportedAsMisconfiguration()
@@ -274,9 +331,9 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 
     private string TokenFile => Path.Combine(directory, "token");
 
-    private VaultSettings Kubernetes(string role = "dispute-api", string mountPoint = "kubernetes", TimeSpan? firstRetryDelay = null) => new()
+    private VaultSettings Kubernetes(string role = "dispute-api", string mountPoint = "kubernetes", TimeSpan? firstRetryDelay = null, string address = HttpsAddress) => new()
     {
-        Address = Address,
+        Address = address,
         AuthMethod = VaultAuthMethod.Kubernetes,
         KubernetesRole = role,
         KubernetesMountPoint = mountPoint,

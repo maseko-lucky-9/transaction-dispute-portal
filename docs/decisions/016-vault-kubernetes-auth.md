@@ -10,9 +10,10 @@ The API and the migrate job log in to Vault with AppRole, reading `role_id` and 
 
 - `Vault:AuthMethod` selects the login: `AppRole` (the default, so compose and every existing setting behave as before) or `Kubernetes`.
 - Kubernetes settings: `Vault:KubernetesRole` (required), `Vault:JwtFile` (default `/var/run/secrets/kubernetes.io/serviceaccount/token`), `Vault:KubernetesMountPoint` (default `kubernetes`). The cluster manifest sets `Vault__AuthMethod=Kubernetes`, `Vault__KubernetesRole=<role>` and, only if the token is projected elsewhere, `Vault__JwtFile`.
-- The token file is read and trimmed on every attempt, never cached: the kubelet rotates projected tokens, and the file may not be mounted yet on the first attempt. A missing or empty file is retried like a missing AppRole file.
+- The token file is read and trimmed on every attempt, never cached: the kubelet rotates projected tokens, and the file may not be mounted yet on the first attempt. A missing, empty or unreadable file is retried like a missing AppRole file.
+- The token is a replayable credential, so Kubernetes auth requires an `https://` `Vault:Address` (any case). AppRole is not affected; compose keeps `http://vault:8200` on the internal network.
 - Login uses VaultSharp's `KubernetesAuthMethodInfo(mountPoint, role, jwt)` (`POST auth/<mount>/login` with `{role, jwt}`), inside the same bounded retry and backoff. `VaultUnavailableException` names the auth method in use.
-- Settings that can never work fail at once with `VaultMisconfiguredException`, before any request: `Kubernetes` with an empty role, or an undefined enum value. `Program.cs` logs one line and exits 1, without the "start the stack" hint. An unknown name such as `Kubernets` is rejected by the configuration binder when `AddVaultSecrets` reads the section; that failure is rethrown as `VaultMisconfiguredException`, so it ends in the same one-line exit instead of a stack trace.
+- Settings that can never work fail at once with `VaultMisconfiguredException`, before any request: `Kubernetes` with an empty role or a non-https address, or an undefined enum value. `Program.cs` logs one line and exits 1, without the "start the stack" hint. An unknown name such as `Kubernets` is rejected by the configuration binder when `AddVaultSecrets` reads the section; that failure is rethrown as `VaultMisconfiguredException`, so it ends in the same one-line exit instead of a stack trace.
 - The token, role id and secret id never appear in a log line or an exception message.
 
 ## Consequences
