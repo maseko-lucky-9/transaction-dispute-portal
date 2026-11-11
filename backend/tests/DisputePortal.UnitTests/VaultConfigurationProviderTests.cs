@@ -156,6 +156,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
     [Fact]
     public async Task AMissingTokenFileIsRetriedUntilItAppears()
     {
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
         Task mounted = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromMilliseconds(100));
@@ -167,6 +168,8 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 
         Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
         Assert.Equal(Jwt, Assert.Single(logins).GetProperty("jwt").GetString());
+        // At least one backoff happened, so the first read really found no file.
+        Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(900), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
     }
 
     [Fact]
@@ -212,6 +215,23 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 
         Assert.Contains("not supported", failure.Message, StringComparison.Ordinal);
         Assert.Empty(requested);
+    }
+
+    // A typo in the method name fails in the binder, before the provider; it is reported like any other bad setting.
+    [Fact]
+    public void AnUnknownAuthMethodNameIsReportedAsMisconfiguration()
+    {
+        ConfigurationManager configuration = new();
+        configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Vault:Address"] = Address,
+            ["Vault:AuthMethod"] = "Kubernets",
+            ["Vault:Attempts"] = "1",
+        });
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() => configuration.AddVaultSecrets(migrate: false));
+
+        Assert.Contains("Vault:AuthMethod", failure.Message, StringComparison.Ordinal);
     }
 
     // Vault refusing the login (role not bound to this service account) must not echo the token anywhere.
