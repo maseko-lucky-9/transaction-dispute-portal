@@ -158,7 +158,8 @@ a rolling restart of `api` (and a re-run of `migrate` where noted).
   valid until their TTL expires; to revoke one immediately use `vault write auth/approle/role/<role>/secret-id-accessor/destroy`
   (run on the Vault host through the cluster's own exec path).
 - A new `role_id` requires deleting and recreating the role, which `bootstrap` does not do.
-- Production: replace AppRole-by-file with platform identity (README "Known limits").
+- Production: replace AppRole-by-file with platform identity. On Kubernetes set `Vault__AuthMethod=Kubernetes` and
+  `Vault__KubernetesRole=<role>`; the API then logs in with its service-account token (ADR-016).
 
 **Database passwords** (`dispute_app`, `dispute_owner`, `keycloak` role)
 - Generated once into the `secrets` volume and set on first Postgres start (`deploy/postgres/init.sh`). The bootstrap

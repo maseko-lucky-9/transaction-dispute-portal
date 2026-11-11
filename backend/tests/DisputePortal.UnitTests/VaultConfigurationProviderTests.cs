@@ -1,17 +1,25 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using DisputePortal.Api.Shared.Secrets;
 using Microsoft.Extensions.Configuration;
 
 namespace DisputePortal.UnitTests;
 
-/// <summary>Vault's HTTP API answered in memory: AppRole login, then KV v2 reads mapped onto configuration keys.</summary>
+/// <summary>Vault's HTTP API answered in memory: AppRole or Kubernetes login, then KV v2 reads mapped onto configuration keys.</summary>
 public sealed class VaultConfigurationProviderTests : IDisposable
 {
     private const string Address = "http://vault.test:8200";
 
+    // Kubernetes auth refuses plain http; the in-memory handler answers either scheme.
+    private const string HttpsAddress = "https://vault.test:8200";
+
+    // A distinctive stand-in for the service-account token, so a leak into a message is easy to spot.
+    private const string Jwt = "test-service-account-token-7f3c9a";
+
     private readonly string directory = Directory.CreateTempSubdirectory("vault-test").FullName;
     private readonly List<string> requested = [];
+    private readonly List<JsonElement> logins = [];
 
     [Fact]
     public void TheApiPathsLandUnderTheirConfigurationPrefixes()
@@ -99,6 +107,241 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             new ConfigurationBuilder().Add(new VaultConfigurationSource(settings, VaultSecretPath.For(false))).Build());
     }
 
+    [Fact]
+    public void KubernetesLoginPostsTheRoleAndTheTrimmedTokenToTheDefaultMount()
+    {
+        File.WriteAllText(TokenFile, Jwt + "\n");
+
+        IConfiguration configuration = Load(Kubernetes(), AnswerVault);
+
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+        Assert.Contains($"POST {HttpsAddress}/v1/auth/kubernetes/login", requested);
+        Assert.DoesNotContain(requested, request => request.Contains("approle", StringComparison.Ordinal));
+        JsonElement login = Assert.Single(logins);
+        Assert.Equal("dispute-api", login.GetProperty("role").GetString());
+        Assert.Equal(Jwt, login.GetProperty("jwt").GetString());
+    }
+
+    [Fact]
+    public void KubernetesLoginUsesTheConfiguredMountPoint()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        Load(Kubernetes(mountPoint: "k8s-homelab"), AnswerVault);
+
+        Assert.Contains($"POST {HttpsAddress}/v1/auth/k8s-homelab/login", requested);
+        Assert.DoesNotContain($"POST {HttpsAddress}/v1/auth/kubernetes/login", requested);
+    }
+
+    // The kubelet rotates the projected token, so a retry must send the current file, not the one first read.
+    [Fact]
+    public void TheTokenIsReReadOnEveryAttempt()
+    {
+        File.WriteAllText(TokenFile, "token-before-rotation");
+        bool rotated = false;
+
+        Load(Kubernetes(), request =>
+        {
+            if (!rotated && request.RequestUri!.AbsolutePath.EndsWith("/login", StringComparison.Ordinal))
+            {
+                rotated = true;
+                File.WriteAllText(TokenFile, "token-after-rotation");
+                return Track(request, new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+            }
+
+            return AnswerVault(request);
+        });
+
+        Assert.Equal(["token-before-rotation", "token-after-rotation"], logins.Select(login => login.GetProperty("jwt").GetString()));
+    }
+
+    // The token may not be mounted yet when the container starts; a missing file is retried, not fatal.
+    [Fact]
+    public async Task AMissingTokenFileIsRetriedUntilItAppears()
+    {
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+        Task mounted = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            await File.WriteAllTextAsync(TokenFile, Jwt);
+        });
+
+        IConfiguration configuration = Load(Kubernetes(firstRetryDelay: TimeSpan.FromSeconds(1)), AnswerVault);
+        await mounted;
+
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+        Assert.Equal(Jwt, Assert.Single(logins).GetProperty("jwt").GetString());
+        // At least one backoff happened, so the first read really found no file.
+        Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(900), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
+    }
+
+    [Fact]
+    public void AnEmptyTokenFileIsRetriedThenReportedWithoutARequest()
+    {
+        File.WriteAllText(TokenFile, " \n");
+
+        VaultUnavailableException failure = Assert.Throws<VaultUnavailableException>(() => Load(Kubernetes(), AnswerVault));
+
+        Assert.Contains("Kubernetes login after 3 attempts", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
+    [Fact]
+    public void KubernetesWithoutARoleFailsAtOnceWithoutARequest()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() =>
+            Load(Kubernetes(role: " ", firstRetryDelay: TimeSpan.FromSeconds(5)), AnswerVault));
+
+        Assert.Contains("KubernetesRole", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
+    }
+
+    [Fact]
+    public void AnUnknownAuthMethodFailsAtOnceWithoutARequest()
+    {
+        File.WriteAllText(Path.Combine(directory, "role_id"), "role-123");
+        File.WriteAllText(Path.Combine(directory, "secret_id"), "secret-456");
+        VaultSettings settings = new()
+        {
+            Address = Address,
+            AuthMethod = (VaultAuthMethod)42,
+            RoleIdFile = Path.Combine(directory, "role_id"),
+            SecretIdFile = Path.Combine(directory, "secret_id"),
+            FirstRetryDelay = TimeSpan.FromSeconds(5),
+        };
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() => Load(settings, AnswerVault));
+
+        Assert.Contains("not supported", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
+    // The service-account token is replayable, so it never goes over plain http.
+    [Fact]
+    public void KubernetesOverPlainHttpFailsAtOnceWithoutARequest()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() =>
+            Load(Kubernetes(address: Address, firstRetryDelay: TimeSpan.FromSeconds(5)), AnswerVault));
+
+        Assert.Contains("https://", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
+    [Fact]
+    public void KubernetesAcceptsAnUpperCaseHttpsScheme()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        Load(Kubernetes(address: "HTTPS://vault.test:8200"), AnswerVault);
+
+        Assert.Single(logins);
+    }
+
+    // Compose talks to Vault over http://vault:8200 on the internal network; AppRole keeps working there.
+    [Fact]
+    public void AppRoleOverPlainHttpStillLoads()
+    {
+        IConfiguration configuration = Build(migrate: false, AnswerVault);
+
+        Assert.StartsWith("http://", Address, StringComparison.Ordinal);
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+    }
+
+    // A token file the process cannot read yet (here a directory in its place) is retried like a missing one.
+    [Fact]
+    public async Task AnUnreadableTokenFileIsRetriedUntilItCanBeRead()
+    {
+        Directory.CreateDirectory(TokenFile);
+        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+        Task fixedUp = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            Directory.Delete(TokenFile);
+            await File.WriteAllTextAsync(TokenFile, Jwt);
+        });
+
+        IConfiguration configuration = Load(Kubernetes(firstRetryDelay: TimeSpan.FromSeconds(1)), AnswerVault);
+        await fixedUp;
+
+        Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
+        Assert.Equal(Jwt, Assert.Single(logins).GetProperty("jwt").GetString());
+        Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(900), $"elapsed {elapsed.Elapsed.TotalMilliseconds} ms");
+    }
+
+    // A typo in the method name fails in the binder, before the provider; it is reported like any other bad setting.
+    [Fact]
+    public void AnUnknownAuthMethodNameIsReportedAsMisconfiguration()
+    {
+        ConfigurationManager configuration = new();
+        configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Vault:Address"] = Address,
+            ["Vault:AuthMethod"] = "Kubernets",
+            ["Vault:Attempts"] = "1",
+        });
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() => configuration.AddVaultSecrets(migrate: false));
+
+        Assert.Contains("Vault:AuthMethod", failure.Message, StringComparison.Ordinal);
+    }
+
+    // Vault refusing the login (role not bound to this service account) must not echo the token anywhere.
+    [Fact]
+    public void NoExceptionMessageContainsTheToken()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        VaultUnavailableException failure = Assert.Throws<VaultUnavailableException>(() => Load(Kubernetes(), request =>
+            Track(request, new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = JsonContent.Create(new { errors = new[] { "permission denied" } }) })));
+
+        Assert.Contains("Kubernetes login after 3 attempts", failure.Message, StringComparison.Ordinal);
+        for (Exception? exception = failure; exception is not null; exception = exception.InnerException)
+        {
+            Assert.DoesNotContain(Jwt, exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(Jwt, exception.ToString(), StringComparison.Ordinal);
+        }
+    }
+
+    // The cluster manifest sets Vault__AuthMethod, Vault__KubernetesRole and Vault__JwtFile; the rest keep their defaults.
+    [Fact]
+    public void TheClusterSettingsBindFromConfiguration()
+    {
+        VaultSettings settings = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Vault:AuthMethod"] = "Kubernetes",
+                ["Vault:KubernetesRole"] = "dispute-api",
+            })
+            .Build()
+            .GetSection(VaultSettings.Section)
+            .Get<VaultSettings>()!;
+
+        Assert.Equal(VaultAuthMethod.Kubernetes, settings.AuthMethod);
+        Assert.Equal("dispute-api", settings.KubernetesRole);
+        Assert.Equal("/var/run/secrets/kubernetes.io/serviceaccount/token", settings.JwtFile);
+        Assert.Equal("kubernetes", settings.KubernetesMountPoint);
+        Assert.Equal(VaultAuthMethod.AppRole, new VaultSettings().AuthMethod);
+    }
+
+    private string TokenFile => Path.Combine(directory, "token");
+
+    private VaultSettings Kubernetes(string role = "dispute-api", string mountPoint = "kubernetes", TimeSpan? firstRetryDelay = null, string address = HttpsAddress) => new()
+    {
+        Address = address,
+        AuthMethod = VaultAuthMethod.Kubernetes,
+        KubernetesRole = role,
+        KubernetesMountPoint = mountPoint,
+        JwtFile = TokenFile,
+        Attempts = 3,
+        FirstRetryDelay = firstRetryDelay ?? TimeSpan.FromMilliseconds(1),
+    };
+
     private IConfiguration Build(bool migrate, Func<HttpRequestMessage, HttpResponseMessage> respond, TimeSpan? firstRetryDelay = null)
     {
         File.WriteAllText(Path.Combine(directory, "role_id"), "role-123\n");
@@ -111,14 +354,17 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             Attempts = 3,
             FirstRetryDelay = firstRetryDelay ?? TimeSpan.FromMilliseconds(1),
         };
-        return new ConfigurationBuilder()
+        return Load(settings, respond, migrate);
+    }
+
+    private static IConfiguration Load(VaultSettings settings, Func<HttpRequestMessage, HttpResponseMessage> respond, bool migrate = false) =>
+        new ConfigurationBuilder()
             .Add(new VaultConfigurationSource(settings, VaultSecretPath.For(migrate)) { HttpMessageHandler = new Responder(respond) })
             .Build();
-    }
 
     private HttpResponseMessage AnswerVault(HttpRequestMessage request) => request.RequestUri!.AbsolutePath switch
     {
-        "/v1/auth/approle/login" => Track(request, Json(new { auth = new { client_token = "token", lease_duration = 60, renewable = false, policies = Array.Empty<string>() } })),
+        "/v1/auth/approle/login" or "/v1/auth/kubernetes/login" or "/v1/auth/k8s-homelab/login" => Track(request, Json(new { auth = new { client_token = "token", lease_duration = 60, renewable = false, policies = Array.Empty<string>() } })),
         "/v1/kv/data/dispute-portal/database" => Track(request, Secret(new() { ["Host"] = "postgres", ["Port"] = "5432", ["Name"] = "dispute_portal", ["Username"] = "dispute_app", ["Password"] = "app-pass" })),
         "/v1/kv/data/dispute-portal/database-owner" => Track(request, Secret(new() { ["Host"] = "postgres", ["Username"] = "dispute_owner", ["Password"] = "owner-pass" })),
         "/v1/kv/data/dispute-portal/redis" => Track(request, Secret(new() { ["Host"] = "redis", ["Username"] = "dispute_app", ["Password"] = "redis-pass" })),
@@ -129,6 +375,11 @@ public sealed class VaultConfigurationProviderTests : IDisposable
     private HttpResponseMessage Track(HttpRequestMessage request, HttpResponseMessage response)
     {
         requested.Add(request.Method + " " + request.RequestUri!.GetLeftPart(UriPartial.Path));
+        if (request.RequestUri.AbsolutePath.EndsWith("/login", StringComparison.Ordinal))
+        {
+            logins.Add(JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult()).RootElement.Clone());
+        }
+
         return response;
     }
 
