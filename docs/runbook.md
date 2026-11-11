@@ -192,6 +192,24 @@ a rolling restart of `api` (and a re-run of `migrate` where noted).
 `users.acl`. Rotate by deleting `redis/password`, re-running `bootstrap`, and restarting `redis` and `api` together.
 [UNVERIFIED: not exercised.]
 
+**CI secret `HOMELAB_INFRA_TOKEN`** (an environment secret of this repo's `homelab-infra` environment, which only
+deployments from `main` can use; read only by the `bump-homelab` job; ADR-017)
+- A fine-grained personal access token for `maseko-lucky-9/homelab-infra` only: Contents read and write, Pull requests
+  read and write, Metadata read. Give it an expiry of 90 days at most. Not read by the API, so no restart.
+- Where it lives: `gh secret set HOMELAB_INFRA_TOKEN --env homelab-infra -R maseko-lucky-9/transaction-dispute-portal`
+  (the value on stdin, never argv), then delete any repository-level copy:
+  `gh secret delete HOMELAB_INFRA_TOKEN -R maseko-lucky-9/transaction-dispute-portal`. The job's `if` is not a
+  control; the environment's branch restriction is. Until the repository-level secret is deleted, a workflow edited on
+  any branch can still read it.
+- Rotate: create the replacement with the same scope, set it in the environment as above, prove it with a `ci`
+  dispatch from `main` with `dry_run` false (a bump PR opens, or "already at this digest"), then revoke the old token
+  in GitHub settings.
+- Suspected leak: revoke first. `master` in homelab-infra is not protected (ADR-017), so a leaked token can push to it
+  (ArgoCD syncs it: any Application, Vault policies, prunes), and it can force-push and rewrite history, so `git log` is
+  not evidence. Use homelab-infra's activity view (Insights, or `https://github.com/maseko-lucky-9/homelab-infra/activity`)
+  and the token owner's security log for pushes and force-pushes, then check ArgoCD's sync history for unexpected
+  revisions, and the open PRs and branches named `bump/`.
+
 ## 8. Incident steps
 
 First, for any incident: take the `traceId` from the error (the SPA shows it as "Reference"), find the request in the
@@ -214,6 +232,40 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 3. Rotate the secrets that may have leaked (Section 7).
 4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
+
+**Homelab deploy: merging a bump PR** ([ADR-017](decisions/017-homelab-image-bump-prs.md)). After each publish on
+`main`, CI opens one pull request per published half in `maseko-lucky-9/homelab-infra`, titled
+`chore(dispute-portal): bump <half> image to <sha7>`, branch `bump/dispute-portal-<half>-<12 hex of the sha>`, label
+`ci-bump`. At most one is open per half: a run for a newer commit closes the bump PRs for its ancestors as superseded,
+and a re-run of an older run sees the newer PR and stops without touching anything. The PR is opened by the token
+owner's account (a PAT acts as its owner); the commit only names `github-actions[bot]` as author.
+1. Review it as code: the diff must be exactly one `digest:` line in `apps/dispute-portal/kustomization.yaml`, and the
+   digest must match the portal run's `publish` summary for that commit (`published ghcr.io/...@sha256:...`).
+2. Contract rule: if the portal commit changed `docs/openapi.json`, merge the api bump first and wait for it to be
+   healthy before merging the web bump; the API must stay backward compatible for one release.
+3. Merge (squash). ArgoCD's `dispute-portal` Application (namespace `argocd`) auto-syncs: the `dispute-migrate` Sync
+   hook Job (wave 4) re-runs the migrations, then `dispute-api` (wave 5) and `dispute-web` (wave 6) roll.
+4. Watch it: `ssh homelab 'microk8s kubectl -n argocd get application dispute-portal -o jsonpath="{.status.sync.status} {.status.health.status} {.status.operationState.phase}"'`
+   and `ssh homelab 'microk8s kubectl -n dispute-portal rollout status deploy/dispute-api deploy/dispute-web'`.
+5. To re-open a bump by hand (a PR was closed by mistake, or the job failed): run `ci` by `workflow_dispatch` from
+   `main` with `half` set and `dry_run` false; it re-publishes that half for the current `main` commit and opens its PR.
+   If `bump-homelab` fails with "HOMELAB_INFRA_TOKEN is not set", the secret is missing or expired (ADR-017, rotation).
+
+**Homelab rollback**: revert the bump PR in homelab-infra (GitHub's Revert button on the merged PR, then merge the
+revert PR). ArgoCD syncs back to the previous digest; the migrate hook runs again with the old image, which has no
+newer migrations to apply. Migrations are forward-only: a revert does not undo a schema change, so a migration that
+broke the old code needs a forward fix. Do not hand-edit digests anywhere else in the manifests.
+
+**Homelab migrate hook failed**: the sync stops at wave 4, so the old api and web pods keep serving (the new image is
+not rolled). Read the cause: `ssh homelab 'microk8s kubectl -n dispute-portal logs job/dispute-migrate --tail=200'`
+(a Vault login error, a database error, or a failing migration). The Application retries the sync up to 5 times with
+backoff. If the cause is in the new image, revert the bump PR. If the cause is the environment (Vault sealed,
+Postgres down), fix it and let the retry or a manual sync run the hook again. If the operation is stuck on the failing
+hook (phase `Running` and the revert's sync never starts), terminate it first, then sync:
+`ssh homelab 'argocd app terminate-op dispute-portal'`, or when the CLI cannot reach the server, patch the Application
+status directly:
+`ssh homelab 'microk8s kubectl -n argocd patch application dispute-portal --type merge -p "{\"status\":{\"operationState\":{\"phase\":\"Terminating\"}}}"'`.
+[UNVERIFIED: no hook failure has been exercised on the cluster.]
 
 **Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`), but only for the image a commit changed (ADR-012), so a commit has an `api` tag, a `web` tag, both or neither. Roll each image back on its own: redeploy the previous sha that published it (the package's tag list, or the `publish` job summary of the earlier run), or pin by digest. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]
 

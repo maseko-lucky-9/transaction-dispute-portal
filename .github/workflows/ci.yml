@@ -48,6 +48,10 @@ jobs:
           persist-credentials: false
       - name: the classifier's table test
         run: scripts/test-changed-paths.sh
+      - name: the homelab image-bump script's table test (ADR-017)
+        run: scripts/test-bump-homelab-image.sh
+      - name: the homelab bump-PR step's test (ADR-017)
+        run: scripts/test-open-homelab-bump-pr.sh
       - name: classify the change
         id: paths
         env:
@@ -339,6 +343,105 @@ jobs:
           name: sbom-${{ matrix.half }}
           path: sbom-${{ matrix.half }}.cdx.json
           retention-days: 30
+
+  bump-homelab:
+    # ADR-017: after a real publish, open (never merge) a pull request in homelab-infra that pins the new image digest
+    # in apps/dispute-portal/kustomization.yaml; ArgoCD deploys it once a human merges. A separate job so the
+    # cross-repo token never shares a job with packages:write and id-token:write. It runs only when `publish` pushed:
+    # the same DO_PUSH rule as `publish` (a push to main, or a dispatch from main with dry_run false), inlined because a
+    # job-level `if` cannot read `env`. A dry run skips this job entirely. The `if` is not the control, though: the
+    # token lives in the `homelab-infra` environment, which only deployments from `main` can use. One failed publish leg
+    # fails `publish` as a whole and so blocks both legs here. Not in ci-ok's `needs` (publish already needs ci-ok, and
+    # it never gates a PR). The digest is re-read from the registry rather than taken from publish's outputs (matrix
+    # legs share one output) and then bound to its provenance attestation before anything uses it.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.changes.outputs.halves != '[]' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && github.ref == 'refs/heads/main')) }}
+    needs: [changes, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: homelab-infra
+    strategy:
+      fail-fast: false
+      matrix:
+        half: ${{ fromJSON(needs.changes.outputs.halves) }}
+    concurrency:
+      group: bump-homelab-${{ matrix.half }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      HALF: ${{ matrix.half }}
+      HOMELAB_REPO: maseko-lucky-9/homelab-infra
+      HOMELAB_FILE: apps/dispute-portal/kustomization.yaml
+    steps:
+      - name: the homelab-infra token is configured
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error title=HOMELAB_INFRA_TOKEN is not set::The secret HOMELAB_INFRA_TOKEN (environment homelab-infra; fine-grained, homelab-infra only, contents + pull requests write) is missing or not available to this run. The image was published, but no homelab bump PR was opened. See ADR-017." >&2
+            exit 1
+          fi
+      - name: resolve the published digest from the registry
+        id: digest
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/maseko-lucky-9/dispute-portal-${HALF}:${GITHUB_SHA}"
+          re='^sha256:[0-9a-f]{64}$'
+          digest=""
+          for attempt in 1 2 3; do
+            digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref" 2>/dev/null | tr -d '[:space:]' || true)
+            if [[ $digest =~ $re ]]; then break; fi
+            echo "attempt ${attempt}: no valid digest for ${ref} yet ('${digest}')"
+            sleep 5
+          done
+          if ! [[ $digest =~ $re ]]; then
+            echo "::error::could not resolve ${ref} to a sha256 digest (got '${digest}')" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "resolved ${ref} -> ${digest}"
+      - name: the digest carries this commit's build provenance
+        # The tag is mutable; the attestation is not. Pin only a digest that ci.yml itself attested, on refs/heads/main,
+        # for exactly this commit (publish's attest-build-provenance step), from a GitHub-hosted runner.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if gh attestation verify "oci://ghcr.io/maseko-lucky-9/dispute-portal-${HALF}@${DIGEST}" \
+                --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml" \
+                --source-ref refs/heads/main \
+                --source-digest "$GITHUB_SHA" \
+                --deny-self-hosted-runners; then
+              echo "provenance verified for dispute-portal-${HALF}@${DIGEST} (ci.yml, refs/heads/main, ${GITHUB_SHA})"
+              exit 0
+            fi
+            echo "attempt ${attempt}: provenance not verified yet"
+            sleep 10
+          done
+          echo "::error::no valid build provenance for dispute-portal-${HALF}@${DIGEST} from ci.yml on refs/heads/main at ${GITHUB_SHA}" >&2
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the PR step orders bump PRs by portal ancestry (a re-run of an old run must not win).
+          fetch-depth: 0
+          persist-credentials: false
+      - name: clone homelab-infra
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+        run: |
+          set -euo pipefail
+          # gh supplies the token through a credential helper: it is never in a URL, argv or the remote config.
+          gh repo clone "$HOMELAB_REPO" "$RUNNER_TEMP/homelab-infra" -- --depth=1 --branch master
+          gh auth setup-git --hostname github.com
+      - name: open the bump pull request and close the ones it supersedes
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: scripts/open-homelab-bump-pr.sh
 
   ci-ok:
     if: always()
