@@ -47,14 +47,16 @@ try
 catch (VaultUnavailableException exception)
 {
     using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
-    startupLogging.CreateLogger("Startup").LogCritical("{Reason}; " + DependencyGate.StartStackHint, exception.Message);
+    // Cause: the inner exception chain (types and messages only), e.g. the TLS trust failure behind "unreachable".
+    startupLogging.CreateLogger("Startup").LogCritical(
+        "{Reason}; " + DependencyGate.StartStackHint + "; cause: {Cause}", exception.Message, VaultFailureDetail.Describe(exception));
     return 1;
 }
 catch (VaultMisconfiguredException exception)
 {
     // A settings error, not a stack that is still starting, so no "start the stack" hint.
     using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
-    startupLogging.CreateLogger("Startup").LogCritical("{Reason}", exception.Message);
+    startupLogging.CreateLogger("Startup").LogCritical("{Reason}; cause: {Cause}", exception.Message, VaultFailureDetail.Describe(exception));
     return 1;
 }
 

@@ -21,12 +21,16 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
     private async Task<Dictionary<string, string?>> LoadWithRetryAsync()
     {
         Validate(source.Settings);
+        // Read once, before the retry loop: a bad pin file is a settings error, not something that clears up.
+        byte[]? pinnedHash = string.IsNullOrWhiteSpace(source.Settings.PinnedServerCertificateFile)
+            ? null
+            : VaultServerCertificatePin.ReadHash(source.Settings.PinnedServerCertificateFile);
         TimeSpan delay = source.Settings.FirstRetryDelay;
         for (int attempt = 1; ; attempt++)
         {
             try
             {
-                return await ReadAllAsync();
+                return await ReadAllAsync(pinnedHash);
             }
             catch (Exception exception) when (IsRetryable(exception) && attempt < source.Settings.Attempts)
             {
@@ -62,12 +66,17 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
         }
     }
 
-    private async Task<Dictionary<string, string?>> ReadAllAsync()
+    private async Task<Dictionary<string, string?>> ReadAllAsync(byte[]? pinnedHash)
     {
         VaultClientSettings clientSettings = new(source.Settings.Address, await LoginInfoAsync(source.Settings));
         if (source.HttpMessageHandler is { } handler)
         {
+            // The test seam: the injected handler is used as-is and the pin is NOT applied (unit tests answer in memory).
             clientSettings.MyHttpClientProviderFunc = _ => new HttpClient(handler, disposeHandler: false);
+        }
+        else if (pinnedHash is not null)
+        {
+            clientSettings.PostProcessHttpClientHandlerAction = vaultHandler => VaultServerCertificatePin.Apply(vaultHandler, pinnedHash);
         }
 
         VaultClient client = new(clientSettings);
