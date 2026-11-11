@@ -50,6 +50,13 @@ catch (VaultUnavailableException exception)
     startupLogging.CreateLogger("Startup").LogCritical("{Reason}; " + DependencyGate.StartStackHint, exception.Message);
     return 1;
 }
+catch (VaultMisconfiguredException exception)
+{
+    // A settings error, not a stack that is still starting, so no "start the stack" hint.
+    using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
+    startupLogging.CreateLogger("Startup").LogCritical("{Reason}", exception.Message);
+    return 1;
+}
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddPersistence(migrate ? DatabaseUse.Migrations : DatabaseUse.Application);
