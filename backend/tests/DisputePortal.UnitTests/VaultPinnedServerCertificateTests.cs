@@ -24,19 +24,7 @@ public sealed class VaultPinnedServerCertificateTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        WebApplicationBuilder builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
-        builder.WebHost.UseKestrelCore().ConfigureKestrel(kestrel =>
-            kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(serverCertificate)));
-        server = builder.Build();
-        server.Run(async context =>
-        {
-            requested.Add(context.Request.Method + " " + context.Request.Path);
-            using HttpResponseMessage answer = FakeVaultResponses.For(context.Request.Path);
-            context.Response.StatusCode = (int)answer.StatusCode;
-            context.Response.ContentType = answer.Content.Headers.ContentType?.ToString();
-            await answer.Content.CopyToAsync(context.Response.Body);
-        });
-        await server.StartAsync();
+        server = await ServeAsync(serverCertificate);
         address = server.Urls.Single();
         await File.WriteAllTextAsync(TokenFile, Jwt);
     }
@@ -96,6 +84,21 @@ public sealed class VaultPinnedServerCertificateTests : IAsyncLifetime
         Assert.Empty(requested);
     }
 
+    // End to end: the runtime reports RemoteCertificateNameMismatch before the callback runs, and the correct pin does
+    // not override it. The certificate names only vault.test; the client reaches it by 127.0.0.1.
+    [Fact]
+    public async Task TheCorrectPinIsStillRejectedWhenTheHostNameIsNotInTheCertificate()
+    {
+        using X509Certificate2 vaultTestOnly = TestCertificates.DnsOnly("vault.test");
+        await using WebApplication other = await ServeAsync(vaultTestOnly);
+
+        VaultUnavailableException failure = Assert.Throws<VaultUnavailableException>(() =>
+            Load(Kubernetes(Pin(vaultTestOnly), other.Urls.Single())));
+
+        Assert.Contains("AuthenticationException", VaultFailureDetail.Describe(failure), StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
     // Security configuration: a pin file that cannot be read fails at once, before any request and without a retry.
     [Fact]
     public void AMissingPinFileFailsAtOnceWithoutARequest()
@@ -133,6 +136,24 @@ public sealed class VaultPinnedServerCertificateTests : IAsyncLifetime
 
     private string TokenFile => Path.Combine(directory, "token");
 
+    private async Task<WebApplication> ServeAsync(X509Certificate2 certificate)
+    {
+        WebApplicationBuilder builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.WebHost.UseKestrelCore().ConfigureKestrel(kestrel =>
+            kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
+        WebApplication app = builder.Build();
+        app.Run(async context =>
+        {
+            requested.Add(context.Request.Method + " " + context.Request.Path);
+            using HttpResponseMessage answer = FakeVaultResponses.For(context.Request.Path);
+            context.Response.StatusCode = (int)answer.StatusCode;
+            context.Response.ContentType = answer.Content.Headers.ContentType?.ToString();
+            await answer.Content.CopyToAsync(context.Response.Body);
+        });
+        await app.StartAsync();
+        return app;
+    }
+
     private string Pin(X509Certificate2 certificate)
     {
         string path = Path.Combine(directory, $"pin-{Guid.NewGuid():N}.pem");
@@ -142,9 +163,9 @@ public sealed class VaultPinnedServerCertificateTests : IAsyncLifetime
 
     // One attempt: a wrong pin is retryable (HttpRequestException), so the retry would only slow the suite. A pin-file
     // failure is VaultMisconfiguredException, never the VaultUnavailableException a retryable error would end in.
-    private VaultSettings Kubernetes(string pinFile) => new()
+    private VaultSettings Kubernetes(string pinFile, string? vaultAddress = null) => new()
     {
-        Address = address,
+        Address = vaultAddress ?? address,
         AuthMethod = VaultAuthMethod.Kubernetes,
         KubernetesRole = "dispute-api",
         JwtFile = TokenFile,

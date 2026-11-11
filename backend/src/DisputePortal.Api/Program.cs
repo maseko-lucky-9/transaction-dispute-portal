@@ -49,14 +49,14 @@ catch (VaultUnavailableException exception)
     using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
     // Cause: the inner exception chain (types and messages only), e.g. the TLS trust failure behind "unreachable".
     startupLogging.CreateLogger("Startup").LogCritical(
-        "{Reason}; " + DependencyGate.StartStackHint + "; cause: {Cause}", exception.Message, VaultFailureDetail.Describe(exception));
+        "{Reason}; " + DependencyGate.StartStackHint + "; cause: {Cause}", exception.Message, CauseOf(exception));
     return 1;
 }
 catch (VaultMisconfiguredException exception)
 {
     // A settings error, not a stack that is still starting, so no "start the stack" hint.
     using ILoggerFactory startupLogging = LoggerFactory.Create(logging => logging.AddJsonConsole());
-    startupLogging.CreateLogger("Startup").LogCritical("{Reason}; cause: {Cause}", exception.Message, VaultFailureDetail.Describe(exception));
+    startupLogging.CreateLogger("Startup").LogCritical("{Reason}; cause: {Cause}", exception.Message, CauseOf(exception));
     return 1;
 }
 
@@ -124,3 +124,10 @@ if (!await DependencyGate.WaitAsync(app.Services, app.Logger, CancellationToken.
 
 await app.RunAsync();
 return 0;
+
+// "none" instead of an empty field when the failure has no inner exception (for example an empty Kubernetes role).
+static string CauseOf(Exception exception)
+{
+    string cause = VaultFailureDetail.Describe(exception);
+    return cause.Length == 0 ? "none" : cause;
+}

@@ -253,6 +253,30 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
     }
 
+    // A pin over plain http would never be checked and would send the AppRole ids in cleartext, so it is refused.
+    [Fact]
+    public void AppRoleWithAPinOverPlainHttpFailsAtOnceWithoutARequest()
+    {
+        using System.Security.Cryptography.X509Certificates.X509Certificate2 certificate = TestCertificates.Server();
+        string pinFile = Path.Combine(directory, "vault.pem");
+        File.WriteAllText(pinFile, certificate.ExportCertificatePem());
+        File.WriteAllText(Path.Combine(directory, "role_id"), "role-123");
+        File.WriteAllText(Path.Combine(directory, "secret_id"), "secret-456");
+        VaultSettings settings = new()
+        {
+            Address = Address,
+            RoleIdFile = Path.Combine(directory, "role_id"),
+            SecretIdFile = Path.Combine(directory, "secret_id"),
+            PinnedServerCertificateFile = pinFile,
+            Attempts = 1,
+        };
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() => Load(settings, AnswerVault));
+
+        Assert.Contains("must use https://", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
     // A token file the process cannot read yet (here a directory in its place) is retried like a missing one.
     [Fact]
     public async Task AnUnreadableTokenFileIsRetriedUntilItCanBeRead()
@@ -344,7 +368,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal(string.Empty, VaultFailureDetail.Describe(new VaultUnavailableException("outer", null)));
     }
 
-    // The cluster manifest sets Vault__AuthMethod, Vault__KubernetesRole and Vault__JwtFile; the rest keep their defaults.
+    // The cluster manifest sets Vault__AuthMethod, Vault__KubernetesRole, Vault__JwtFile and Vault__PinnedServerCertificateFile; the rest keep their defaults.
     [Fact]
     public void TheClusterSettingsBindFromConfiguration()
     {
@@ -353,6 +377,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             {
                 ["Vault:AuthMethod"] = "Kubernetes",
                 ["Vault:KubernetesRole"] = "dispute-api",
+                ["Vault:PinnedServerCertificateFile"] = "/vault-tls/ca.crt",
             })
             .Build()
             .GetSection(VaultSettings.Section)
@@ -362,6 +387,8 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal("dispute-api", settings.KubernetesRole);
         Assert.Equal("/var/run/secrets/kubernetes.io/serviceaccount/token", settings.JwtFile);
         Assert.Equal("kubernetes", settings.KubernetesMountPoint);
+        Assert.Equal("/vault-tls/ca.crt", settings.PinnedServerCertificateFile);
+        Assert.Equal(string.Empty, new VaultSettings().PinnedServerCertificateFile);
         Assert.Equal(VaultAuthMethod.AppRole, new VaultSettings().AuthMethod);
     }
 

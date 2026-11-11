@@ -49,6 +49,12 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
     // empty file path already fails on the first read, as it always has.
     private static void Validate(VaultSettings settings)
     {
+        // A pin over plain http would be skipped silently and send the credentials in cleartext: refuse it, any method.
+        if (!string.IsNullOrWhiteSpace(settings.PinnedServerCertificateFile) && !IsHttps(settings.Address))
+        {
+            throw new VaultMisconfiguredException("Vault:PinnedServerCertificateFile is set, so Vault:Address must use https://");
+        }
+
         switch (settings.AuthMethod)
         {
             case VaultAuthMethod.AppRole:
@@ -56,7 +62,7 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
             case VaultAuthMethod.Kubernetes when string.IsNullOrWhiteSpace(settings.KubernetesRole):
                 throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes but Vault:KubernetesRole is empty");
             // The service-account token is a replayable credential: never send it over plain http.
-            case VaultAuthMethod.Kubernetes when !settings.Address.StartsWith("https://", StringComparison.OrdinalIgnoreCase):
+            case VaultAuthMethod.Kubernetes when !IsHttps(settings.Address):
                 throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes, so Vault:Address must use https://");
             case VaultAuthMethod.Kubernetes:
                 return;
@@ -65,6 +71,8 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
                     $"Vault:AuthMethod '{settings.AuthMethod}' is not supported; use AppRole or Kubernetes");
         }
     }
+
+    private static bool IsHttps(string address) => address.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     private async Task<Dictionary<string, string?>> ReadAllAsync(byte[]? pinnedHash)
     {
