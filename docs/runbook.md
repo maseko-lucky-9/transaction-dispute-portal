@@ -192,15 +192,23 @@ a rolling restart of `api` (and a re-run of `migrate` where noted).
 `users.acl`. Rotate by deleting `redis/password`, re-running `bootstrap`, and restarting `redis` and `api` together.
 [UNVERIFIED: not exercised.]
 
-**CI secret `HOMELAB_INFRA_TOKEN`** (repository secret of this repo, used only by the `bump-homelab` job; ADR-017)
+**CI secret `HOMELAB_INFRA_TOKEN`** (an environment secret of this repo's `homelab-infra` environment, which only
+deployments from `main` can use; read only by the `bump-homelab` job; ADR-017)
 - A fine-grained personal access token for `maseko-lucky-9/homelab-infra` only: Contents read and write, Pull requests
   read and write, Metadata read. Give it an expiry of 90 days at most. Not read by the API, so no restart.
-- Rotate: create the replacement with the same scope, then
-  `gh secret set HOMELAB_INFRA_TOKEN -R maseko-lucky-9/transaction-dispute-portal` (the value on stdin, never argv),
-  prove it with a `ci` dispatch from `main` with `dry_run` false (a bump PR opens, or "already at this digest"), then
-  revoke the old token in GitHub settings.
-- Suspected leak: revoke first, then check homelab-infra for unexpected pushes to `master` and branches or PRs named
-  `bump/`. `master` there is not protected (ADR-017), so a leaked token can push to it and ArgoCD would sync it.
+- Where it lives: `gh secret set HOMELAB_INFRA_TOKEN --env homelab-infra -R maseko-lucky-9/transaction-dispute-portal`
+  (the value on stdin, never argv), then delete any repository-level copy:
+  `gh secret delete HOMELAB_INFRA_TOKEN -R maseko-lucky-9/transaction-dispute-portal`. The job's `if` is not a
+  control; the environment's branch restriction is. Until the repository-level secret is deleted, a workflow edited on
+  any branch can still read it.
+- Rotate: create the replacement with the same scope, set it in the environment as above, prove it with a `ci`
+  dispatch from `main` with `dry_run` false (a bump PR opens, or "already at this digest"), then revoke the old token
+  in GitHub settings.
+- Suspected leak: revoke first. `master` in homelab-infra is not protected (ADR-017), so a leaked token can push to it
+  (ArgoCD syncs it: any Application, Vault policies, prunes), and it can force-push and rewrite history, so `git log` is
+  not evidence. Use homelab-infra's activity view (Insights, or `https://github.com/maseko-lucky-9/homelab-infra/activity`)
+  and the token owner's security log for pushes and force-pushes, then check ArgoCD's sync history for unexpected
+  revisions, and the open PRs and branches named `bump/`.
 
 ## 8. Incident steps
 
@@ -227,8 +235,10 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 
 **Homelab deploy: merging a bump PR** ([ADR-017](decisions/017-homelab-image-bump-prs.md)). After each publish on
 `main`, CI opens one pull request per published half in `maseko-lucky-9/homelab-infra`, titled
-`chore(dispute-portal): bump <half> image to <sha7>`, branch `bump/dispute-portal-<half>-<sha7>`. At most one is open per
-half; a newer one closes the older as superseded.
+`chore(dispute-portal): bump <half> image to <sha7>`, branch `bump/dispute-portal-<half>-<12 hex of the sha>`, label
+`ci-bump`. At most one is open per half: a run for a newer commit closes the bump PRs for its ancestors as superseded,
+and a re-run of an older run sees the newer PR and stops without touching anything. The PR is opened by the token
+owner's account (a PAT acts as its owner); the commit only names `github-actions[bot]` as author.
 1. Review it as code: the diff must be exactly one `digest:` line in `apps/dispute-portal/kustomization.yaml`, and the
    digest must match the portal run's `publish` summary for that commit (`published ghcr.io/...@sha256:...`).
 2. Contract rule: if the portal commit changed `docs/openapi.json`, merge the api bump first and wait for it to be

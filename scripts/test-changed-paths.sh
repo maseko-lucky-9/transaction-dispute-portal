@@ -39,6 +39,8 @@ check "scripts/coverage.sh" "backend"
 check "scripts/check-image-pins.sh" "backend"
 check "scripts/bump-homelab-image.sh" "backend"
 check "scripts/test-bump-homelab-image.sh" "backend"
+check "scripts/open-homelab-bump-pr.sh" "backend"
+check "scripts/test-open-homelab-bump-pr.sh" "backend"
 # frontend only: the web image changes, the api image does not
 check "frontend/src/components/transactions-page.tsx" "frontend,stack,web"
 check "frontend/package-lock.json" "frontend,stack,web"

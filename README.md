@@ -75,9 +75,12 @@ opens a pull request in the private `maseko-lucky-9/homelab-infra` that changes 
 one bump PR per half is open; a newer one closes the older. A manual run (`workflow_dispatch`) is a dry run by default;
 from `main` with `dry_run` false it re-publishes the chosen halves (`half`: both, api or web) and opens their bump PRs.
 
-Repository secrets: `HOMELAB_INFRA_TOKEN`, a fine-grained token for `homelab-infra` only (Contents and Pull requests:
-read and write), used only by `bump-homelab`; without it that job fails with an error and no PR is opened. Everything
-else uses the run's own `GITHUB_TOKEN`.
+Secrets: `HOMELAB_INFRA_TOKEN`, a fine-grained token for `homelab-infra` only (Contents and Pull requests: read and
+write), stored in the `homelab-infra` environment (deployments from `main` only, no repository-level copy) and used only
+by `bump-homelab`; without it that job fails with an error and no PR is opened. Before opening a PR the job verifies the
+image's build provenance (signed by `ci.yml` on `main` for that commit). Everything else uses the run's own
+`GITHUB_TOKEN`. While homelab-infra's `master` is unprotected, that token can deploy to the cluster by pushing to
+`master` (ADR-017).
 
 ## Measured results
 
@@ -217,7 +220,7 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 | Stryker.NET (non-blocking) | CI job `stryker`, `backend/tests/DisputePortal.UnitTests/stryker-config.json` | 86.80% on Domain | How many injected Domain mutants the unit tests kill. Not in `ci-ok`'s `needs`, so it can never block a merge | Mutation strength of the API, authorization or SQL code (only `DisputePortal.Domain` is mutated) |
 | Trivy | CI job `images` | n/a | No fixable CRITICAL finding in the `api` and `web` images at build time (`--ignore-unfixed`, `.trivyignore` empty) | HIGH findings, unfixed findings, runtime exposure, the base-image supply chain beyond digest pinning |
 | gitleaks | pre-commit hook (if installed) and CI job `secrets` | n/a | No secret matching the default ruleset in the checked history; the documented demo passwords are the only allowlist entry (`.gitleaks.toml`) | Secrets that do not match a rule; secrets outside git |
-| Other CI gates | `.github/workflows/ci.yml`, `scripts/check-constraints.sh` | n/a | path scoping (`scripts/test-changed-paths.sh`), the homelab bump script (`scripts/test-bump-homelab-image.sh`), `-warnaserror` build, `dotnet format whitespace`, locked restore, vulnerable packages, `npm audit --audit-level=high`, lint, typecheck, TS types equal the OpenAPI snapshot, banned packages and unpinned images | CodeQL: default setup reported `not-configured` by `gh api repos/maseko-lucky-9/transaction-dispute-portal/code-scanning/default-setup` on 2026-11-04, so there is no CodeQL scan |
+| Other CI gates | `.github/workflows/ci.yml`, `scripts/check-constraints.sh` | n/a | path scoping (`scripts/test-changed-paths.sh`), the homelab bump scripts (`scripts/test-bump-homelab-image.sh`, `scripts/test-open-homelab-bump-pr.sh`), `-warnaserror` build, `dotnet format whitespace`, locked restore, vulnerable packages, `npm audit --audit-level=high`, lint, typecheck, TS types equal the OpenAPI snapshot, banned packages and unpinned images | CodeQL: default setup reported `not-configured` by `gh api repos/maseko-lucky-9/transaction-dispute-portal/code-scanning/default-setup` on 2026-11-04, so there is no CodeQL scan |
 
 ## Known limits (deliberate, with the upgrade path)
 

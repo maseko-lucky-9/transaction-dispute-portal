@@ -4,7 +4,7 @@
 # Prints failing cases and exits 1; prints one summary line on success. Run by the `changes` CI job.
 # BUMP=<path> runs the cases against another copy of the script (the mutation checks use this).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 root=$PWD
 BUMP=${BUMP:-$root/scripts/bump-homelab-image.sh}
 BASH_BIN=${BASH_BIN:-bash}
@@ -24,7 +24,9 @@ D2="sha256:$(hex 2)"
 
 # fixture <file> <api digest> <web digest> [variant]
 # variants: real (default), no-web, dup-api, no-images, two-images, canary, outside, no-digest, two-digests,
-#           no-final-newline
+#           no-final-newline, extra-token, after, adjacent-images
+# The images block of `real` is byte-for-byte the one on homelab-infra master at 8bdcaff (2026-11-11): two-space list
+# items, four-space `digest:` lines, the four comment lines above it.
 fixture() {
   local out=$1 api=$2 web=$3 variant=${4:-real}
   {
@@ -56,7 +58,11 @@ fixture() {
         "# Never hand-edit a digest anywhere else: a literal in a manifest would be silently overridden by this block." \
         "images:"
       [ "$variant" = canary ] && printf '%s\n' "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api-canary" "    digest: $D2"
-      printf '%s\n' "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api"
+      if [ "$variant" = extra-token ]; then
+        printf '%s\n' "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api extra"
+      else
+        printf '%s\n' "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api"
+      fi
       [ "$variant" != no-digest ] && printf '%s\n' "    digest: $api"
       [ "$variant" = two-digests ] && printf '%s\n' "    digest: $api"
       if [ "$variant" = dup-api ]; then
@@ -66,6 +72,14 @@ fixture() {
         printf '%s\n' "  - name: ghcr.io/maseko-lucky-9/dispute-portal-web"
         if [ "$variant" = no-final-newline ]; then printf '%s' "    digest: $web"; else printf '%s\n' "    digest: $web"; fi
       fi
+    fi
+    if [ "$variant" = after ]; then
+      # a later top-level key with the same name and a digest line: outside the block, so neither counted nor edited
+      printf '%s\n' "replacements:" "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api" "    digest: $API0"
+    fi
+    if [ "$variant" = adjacent-images ]; then
+      # a second images: key straight after the first, starting with a bare digest line (before any list item)
+      printf '%s\n' "images:" "    digest: $D2" "  - name: ghcr.io/maseko-lucky-9/dispute-portal-web" "    digest: $D2"
     fi
     if [ "$variant" = two-images ]; then
       printf '%s\n' "images:" "  - name: ghcr.io/maseko-lucky-9/dispute-portal-api" "    digest: $api"
@@ -155,6 +169,10 @@ fixture "$f" "$API0" "$WEB0" canary; fixture "$want" "$D1" "$WEB0" canary
 expect_bump "a longer name (…-api-canary) is another entry" "$f" "$want" api "$D1"
 fixture "$f" "$API0" "$WEB0" outside; fixture "$want" "$D1" "$WEB0" outside
 expect_bump "the same name outside the images block is ignored" "$f" "$want" api "$D1"
+fixture "$f" "$API0" "$WEB0" after; fixture "$want" "$D1" "$WEB0" after
+expect_bump "the same name under a later top-level key is ignored" "$f" "$want" api "$D1"
+fixture "$f" "$API0" "$WEB0" after; fixture "$want" "$API0" "$D1" after
+expect_bump "a later top-level key does not hide the web entry" "$f" "$want" web "$D1"
 fixture "$f" "$API0" "$WEB0" no-final-newline; fixture "$want" "$API0" "$D1" no-final-newline
 expect_bump "a missing final newline stays missing" "$f" "$want" web "$D1"
 
@@ -192,6 +210,11 @@ fixture "$f" "$API0" "$WEB0" no-images
 expect_reject "no images block" "$f" "images:' block in" api "$D1"
 fixture "$f" "$API0" "$WEB0" two-images
 expect_reject "two images blocks" "$f" "images:' block in" api "$D1"
+fixture "$f" "$API0" "$WEB0" adjacent-images
+expect_reject "a second images key straight after the first" "$f" "images:' block in" api "$D1"
+expect_reject "a second images key straight after the first (web)" "$f" "images:' block in" web "$D1"
+fixture "$f" "$API0" "$WEB0" extra-token
+expect_reject "an extra token after the image name is not our entry" "$f" "found it 0 times" api "$D1"
 fixture "$f" "$API0" "$WEB0" no-digest
 expect_reject "entry without a digest line" "$f" "found 0" api "$D1"
 fixture "$f" "$API0" "$WEB0" two-digests
