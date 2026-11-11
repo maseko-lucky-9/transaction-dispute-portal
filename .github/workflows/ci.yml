@@ -48,6 +48,8 @@ jobs:
           persist-credentials: false
       - name: the classifier's table test
         run: scripts/test-changed-paths.sh
+      - name: the homelab image-bump script's table test (ADR-017)
+        run: scripts/test-bump-homelab-image.sh
       - name: classify the change
         id: paths
         env:
@@ -339,6 +341,132 @@ jobs:
           name: sbom-${{ matrix.half }}
           path: sbom-${{ matrix.half }}.cdx.json
           retention-days: 30
+
+  bump-homelab:
+    # ADR-017: after a real publish, open (never merge) a pull request in homelab-infra that pins the new image digest
+    # in apps/dispute-portal/kustomization.yaml; ArgoCD deploys it once a human merges. A separate job so the
+    # cross-repo token never shares a job with packages:write and id-token:write. It runs only when `publish` pushed:
+    # the same DO_PUSH rule as `publish` (a push to main, or a dispatch from main with dry_run false), inlined because a
+    # job-level `if` cannot read `env`. A dry run skips this job entirely. One failed publish leg fails `publish` as a
+    # whole and so blocks both legs here. Not in ci-ok's `needs` (publish already needs ci-ok, and it never gates a PR).
+    # The digest is re-read from the registry rather than taken from publish's outputs: matrix legs share one output.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.changes.outputs.halves != '[]' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && github.ref == 'refs/heads/main')) }}
+    needs: [changes, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        half: ${{ fromJSON(needs.changes.outputs.halves) }}
+    concurrency:
+      group: bump-homelab-${{ matrix.half }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      HALF: ${{ matrix.half }}
+      HOMELAB_REPO: maseko-lucky-9/homelab-infra
+      HOMELAB_FILE: apps/dispute-portal/kustomization.yaml
+    steps:
+      - name: the homelab-infra token is configured
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error title=HOMELAB_INFRA_TOKEN is not set::The repository secret HOMELAB_INFRA_TOKEN (fine-grained, homelab-infra only, contents + pull requests write) is missing or not available to this run (a fork?). The image was published, but no homelab bump PR was opened. See ADR-017." >&2
+            exit 1
+          fi
+      - name: resolve the published digest from the registry
+        id: digest
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/maseko-lucky-9/dispute-portal-${HALF}:${GITHUB_SHA}"
+          re='^sha256:[0-9a-f]{64}$'
+          digest=""
+          for attempt in 1 2 3; do
+            digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref" 2>/dev/null | tr -d '[:space:]' || true)
+            if [[ $digest =~ $re ]]; then break; fi
+            echo "attempt ${attempt}: no valid digest for ${ref} yet ('${digest}')"
+            sleep 5
+          done
+          if ! [[ $digest =~ $re ]]; then
+            echo "::error::could not resolve ${ref} to a sha256 digest (got '${digest}')" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "resolved ${ref} -> ${digest}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: clone homelab-infra
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+        run: |
+          set -euo pipefail
+          # gh supplies the token through a credential helper: it is never in a URL, argv or the remote config.
+          gh repo clone "$HOMELAB_REPO" "$RUNNER_TEMP/homelab-infra" -- --depth=1 --branch master
+          gh auth setup-git --hostname github.com
+      - name: open the bump pull request and close the ones it supersedes
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::7}"
+          prefix="bump/dispute-portal-${HALF}-"
+          branch="${prefix}${short}"
+          title="chore(dispute-portal): bump ${HALF} image to ${short}"
+          portal_commit="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          bump_script="$GITHUB_WORKSPACE/scripts/bump-homelab-image.sh"
+          cd "$RUNNER_TEMP/homelab-infra"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -B "$branch" origin/master
+          change=$("$bump_script" "$HALF" "$DIGEST" "$HOMELAB_FILE")
+          echo "$change"
+
+          superseded_by=""
+          if git diff --quiet; then
+            echo "already at this digest: homelab-infra master pins dispute-portal-${HALF}@${DIGEST}"
+            superseded_by="homelab-infra master, which already pins this half to ${DIGEST} (portal ${short})"
+          else
+            git add -- "$HOMELAB_FILE"
+            git commit -q -m "$title" -m "Portal commit: ${portal_commit}" -m "Digest: ${DIGEST}"
+            body="$RUNNER_TEMP/bump-pr-body.md"
+            {
+              printf '%s\n' "Opened by the portal's CI ([run](${run_url}), job \`bump-homelab\`, ADR-017). Merging is manual; do not push to this branch."
+              printf '\n%s\n' "- Portal commit: ${portal_commit}"
+              printf '%s\n' "- Image: \`ghcr.io/maseko-lucky-9/dispute-portal-${HALF}@${DIGEST}\`"
+              printf '%s\n' "- Change: \`${change}\`"
+              printf '\n%s\n' "**What merging does.** ArgoCD (Application \`dispute-portal\`, automated sync) rolls the new image out. Every sync re-runs the \`dispute-migrate\` Sync hook Job first (wave 4), which applies any pending EF Core migrations; the api and web waves only roll after it succeeds."
+              printf '\n%s\n' "**Contract rule.** If this portal commit changed \`docs/openapi.json\`, merge the api bump before the web bump, and keep the API backward compatible for one release: the UI can deploy independently of the API."
+              printf '\n%s\n' "**Roll back.** Revert this pull request on master (GitHub's Revert button) and merge the revert; ArgoCD syncs back to the previous digest. Migrations are forward-only, so a revert does not undo a schema change. If the migrate hook fails, see the portal's docs/runbook.md (section 8)."
+            } > "$body"
+            # A re-run of this job (or a dry_run=false dispatch of the same commit) reuses the branch name. The branch is
+            # this job's own, named for one commit and one half, so it is overwritten rather than appended to.
+            git push -q --force origin "HEAD:refs/heads/${branch}"
+            url=$(gh pr list --repo "$HOMELAB_REPO" --state open --head "$branch" --json url --jq '.[0].url // empty')
+            if [ -z "$url" ]; then
+              url=$(gh pr create --repo "$HOMELAB_REPO" --base master --head "$branch" --title "$title" --body-file "$body")
+            else
+              # The force-push may carry a new digest (a re-publish rebuilds the image): refresh the body to match.
+              gh pr edit "$url" --repo "$HOMELAB_REPO" --title "$title" --body-file "$body" > /dev/null
+              echo "reusing and refreshing the open pull request for ${branch}"
+            fi
+            echo "bump pull request: ${url}" | tee -a "$GITHUB_STEP_SUMMARY"
+            superseded_by="$url"
+          fi
+
+          # At most one open bump PR per half: close every other open one for this half and delete its branch.
+          gh pr list --repo "$HOMELAB_REPO" --state open --limit 200 --json number,headRefName,isCrossRepository |
+            jq -r --arg p "$prefix" --arg b "$branch" \
+              '.[] | select(.isCrossRepository == false and (.headRefName | test("^" + $p + "[0-9a-f]{7}$")) and .headRefName != $b) | "\(.number) \(.headRefName)"' |
+            while read -r number head; do
+              gh pr close "$number" --repo "$HOMELAB_REPO" --comment "Superseded by ${superseded_by}." < /dev/null
+              git push -q origin --delete "$head" < /dev/null || echo "could not delete branch ${head} (already gone?)"
+              echo "closed #${number} (${head}), superseded by ${superseded_by}" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
 
   ci-ok:
     if: always()

@@ -86,6 +86,13 @@ gitleaks (hook and CI), `restore --locked-mode`, vulnerable-package check, `npm 
 Actions with a `contents: read` default token, SBOM and provenance on `main` images, Dependabot. CodeQL default setup (enabled 2026-11-04 for C#, JavaScript/TypeScript and Actions; the first analysis found 0, 1 and 0 results, the one being a CSP build-guard regex fixed in the same change). Not present: image
 signing (cosign), a ZAP baseline scan.
 
+Homelab deploy (ADR-017): after a publish on `main`, the `bump-homelab` job opens a digest-bump pull request in
+`maseko-lucky-9/homelab-infra` with the secret `HOMELAB_INFRA_TOKEN` (fine-grained, that repository only, Contents and
+Pull requests write). The token lives in its own job with a `contents: read` token, away from `publish`'s
+`packages: write` and `id-token: write`, and is passed only as an environment variable. Residual: homelab-infra's
+`master` is not protected (a private repository on the free plan cannot be), so whoever holds the token can push to
+`master` and ArgoCD auto-syncs it; the human merge is a convention there, not an enforced control.
+
 ## 4. POPIA mapping
 
 This is an engineering mapping of the system to the Protection of Personal Information Act 4 of 2013 (POPIA)
