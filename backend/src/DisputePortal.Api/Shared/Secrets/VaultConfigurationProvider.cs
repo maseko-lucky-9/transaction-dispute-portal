@@ -21,12 +21,16 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
     private async Task<Dictionary<string, string?>> LoadWithRetryAsync()
     {
         Validate(source.Settings);
+        // Read once, before the retry loop: a bad pin file is a settings error, not something that clears up.
+        byte[]? pinnedHash = string.IsNullOrWhiteSpace(source.Settings.PinnedServerCertificateFile)
+            ? null
+            : VaultServerCertificatePin.ReadHash(source.Settings.PinnedServerCertificateFile);
         TimeSpan delay = source.Settings.FirstRetryDelay;
         for (int attempt = 1; ; attempt++)
         {
             try
             {
-                return await ReadAllAsync();
+                return await ReadAllAsync(pinnedHash);
             }
             catch (Exception exception) when (IsRetryable(exception) && attempt < source.Settings.Attempts)
             {
@@ -45,6 +49,12 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
     // empty file path already fails on the first read, as it always has.
     private static void Validate(VaultSettings settings)
     {
+        // A pin over plain http would be skipped silently and send the credentials in cleartext: refuse it, any method.
+        if (!string.IsNullOrWhiteSpace(settings.PinnedServerCertificateFile) && !IsHttps(settings.Address))
+        {
+            throw new VaultMisconfiguredException("Vault:PinnedServerCertificateFile is set, so Vault:Address must use https://");
+        }
+
         switch (settings.AuthMethod)
         {
             case VaultAuthMethod.AppRole:
@@ -52,7 +62,7 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
             case VaultAuthMethod.Kubernetes when string.IsNullOrWhiteSpace(settings.KubernetesRole):
                 throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes but Vault:KubernetesRole is empty");
             // The service-account token is a replayable credential: never send it over plain http.
-            case VaultAuthMethod.Kubernetes when !settings.Address.StartsWith("https://", StringComparison.OrdinalIgnoreCase):
+            case VaultAuthMethod.Kubernetes when !IsHttps(settings.Address):
                 throw new VaultMisconfiguredException("Vault:AuthMethod is Kubernetes, so Vault:Address must use https://");
             case VaultAuthMethod.Kubernetes:
                 return;
@@ -62,12 +72,19 @@ public sealed class VaultConfigurationProvider(VaultConfigurationSource source) 
         }
     }
 
-    private async Task<Dictionary<string, string?>> ReadAllAsync()
+    private static bool IsHttps(string address) => address.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<Dictionary<string, string?>> ReadAllAsync(byte[]? pinnedHash)
     {
         VaultClientSettings clientSettings = new(source.Settings.Address, await LoginInfoAsync(source.Settings));
         if (source.HttpMessageHandler is { } handler)
         {
+            // The test seam: the injected handler is used as-is and the pin is NOT applied (unit tests answer in memory).
             clientSettings.MyHttpClientProviderFunc = _ => new HttpClient(handler, disposeHandler: false);
+        }
+        else if (pinnedHash is not null)
+        {
+            clientSettings.PostProcessHttpClientHandlerAction = vaultHandler => VaultServerCertificatePin.Apply(vaultHandler, pinnedHash);
         }
 
         VaultClient client = new(clientSettings);

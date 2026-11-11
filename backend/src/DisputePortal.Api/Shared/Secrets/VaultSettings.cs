@@ -26,6 +26,12 @@ public sealed class VaultSettings
 
     public string Mount { get; init; } = "kv";
 
+    /// <summary>
+    /// Vault's own server certificate (one PEM or DER certificate). When set, exactly that certificate is trusted, with
+    /// the host name and validity dates still checked, instead of a CA chain. Empty: normal system trust (ADR-016).
+    /// </summary>
+    public string PinnedServerCertificateFile { get; init; } = string.Empty;
+
     /// <summary>Bounded retry: about 30 s in total with the default delay, then the process exits 1.</summary>
     public int Attempts { get; init; } = 6;
 

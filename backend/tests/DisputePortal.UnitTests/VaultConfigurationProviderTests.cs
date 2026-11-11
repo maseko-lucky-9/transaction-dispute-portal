@@ -253,6 +253,30 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal("kc-secret", configuration["Keycloak:ClientSecret"]);
     }
 
+    // A pin over plain http would never be checked and would send the AppRole ids in cleartext, so it is refused.
+    [Fact]
+    public void AppRoleWithAPinOverPlainHttpFailsAtOnceWithoutARequest()
+    {
+        using System.Security.Cryptography.X509Certificates.X509Certificate2 certificate = TestCertificates.Server();
+        string pinFile = Path.Combine(directory, "vault.pem");
+        File.WriteAllText(pinFile, certificate.ExportCertificatePem());
+        File.WriteAllText(Path.Combine(directory, "role_id"), "role-123");
+        File.WriteAllText(Path.Combine(directory, "secret_id"), "secret-456");
+        VaultSettings settings = new()
+        {
+            Address = Address,
+            RoleIdFile = Path.Combine(directory, "role_id"),
+            SecretIdFile = Path.Combine(directory, "secret_id"),
+            PinnedServerCertificateFile = pinFile,
+            Attempts = 1,
+        };
+
+        VaultMisconfiguredException failure = Assert.Throws<VaultMisconfiguredException>(() => Load(settings, AnswerVault));
+
+        Assert.Contains("must use https://", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(requested);
+    }
+
     // A token file the process cannot read yet (here a directory in its place) is retried like a missing one.
     [Fact]
     public async Task AnUnreadableTokenFileIsRetriedUntilItCanBeRead()
@@ -308,7 +332,43 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         }
     }
 
-    // The cluster manifest sets Vault__AuthMethod, Vault__KubernetesRole and Vault__JwtFile; the rest keep their defaults.
+    // The startup log's cause chain (Program.cs) names Vault's refusal but never carries the token.
+    [Fact]
+    public void TheStartupDetailNamesTheCauseButNeverTheToken()
+    {
+        File.WriteAllText(TokenFile, Jwt);
+
+        VaultUnavailableException failure = Assert.Throws<VaultUnavailableException>(() => Load(Kubernetes(), request =>
+            Track(request, new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = JsonContent.Create(new { errors = new[] { "permission denied" } }) })));
+
+        string detail = VaultFailureDetail.Describe(failure);
+        Assert.DoesNotContain(Jwt, detail, StringComparison.Ordinal);
+        Assert.StartsWith("VaultApiException: ", detail, StringComparison.Ordinal);
+        Assert.Contains("permission denied", detail, StringComparison.Ordinal);
+    }
+
+    // At most four levels, each message cut to 200 characters and kept on one line.
+    [Fact]
+    public void TheStartupDetailIsBoundedAndOneLine()
+    {
+        Exception chain = new IOException("innermost");
+        for (int level = 0; level < 5; level++)
+        {
+            chain = new HttpRequestException($"level {level}\nsecond line", chain);
+        }
+
+        string deep = VaultFailureDetail.Describe(new VaultUnavailableException("outer", chain));
+        string longMessage = VaultFailureDetail.Describe(new VaultMisconfiguredException("outer", new IOException(new string('x', 500))));
+
+        Assert.Equal(
+            "HttpRequestException: level 4 second line <- HttpRequestException: level 3 second line <- "
+            + "HttpRequestException: level 2 second line <- HttpRequestException: level 1 second line",
+            deep);
+        Assert.Equal("IOException: " + new string('x', VaultFailureDetail.MaxMessageLength) + "...", longMessage);
+        Assert.Equal(string.Empty, VaultFailureDetail.Describe(new VaultUnavailableException("outer", null)));
+    }
+
+    // The cluster manifest sets Vault__AuthMethod, Vault__KubernetesRole, Vault__JwtFile and Vault__PinnedServerCertificateFile; the rest keep their defaults.
     [Fact]
     public void TheClusterSettingsBindFromConfiguration()
     {
@@ -317,6 +377,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             {
                 ["Vault:AuthMethod"] = "Kubernetes",
                 ["Vault:KubernetesRole"] = "dispute-api",
+                ["Vault:PinnedServerCertificateFile"] = "/vault-tls/ca.crt",
             })
             .Build()
             .GetSection(VaultSettings.Section)
@@ -326,6 +387,8 @@ public sealed class VaultConfigurationProviderTests : IDisposable
         Assert.Equal("dispute-api", settings.KubernetesRole);
         Assert.Equal("/var/run/secrets/kubernetes.io/serviceaccount/token", settings.JwtFile);
         Assert.Equal("kubernetes", settings.KubernetesMountPoint);
+        Assert.Equal("/vault-tls/ca.crt", settings.PinnedServerCertificateFile);
+        Assert.Equal(string.Empty, new VaultSettings().PinnedServerCertificateFile);
         Assert.Equal(VaultAuthMethod.AppRole, new VaultSettings().AuthMethod);
     }
 
@@ -362,15 +425,7 @@ public sealed class VaultConfigurationProviderTests : IDisposable
             .Add(new VaultConfigurationSource(settings, VaultSecretPath.For(migrate)) { HttpMessageHandler = new Responder(respond) })
             .Build();
 
-    private HttpResponseMessage AnswerVault(HttpRequestMessage request) => request.RequestUri!.AbsolutePath switch
-    {
-        "/v1/auth/approle/login" or "/v1/auth/kubernetes/login" or "/v1/auth/k8s-homelab/login" => Track(request, Json(new { auth = new { client_token = "token", lease_duration = 60, renewable = false, policies = Array.Empty<string>() } })),
-        "/v1/kv/data/dispute-portal/database" => Track(request, Secret(new() { ["Host"] = "postgres", ["Port"] = "5432", ["Name"] = "dispute_portal", ["Username"] = "dispute_app", ["Password"] = "app-pass" })),
-        "/v1/kv/data/dispute-portal/database-owner" => Track(request, Secret(new() { ["Host"] = "postgres", ["Username"] = "dispute_owner", ["Password"] = "owner-pass" })),
-        "/v1/kv/data/dispute-portal/redis" => Track(request, Secret(new() { ["Host"] = "redis", ["Username"] = "dispute_app", ["Password"] = "redis-pass" })),
-        "/v1/kv/data/dispute-portal/keycloak" => Track(request, Secret(new() { ["ClientSecret"] = "kc-secret" })),
-        _ => Track(request, new HttpResponseMessage(HttpStatusCode.Forbidden)),
-    };
+    private HttpResponseMessage AnswerVault(HttpRequestMessage request) => Track(request, FakeVaultResponses.For(request.RequestUri!.AbsolutePath));
 
     private HttpResponseMessage Track(HttpRequestMessage request, HttpResponseMessage response)
     {
@@ -382,11 +437,6 @@ public sealed class VaultConfigurationProviderTests : IDisposable
 
         return response;
     }
-
-    private static HttpResponseMessage Secret(Dictionary<string, string> data) =>
-        Json(new { data = new { data, metadata = new { version = 1, created_time = "2026-11-04T00:00:00Z", destroyed = false } } });
-
-    private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
 
     public void Dispose() => Directory.Delete(directory, recursive: true);
 

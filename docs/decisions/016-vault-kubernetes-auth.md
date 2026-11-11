@@ -1,6 +1,7 @@
 # ADR-016: The API can log in to Vault with Kubernetes auth
 
-Status: accepted (2026-11-11). Part D1b of the per-half rollout (ADR-012).
+Status: accepted (2026-11-11). Part D1b of the per-half rollout (ADR-012). Amended 2026-11-11: Vault TLS trust (see
+the pinned server certificate below); the original "`SSL_CERT_FILE`, no code change" consequence was wrong for the cluster.
 
 ## Context
 
@@ -20,5 +21,12 @@ The API and the migrate job log in to Vault with AppRole, reading `role_id` and 
 
 - AppRole stays the default and the only method compose uses; `bootstrap.sh` and the compose files are unchanged. An AppRole setting with an empty `RoleIdFile` still fails on the first read, as before.
 - The cluster needs a Vault Kubernetes auth mount and a role bound to the API's service account and namespace, attached to the existing `dispute-api` (and, for the migrate job, `dispute-migrate`) policies. That Vault configuration lives with the cluster manifests, not in this repository.
-- A Vault served with a private CA is trusted with `SSL_CERT_FILE` pointing at a mounted CA bundle (.NET on Linux reads it as the root store); no code change and no `Vault:` setting is needed. The file replaces the default roots, so the bundle must also hold any public CA the API still needs (for example Keycloak's, if that is public).
+- Vault TLS trust (amended 2026-11-11). `SSL_CERT_FILE` pointing at a mounted bundle works only when that file holds a real, self-signed root CA: .NET on Linux reads it as the root store and must build a chain ending in a self-signed root. The file replaces the default roots, so it must also hold any public CA the API still needs (for example Keycloak's, if that is public).
+- On the homelab cluster that is not the case. The `vault-tls-ca` secret's `ca.crt` is Vault's own server certificate (`CN=vault.local`, `CA:FALSE`, SANs include `vault.vault.svc.cluster.local`), issued by a "Vault Local CA" whose certificate is not published anywhere. Go clients (ESO, vault-config-operator) and curl accept a pinned leaf; .NET does not, and fails with `AuthenticationException: ... PartialChain`. For this case set `Vault__PinnedServerCertificateFile` to the mounted certificate (one PEM or DER certificate; `VaultServerCertificatePin`):
+  - VaultSharp's handler then accepts the connection iff the presented certificate's SHA-256 (of its DER encoding, fixed-time compared) equals the pinned one, there is no `RemoteCertificateNameMismatch` (the host name must still be in the SANs), and the certificate is within its NotBefore/NotAfter now. Chain errors alone are ignored: the pin replaces CA-chain validation for Vault and only for Vault. Applies to both AppRole and Kubernetes auth.
+  - The file is read once at startup, before the retry. A missing, unreadable or unparseable file, or one with more than one certificate or a non-certificate PEM block, is `VaultMisconfiguredException` (exit 1, no retry). Empty (the default) keeps normal system trust.
+  - The pin must be rotated at the same time as the certificate (this one expires 2027-03-16). A single exact pin has no overlap window: update the pin file and restart the API right after Vault serves the new certificate; until then every API start fails the TLS handshake (running pods keep their already-read credentials). Accepting several pins (old and new) is the upgrade path for a rotation without that window.
+  - A pin set together with a non-https `Vault:Address` is `VaultMisconfiguredException` for either auth method, so a pin can never be silently skipped over plain http.
+  - An exact-leaf pin trusts only that certificate: a compromise of the "Vault Local CA" key alone cannot be used to impersonate Vault, only a compromise of Vault's own server key can.
+- Startup failures now log the inner-exception chain (`VaultFailureDetail`: type and message, at most 4 levels, 200 characters each, one line) as the `Cause` field of the Critical line; the outer message alone hid this TLS failure behind "unreachable". Only exception types and messages appear, never request bodies, headers or the token.
 - Not covered: token renewal. The Vault token is used once at startup, so rotating credentials is still a rolling restart (ADR-005).
