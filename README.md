@@ -32,9 +32,8 @@ those two variables, but the realm is imported only into an empty database: on a
 
 **API docs** (Swagger UI, off by default in every environment, [ADR-013](docs/decisions/013-interactive-api-docs.md)):
 `OPENAPI_ENABLED=true docker compose up --build`, then <http://localhost:8080/api/swagger>. The document is at
-`/api/openapi/v1.json`. Reading the contract works. "Try it out" works for `/bff` GETs after signing in at `/bff/login`
-in the same browser; `/api/*` calls answer `403 csrf_required` because the document attaches no security requirement, so
-the UI never sends `X-CSRF` (and the CSP forbids the script that would). Use `docs/openapi.json` and `api.http` for calls.
+`/api/openapi/v1.json`. Reading the contract works. "Try it out" works for `/api/*` too: sign in at `/bff/login` in the same browser, click
+Authorize in the UI and enter `1` for `csrf` (the session cookie is sent by the browser on its own). Use `docs/openapi.json` and `api.http` for calls.
 
 Demo users (local-only, imported from `deploy/keycloak/`):
 
@@ -259,5 +258,4 @@ stretch in the plan):
 - An outbox and event publishing.
 - Agent TOTP (stretch).
 - Run the k6 smoke test in CI against the compose stack (today it is a documented manual run), and add a capacity test that raises the per-subject limits to find where latency degrades.
-- A request-level security scheme in `docs/openapi.json`, so Swagger UI's "Try it out" can call `/api/*` (see "API docs" above). `docs/openapi.json` is the contract.
 - Dynamic database credentials and a distributed rate limiter (see "Known limits").
