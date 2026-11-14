@@ -86,6 +86,26 @@ gitleaks (hook and CI), `restore --locked-mode`, vulnerable-package check, `npm 
 Actions with a `contents: read` default token, SBOM and provenance on `main` images, Dependabot. CodeQL default setup (enabled 2026-11-04 for C#, JavaScript/TypeScript and Actions; the first analysis found 0, 1 and 0 results, the one being a CSP build-guard regex fixed in the same change). Not present: image
 signing (cosign), a ZAP baseline scan.
 
+Homelab deploy (ADR-017): after a publish on `main`, the `bump-homelab` job opens a digest-bump pull request in
+`maseko-lucky-9/homelab-infra` with the secret `HOMELAB_INFRA_TOKEN` (fine-grained, that repository only, Contents and
+Pull requests write). The token is an environment secret (environment `homelab-infra`, deployments from `main` only),
+lives in its own job with a `contents: read` token, away from `publish`'s `packages: write` and `id-token: write`, and
+is passed only as an environment variable. The pinned digest must carry a provenance attestation signed by `ci.yml` on
+`refs/heads/main` for that commit (`gh attestation verify`), so a re-pointed tag is not deployed. Bump PRs are ordered
+by portal ancestry, so a re-run of an old run cannot replace a newer bump.
+
+Residual, and it is large: homelab-infra's `master` is not protected (a private repository on the free plan cannot be;
+the protection and rulesets APIs answer 403), so the human merge is a convention there, not an enforced control.
+Whoever holds the token can push to `master`; the root app-of-apps (`argocd/monitoring-root.yaml`, `prune: true`,
+`selfHeal: true`, every Application in project `default`, no AppProject manifest) then syncs it. That reaches any
+included Application or app manifest (cluster-scoped RBAC, privileged pods: the ArgoCD controller's privileges,
+cluster-admin by default; [UNVERIFIED] whether the live `default` project is restricted), Vault policies and auth roles
+(`apps/vault-config-operator/manifests`), and PVC deletion through prune and finalizers (homelab-infra's umami comments
+record a lost Postgres PVC). The token can also read all of homelab-infra and force-push over its history. It cannot
+change homelab-infra's workflows (no Workflows permission) [UNVERIFIED]. The durable fixes (branch protection via GitHub
+Pro or a public repository, a dedicated digest repository, a GitHub App token, a dispute-portal AppProject) are listed in
+ADR-017; none is in place.
+
 ## 4. POPIA mapping
 
 This is an engineering mapping of the system to the Protection of Personal Information Act 4 of 2013 (POPIA)
