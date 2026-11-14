@@ -32,7 +32,8 @@ USER nginx
 ENV NGINX_ENVSUBST_FILTER=^DP_ \
     DP_RESOLVER=127.0.0.11 \
     DP_API_UPSTREAM=api:8080 \
-    DP_KEYCLOAK_UPSTREAM=keycloak:8080
+    DP_KEYCLOAK_UPSTREAM=keycloak:8080 \
+    DP_FORWARDED_PROTO=\$scheme
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY frontend/nginx/security-headers.conf frontend/nginx/csp-app.conf frontend/nginx/csp-deny.conf /etc/nginx/
 COPY --from=web-build /web/dist /usr/share/nginx/html
