@@ -4,7 +4,7 @@
 
 # Portable (framework-dependent) output: the SDK stage runs natively on the build host; the chiseled runtime stage
 # is pulled per target platform, so the same Dockerfile builds amd64 and arm64 images.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:fe0fd4e93bd2fbb47c883b7a6369e5c8d3db8bf01cdc5981f6ee35fbdf3ff4fb AS build
 WORKDIR /src
 # Restore on its own layer so a source-only change reuses the cached packages.
 COPY global.json Directory.Build.props .editorconfig ./
