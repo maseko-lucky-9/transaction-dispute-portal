@@ -156,7 +156,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/transactions": {
@@ -256,7 +261,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/transactions/{id}": {
@@ -318,7 +328,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/dispute-reasons": {
@@ -362,7 +377,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/disputes": {
@@ -498,7 +518,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       },
       "get": {
         "tags": [
@@ -582,7 +607,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/disputes/{id}": {
@@ -653,7 +683,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/disputes/{id}/withdraw": {
@@ -771,7 +806,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/agent/disputes": {
@@ -857,7 +897,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/agent/disputes/{id}": {
@@ -928,7 +973,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/agent/disputes/{id}/transitions": {
@@ -1066,7 +1116,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     }
   },
@@ -2005,7 +2060,7 @@
     "securitySchemes": {
       "session": {
         "type": "apiKey",
-        "description": "HttpOnly session cookie set by GET /bff/login (named __Host-dp_session over https).",
+        "description": "HttpOnly session cookie set by GET /bff/login (named __Host-dp_session over https). Informational: the browser sends it by itself once you have signed in at /bff/login in the same browser, so Authorize has nothing to enter for it.",
         "name": "dp_session",
         "in": "cookie"
       },

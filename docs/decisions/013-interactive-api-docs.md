@@ -29,11 +29,12 @@ and returns `index.html`. The `/api/` location also sends `csp-app.conf` (`scrip
 ## Consequences
 - Production exposes the document and the UI only by an explicit flag.
 - The UI assets are `Cache-Control: no-store` (`NoStoreMiddleware` covers all of `/api`); harmless for a dev tool.
-- "Try it out" is limited. Auth is the BFF `dp_session` cookie plus the CSRF header, not a bearer token, and no bearer
-  scheme is added. After signing in at `/bff/login` in the same browser the cookie is sent, so `GET /bff/user` returns 200.
-  A `/api/*` call still returns 403 `csrf_required`: the document declares the `csrf` scheme but attaches it to no
-  operation, so Swagger UI never sends `X-CSRF`, and Authorize does not change that. Reading the contract works; calling
-  `/api/*` from the UI would need a security requirement in the document or a same-origin script that sets the header (a
-  request-interceptor string needs `unsafe-eval`, which the CSP forbids). Not done here.
+- "Try it out" works for `/api/*`. Auth is the BFF session cookie plus the CSRF header, not a bearer token, and no bearer
+  scheme is added. `SessionSecurityTransformer` attaches a `csrf` security requirement (the `X-CSRF` apiKey header
+  scheme) to every `/api/` operation, so Swagger UI sends the header once you Authorize. To use it: sign in at
+  `/bff/login` in the same browser (the HttpOnly cookie is then sent automatically; the `session` cookie scheme is
+  informational because Swagger UI does not honour apiKey-in-cookie), open `/api/swagger`, click Authorize and enter
+  `1` for `csrf`. `/bff/*` operations carry no requirement. No request-interceptor script is needed (it would need
+  `unsafe-eval`, which the CSP forbids).
 - Rejected: loosening `csp-app.conf` (not needed); having nginx add `X-CSRF` for the docs (the API would then trust a
   proxy-set header for the rule it exists to enforce); a Development-only UI (never visible in the Compose stack).

@@ -42,6 +42,38 @@ public sealed class OpenApiTests(ApiFactory api)
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me", out _));
     }
 
+    // Swagger UI only sends X-CSRF for operations that reference the scheme; without it every /api "Try it out" is a 403.
+    [Fact]
+    public async Task EveryApiOperationRequiresTheCsrfHeaderAndNoBffOperationDoes()
+    {
+        using JsonDocument document = JsonDocument.Parse(await DocumentAsync());
+        JsonElement csrf = document.RootElement.GetProperty("components").GetProperty("securitySchemes").GetProperty("csrf");
+        Assert.Equal("apiKey", csrf.GetProperty("type").GetString());
+        Assert.Equal("header", csrf.GetProperty("in").GetString());
+
+        int apiOperations = 0;
+        foreach (JsonProperty path in document.RootElement.GetProperty("paths").EnumerateObject())
+        {
+            foreach (JsonProperty operation in path.Value.EnumerateObject())
+            {
+                string name = path.Name + " " + operation.Name;
+                bool requiresCsrf = operation.Value.TryGetProperty("security", out JsonElement security)
+                    && security.EnumerateArray().Any(requirement => requirement.TryGetProperty("csrf", out _));
+                if (path.Name.StartsWith("/api/", StringComparison.Ordinal))
+                {
+                    apiOperations++;
+                    Assert.True(requiresCsrf, name + " lacks the csrf security requirement");
+                }
+                else
+                {
+                    Assert.False(requiresCsrf, name + " must not carry the csrf requirement");
+                }
+            }
+        }
+
+        Assert.True(apiOperations > 0);
+    }
+
     // The agent routes' contract: If-Match required on the move, 412 and 428 documented, ETag on the 200s and the 412.
     [Fact]
     public async Task TheAgentRoutesDocumentIfMatchTheETagAnd412And428()
