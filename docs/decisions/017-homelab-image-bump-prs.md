@@ -122,6 +122,12 @@ bot authorship, tokens that live one hour and are minted per run, and permission
   homelab-infra; a GitHub App token (short-lived, but still Contents write, so it needs protection too); a dedicated
   AppProject for dispute-portal (partial: it limits what the dispute-portal Application can deploy, not edits to other
   Applications). Until then: short expiry, rotation, the environment restriction, and revoking on any doubt.
+- **Decision (2026-11-14): the owner accepts this risk for now.** GitHub still refuses protection and rulesets on the
+  private repository (`gh api repos/maseko-lucky-9/homelab-infra/branches/master/protection` and `.../rulesets` both
+  answer 403, "Upgrade to GitHub Pro or make this repository public"), and no durable option above was chosen. What
+  is in place: the secret exists only in the `homelab-infra` environment, which is limited to `main` (the repo-level
+  copy was deleted and the job still runs, proving it reads the environment's copy). Revisit when the account moves
+  to GitHub Pro or when homelab-infra can be made public.
 - **Rotation:** set an expiry (90 days at most). To rotate: create the new token with the same scope, update the secret
   (`gh secret set HOMELAB_INFRA_TOKEN --env homelab-infra -R maseko-lucky-9/transaction-dispute-portal`, value on
   stdin), run `ci` by `workflow_dispatch` from `main` with `dry_run` false to prove it, then revoke the old token. On a
