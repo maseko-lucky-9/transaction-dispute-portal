@@ -16,7 +16,7 @@ interface Pair {
 }
 
 function token(name: string): Pair {
-  const escaped = name.replace(/[-]/g, "\\-");
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(
     `^\\s*--${escaped}:\\s*light-dark\\((#[0-9a-fA-F]{6}),\\s*(#[0-9a-fA-F]{6})\\);`,
     "m",
