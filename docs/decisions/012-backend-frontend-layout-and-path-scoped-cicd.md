@@ -30,7 +30,13 @@ web image, without splitting the repository.
   is false whenever any upstream job was skipped. `scripts/test-changed-paths.sh` is the table test and runs in the `changes` job.
 - The two shared inputs are classified explicitly: `frontend/src/lib/validation-cases.json` is read by the backend
   unit tests, so it triggers both halves; `docs/openapi.json` makes both the backend and the frontend job run (the
-  snapshot test and the type generation check it) without publishing an image.
+  snapshot test and the type generation check it) without publishing an image. It publishes none because it is in
+  neither image: the Dockerfile never copies it, so a web publish for it would push a byte-identical image. A contract
+  change cannot drift past the SPA silently either: the types generated from it are committed
+  (`frontend/src/api/schema.d.ts`), the frontend job regenerates them and fails on any diff, and a change that does
+  alter the types therefore edits a `frontend/` path, which publishes web. A contract edit that leaves the types
+  unchanged (a security scheme, a description) correctly publishes nothing: PR #46 was one, and only the api image
+  was published for it.
 - A manual run (`workflow_dispatch`, input `half`) builds and verifies both halves and is a dry run unless
   `dry_run` is false, and it only pushes from `main`.
 
