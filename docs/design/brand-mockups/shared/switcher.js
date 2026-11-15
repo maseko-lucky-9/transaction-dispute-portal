@@ -40,23 +40,28 @@
   const bar = document.createElement("div");
   bar.className = "proto-bar";
   bar.setAttribute("aria-label", "Prototype switcher (not part of the design)");
-  bar.innerHTML = `
-    <a href="../index.html" title="All directions">All</a>
-    <button type="button" data-step="-1" aria-label="Previous direction">&larr;</button>
-    <span class="label">${DIRECTIONS[di][1]}</span>
-    <button type="button" data-step="1" aria-label="Next direction">&rarr;</button>
-    <select aria-label="Page">${PAGES.map(([p, l]) => `<option value="${p}"${p === page ? " selected" : ""}>${l}</option>`).join("")}</select>
-    <button type="button" data-theme-cycle>Theme: ${store.get()}</button>`;
-  bar.addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.dataset.step) go(Number(b.dataset.step));
-    if (b.hasAttribute("data-theme-cycle")) {
-      const t = THEMES[(THEMES.indexOf(store.get()) + 1) % THEMES.length];
-      store.set(t); applyTheme(t); b.textContent = `Theme: ${t}`;
-    }
+  // Built with DOM methods only: no markup is parsed from strings.
+  const el = (tag, props = {}, text = "") => Object.assign(document.createElement(tag), props, { textContent: text });
+  const all = el("a", { href: "../index.html", title: "All directions" }, "All");
+  const prev = el("button", { type: "button", ariaLabel: "Previous direction" }, "←");
+  const label = el("span", { className: "label" }, DIRECTIONS[di][1]);
+  const next = el("button", { type: "button", ariaLabel: "Next direction" }, "→");
+  const select = el("select", { ariaLabel: "Page" });
+  PAGES.forEach(([p, l]) => select.append(el("option", { value: p, selected: p === page }, l)));
+  const theme = el("button", { type: "button" }, `Theme: ${store.get()}`);
+  bar.append(all, prev, label, next, select, theme);
+
+  prev.addEventListener("click", () => go(-1));
+  next.addEventListener("click", () => go(1));
+  theme.addEventListener("click", () => {
+    const t = THEMES[(THEMES.indexOf(store.get()) + 1) % THEMES.length];
+    store.set(t); applyTheme(t); theme.textContent = `Theme: ${t}`;
   });
-  bar.querySelector("select").addEventListener("change", (e) => { location.href = `${e.target.value}.html`; });
+  select.addEventListener("change", () => {
+    // Navigate only to a known page name, never to whatever the control holds.
+    const target = PAGES.find(([p]) => p === select.value);
+    if (target) location.href = `${target[0]}.html`;
+  });
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, textarea, select, [contenteditable]")) return;
     if (e.key === "ArrowLeft") go(-1);
