@@ -6,7 +6,9 @@ import { contrastRatio } from "./contrast";
  * The theme lives in src/index.css as `--name: light-dark(#light, #dark);`. Vitest blanks CSS
  * imports, so vite.config.ts reads the file in Node and injects it (like the OpenAPI snapshot).
  */
-const css = inject("indexCss");
+const injected = inject("indexCss");
+if (injected === null) throw new Error("vite.config.ts could not read src/index.css");
+const css: string = injected;
 
 interface Pair {
   light: string;

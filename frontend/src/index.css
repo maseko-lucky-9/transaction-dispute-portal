@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /*
- * Theme tokens (Capitec brand palette, "Crimson Pill" direction). Every token is a light-dark() pair, so the
- * page follows prefers-color-scheme with no JavaScript. The header toggle pins
+ * Theme tokens (Capitec brand palette, "Crimson Pill" direction). Every token is a
+ * light-dark() pair, so the page follows prefers-color-scheme with no JavaScript. The header toggle pins
  * <html data-theme="light|dark">, which overrides color-scheme below.
  * Only semantic tokens (bg-background, text-muted-foreground, ...) are used in
  * components, so there are no `dark:` utilities to keep in sync.
@@ -27,7 +27,6 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-positive: var(--positive);
   --color-brand-gem: var(--brand-gem);
-  --color-brand-royal: var(--brand-royal);
   --color-brand-crimson: var(--brand-crimson);
   --color-status-submitted: var(--status-submitted);
   --color-status-submitted-bg: var(--status-submitted-bg);
@@ -71,8 +70,9 @@
   --border: light-dark(#e3e5ec, #2e2f37);
   --input: light-dark(#d5d8e1, #3a3b44);
   --ring: light-dark(#2459c9, #8cb0ff);
+  /* Brand colours as TEXT (links, small labels): lightened in dark mode to stay readable.
+     Crimson as a FILL stays --primary (#e51718 in both themes). */
   --brand-gem: light-dark(#4111a4, #b9a2ff);
-  --brand-royal: light-dark(#2f70ef, #2f70ef);
   --brand-crimson: light-dark(#e51718, #ff6b6c);
   --status-submitted: light-dark(#2459c9, #9dbbff);
   --status-submitted-bg: light-dark(#e6eefd, #18264a);

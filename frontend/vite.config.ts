@@ -16,7 +16,8 @@ const openApiSpec = existsSync(openApiPath) ? readFileSync(openApiPath, "utf8") 
 
 // The theme tokens, handed to the contrast test (src/lib/contrast.test.ts) as plain text:
 // Vitest blanks CSS imports, so the test cannot import the stylesheet itself.
-const indexCss = readFileSync(fileURLToPath(new URL("./src/index.css", import.meta.url)), "utf8");
+const indexCssPath = fileURLToPath(new URL("./src/index.css", import.meta.url));
+const indexCss = existsSync(indexCssPath) ? readFileSync(indexCssPath, "utf8") : null;
 
 // Paths owned by the backend. In production nginx routes these; in dev Vite does.
 const backendPaths = ["/api", "/bff", "/signin-oidc", "/signout-callback-oidc"];
