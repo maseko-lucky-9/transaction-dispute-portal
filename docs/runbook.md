@@ -193,7 +193,8 @@ a rolling restart of `api` (and a re-run of `migrate` where noted).
 [UNVERIFIED: not exercised.]
 
 **CI secret `HOMELAB_INFRA_TOKEN`** (an environment secret of this repo's `homelab-infra` environment, which only
-deployments from `main` can use; read only by the `bump-homelab` job; ADR-017)
+deployments from `main` can use; read only by the `bump-homelab` job and, read-only, by the `keycloak-theme-sync`
+workflow; ADR-017, ADR-018)
 - A fine-grained personal access token for `maseko-lucky-9/homelab-infra` only: Contents read and write, Pull requests
   read and write, Metadata read. Give it an expiry of 90 days at most. Not read by the API, so no restart.
 - Where it lives: `gh secret set HOMELAB_INFRA_TOKEN --env homelab-infra -R maseko-lucky-9/transaction-dispute-portal`
@@ -266,6 +267,19 @@ hook (phase `Running` and the revert's sync never starts), terminate it first, t
 status directly:
 `ssh homelab 'microk8s kubectl -n argocd patch application dispute-portal --type merge -p "{\"status\":{\"operationState\":{\"phase\":\"Terminating\"}}}"'`.
 [UNVERIFIED: no hook failure has been exercised on the cluster.]
+
+**Homelab deploy: the Keycloak login theme** ([ADR-018](decisions/018-keycloak-theme-drift-check.md)). The theme is
+copied by hand: no image carries it, so an edit to `deploy/keycloak/themes/dispute-portal/login/` publishes nothing and
+opens no bump PR. The `keycloak-theme-sync` workflow (on a push to `main` that touches the theme, daily, and on
+dispatch) compares the three files' git blob hashes with `apps/dispute-portal/keycloak-theme/` in homelab-infra and
+goes red on any difference, printing the differing `<blob hash> <name>` lines (`-` homelab-infra, `+` portal).
+1. Copy the portal files into `apps/dispute-portal/keycloak-theme/` with flat names (`theme.properties`,
+   `dispute-portal.css`, `logo.jpg`) in a homelab-infra pull request and merge it. The ConfigMap name carries a content
+   hash, so ArgoCD rolls Keycloak and the new theme is served; a new theme file also needs a `files:` line in that
+   `kustomization.yaml` and a mount in the Keycloak Deployment (the check cannot see those).
+2. Check locally with your own `gh` login: `scripts/check-keycloak-theme-sync.sh` (0 in sync, 1 drift, 2 could not
+   compare), then re-run the workflow by dispatch from `main`. Red because of "HOMELAB_INFRA_TOKEN is not set" means the
+   secret is missing or expired (rotation above).
 
 **Rollback of a bad deploy**: images are published to GHCR by commit sha (`ghcr.io/maseko-lucky-9/dispute-portal-{api,web}:<sha>`), but only for the image a commit changed (ADR-012), so a commit has an `api` tag, a `web` tag, both or neither. Roll each image back on its own: redeploy the previous sha that published it (the package's tag list, or the `publish` job summary of the earlier run), or pin by digest. Migrations are forward-only EF migrations; the design doc says changes should be forward-compatible, and no down-migration is tested. [UNVERIFIED for production.]
 

@@ -52,6 +52,8 @@ jobs:
         run: scripts/test-bump-homelab-image.sh
       - name: the homelab bump-PR step's test (ADR-017)
         run: scripts/test-open-homelab-bump-pr.sh
+      - name: the Keycloak theme drift check's test (ADR-018)
+        run: scripts/test-check-keycloak-theme-sync.sh
       - name: classify the change
         id: paths
         env:
