@@ -43,6 +43,7 @@ const PAIRS: readonly (readonly [string, string])[] = [
   ["positive", "card"],
   ["brand-gem", "card"],
   ["brand-crimson", "card"],
+  ["nav-active-foreground", "nav-active"],
   ...STATUSES.map((s) => [`status-${s}`, `status-${s}-bg`] as const),
 ];
 

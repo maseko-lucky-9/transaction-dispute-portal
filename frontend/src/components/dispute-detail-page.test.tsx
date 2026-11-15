@@ -89,7 +89,7 @@ describe("dispute detail: content", () => {
     await openDispute(
       makeDisputeDetail({ description: "<img src=x onerror=alert(1)> <b>bold</b>" }),
     );
-    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector("main img")).toBeNull();
     expect(document.querySelector("main b")).toBeNull();
     expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
   });

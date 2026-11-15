@@ -50,7 +50,7 @@ export function DisputeTimeline({
         <li key={`${index}-${entry.occurredAt}`} className="relative flex flex-col gap-1">
           <span
             aria-hidden="true"
-            className="absolute top-1.5 -left-[1.9rem] size-2.5 rounded-full border-2 border-foreground bg-background"
+            className="absolute top-1.5 -left-[1.9rem] size-2.5 rounded-full bg-foreground"
           />
           <time dateTime={entry.occurredAt} className="text-xs text-muted-foreground">
             {formatDateTime(entry.occurredAt)}

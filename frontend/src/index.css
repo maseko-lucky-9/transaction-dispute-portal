@@ -39,6 +39,8 @@
   --color-status-rejected-bg: var(--status-rejected-bg);
   --color-status-withdrawn: var(--status-withdrawn);
   --color-status-withdrawn-bg: var(--status-withdrawn-bg);
+  --color-nav-active: var(--nav-active);
+  --color-nav-active-foreground: var(--nav-active-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -47,6 +49,9 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-card: 1.25rem;
+
+  --shadow-card: 0 1px 2px var(--shadow-tint), 0 4px 16px var(--shadow-tint-soft);
 }
 
 :root {
@@ -69,6 +74,11 @@
   --destructive: light-dark(#b4121a, #ff8a8a);
   --destructive-foreground: light-dark(#ffffff, #121216);
   --positive: light-dark(#116b3a, #6fd69a);
+  /* The active primary-nav pill: Mine Shaft in light, white in dark. */
+  --nav-active: light-dark(#3a3a3a, #ffffff);
+  --nav-active-foreground: light-dark(#ffffff, #1c1c22);
+  --shadow-tint: light-dark(rgb(20 22 40 / 6%), rgb(0 0 0 / 40%));
+  --shadow-tint-soft: light-dark(rgb(20 22 40 / 5%), rgb(0 0 0 / 0%));
   --border: light-dark(#e3e5ec, #2e2f37);
   --input: light-dark(#d5d8e1, #3a3b44);
   --ring: light-dark(#2459c9, #8cb0ff);

@@ -5,6 +5,7 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { agentQueueInfiniteOptions, type AgentQueueItem } from "@/api/agent";
 import { disputeReasonsOptions, type DisputeReason } from "@/api/disputes";
 import { DisputeStatusPill } from "@/components/status-pill";
+import { TableCard } from "@/components/table-card";
 import { PagedResults } from "@/components/paged-results";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -17,11 +18,10 @@ import {
 } from "@/lib/agent-filters";
 import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
 import { formatDate, formatMoney } from "@/lib/format";
+import { AMOUNT_CELL, COLUMN_HEADER, TABLE_ROW } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/agent");
-
-const HEADER = "px-4 py-3 text-left font-medium text-muted-foreground";
 
 export function AgentQueuePage() {
   const { status, limit } = route.useSearch();
@@ -101,42 +101,37 @@ function QueueTable({
   reasons: readonly DisputeReason[] | undefined;
 }) {
   return (
-    <div
-      role="region"
-      aria-label="Queue table"
-      tabIndex={0}
-      className="overflow-x-auto rounded-xl border"
-    >
+    <TableCard label="Queue table">
       <table className="w-full min-w-[48rem] border-collapse text-sm">
         <caption className="sr-only">Disputes awaiting review, oldest first</caption>
-        <thead className="border-b bg-muted/50">
+        <thead>
           <tr>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Raised (UTC)
             </th>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Customer
             </th>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Merchant
             </th>
-            <th scope="col" className={`${HEADER} text-right`}>
+            <th scope="col" className={`${COLUMN_HEADER} text-right`}>
               Amount
             </th>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Reason
             </th>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Status
             </th>
-            <th scope="col" className={HEADER}>
+            <th scope="col" className={COLUMN_HEADER}>
               Details
             </th>
           </tr>
         </thead>
         <tbody className="divide-y">
           {items.map((item) => (
-            <tr key={item.id} className="align-top">
+            <tr key={item.id} className={TABLE_ROW}>
               <td className="px-4 py-3 whitespace-nowrap">
                 <time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time>
               </td>
@@ -149,9 +144,7 @@ function QueueTable({
               <th scope="row" className="px-4 py-3 text-left font-medium">
                 {item.merchantName}
               </th>
-              <td className="px-4 py-3 text-right whitespace-nowrap">
-                {formatMoney(item.amount, item.currency)}
-              </td>
+              <td className={AMOUNT_CELL}>{formatMoney(item.amount, item.currency)}</td>
               <td className="px-4 py-3">{reasonLabel(item.reasonCode, reasons)}</td>
               <td className="px-4 py-3">
                 <DisputeStatusPill status={item.status} />
@@ -173,6 +166,6 @@ function QueueTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableCard>
   );
 }

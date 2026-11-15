@@ -26,6 +26,7 @@ import { classifyCreateError, type CreateFailure, type DisputeField } from "@/li
 import { formatMoney } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
 import { newUuid } from "@/lib/uuid";
+import { CARD } from "@/lib/table-styles";
 
 interface DisputeFormProps {
   transaction: TransactionItem;
@@ -146,7 +147,7 @@ export function DisputeForm({ transaction, reasons }: DisputeFormProps) {
       aria-label="Dispute this transaction"
       noValidate
       onSubmit={(event) => void submit(event)}
-      className="flex flex-col gap-5"
+      className={`${CARD} gap-5`}
     >
       <FormField
         id="dispute-reason"
