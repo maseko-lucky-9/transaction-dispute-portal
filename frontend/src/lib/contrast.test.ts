@@ -37,6 +37,7 @@ const PAIRS: readonly (readonly [string, string])[] = [
   ["muted-foreground", "card"],
   ["muted-foreground", "background"],
   ["primary-foreground", "primary"],
+  ["primary-foreground", "primary-hover"],
   ["destructive-foreground", "destructive"],
   ["destructive", "card"],
   ["positive", "card"],

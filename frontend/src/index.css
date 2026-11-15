@@ -17,6 +17,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -58,6 +59,7 @@
   --card-foreground: light-dark(#3a3a3a, #ededf0);
   --primary: light-dark(#e51718, #e51718);
   --primary-foreground: light-dark(#ffffff, #ffffff);
+  --primary-hover: light-dark(#c41213, #c41213);
   --secondary: light-dark(#eceef3, #24242b);
   --secondary-foreground: light-dark(#3a3a3a, #ededf0);
   --muted: light-dark(#eceef3, #24242b);
