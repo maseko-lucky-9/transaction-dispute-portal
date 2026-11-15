@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 const STEP_SHAPE: Record<StepState, string> = {
   done: "bg-foreground text-card",
   current: "bg-card text-foreground ring-2 ring-foreground",
-  upcoming: "bg-background text-muted-foreground ring-[1.5px] ring-border",
+  upcoming: "bg-background text-muted-foreground ring-[1.5px] ring-muted-foreground/70",
 };
 
 /** The last step takes the outcome colour once the dispute is decided. */
@@ -42,7 +42,7 @@ export function LifecycleStepper({
               aria-hidden="true"
               className={cn(
                 "h-0.5 w-6",
-                steps[index - 1] === "done" ? "bg-foreground" : "bg-border",
+                steps[index - 1] === "done" ? "bg-foreground" : "bg-muted-foreground/50",
               )}
             />
           ) : null}
