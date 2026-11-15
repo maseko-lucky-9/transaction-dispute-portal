@@ -11,6 +11,7 @@ import {
 import { disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
 import { DisputeOverview } from "@/components/dispute-overview";
+import { LifecycleStepper } from "@/components/lifecycle-stepper";
 import { DisputeStatusPill } from "@/components/status-pill";
 import { DisputeTimeline } from "@/components/dispute-timeline";
 import { ErrorState } from "@/components/error-state";
@@ -87,6 +88,10 @@ export function AgentDisputePage() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className={PAGE_TITLE}>Dispute: {dispute.transaction.merchantName}</h1>
           <DisputeStatusPill status={dispute.status} />
+          <LifecycleStepper
+            status={dispute.status}
+            reviewStarted={dispute.timeline.some((entry) => entry.to === "UnderReview")}
+          />
         </div>
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
       </div>
