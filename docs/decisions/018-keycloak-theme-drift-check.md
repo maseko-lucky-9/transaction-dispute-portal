@@ -62,6 +62,8 @@ or fetched at render time) is the real fix and a larger change to ADR-012's clas
   in its Keycloak Deployment, which this cannot see.
 - It reads with the write-capable `HOMELAB_INFRA_TOKEN` (the ADR-017 token). A read-only fine-grained token for this
   workflow alone would be tidier; it is another secret to create and rotate, so it is not done.
+- `environment: homelab-infra` records one deployment to that environment per run, so the daily schedule adds a line a
+  day to its deployment list.
 - Scheduled workflows are paused after 60 days without repository activity; a dispatch from `main` re-enables one.
 - Like the ADR-017 cross-repository steps it cannot run on a pull request. The first real run is the push to `main` that
   merges it (or a `workflow_dispatch`); the script itself was run against the live homelab-infra, in sync, and with a
