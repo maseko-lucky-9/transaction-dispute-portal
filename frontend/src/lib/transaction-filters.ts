@@ -37,6 +37,13 @@ export const TRANSACTION_STATUSES = [
   "Reversed",
 ] as const satisfies readonly TransactionStatus[];
 
+/** What a customer reads for each status. */
+export const TRANSACTION_STATUS_LABELS: Record<TransactionStatus, string> = {
+  Pending: "Pending",
+  Posted: "Posted",
+  Reversed: "Reversed",
+};
+
 export const DEFAULT_LIMIT = 25;
 export const MIN_LIMIT = 1;
 export const MAX_LIMIT = 100;

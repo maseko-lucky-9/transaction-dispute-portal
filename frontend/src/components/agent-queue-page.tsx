@@ -4,7 +4,7 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 
 import { agentQueueInfiniteOptions, type AgentQueueItem } from "@/api/agent";
 import { disputeReasonsOptions, type DisputeReason } from "@/api/disputes";
-import { DisputeStatusBadge } from "@/components/dispute-status-badge";
+import { DisputeStatusPill } from "@/components/status-pill";
 import { PagedResults } from "@/components/paged-results";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -154,7 +154,7 @@ function QueueTable({
               </td>
               <td className="px-4 py-3">{reasonLabel(item.reasonCode, reasons)}</td>
               <td className="px-4 py-3">
-                <DisputeStatusBadge status={item.status} />
+                <DisputeStatusPill status={item.status} />
               </td>
               <td className="px-4 py-3">
                 <Link

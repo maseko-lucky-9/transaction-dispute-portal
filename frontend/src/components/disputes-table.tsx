@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import type { DisputeItem, DisputeReason } from "@/api/disputes";
-import { DisputeStatusBadge } from "@/components/dispute-status-badge";
+import { DisputeStatusPill } from "@/components/status-pill";
 import { buttonVariants } from "@/components/ui/button";
 import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -60,7 +60,7 @@ export function DisputesTable({ items, reasons }: DisputesTableProps) {
               </td>
               <td className="px-4 py-3">{reasonLabel(item.reasonCode, reasons)}</td>
               <td className="px-4 py-3">
-                <DisputeStatusBadge status={item.status} />
+                <DisputeStatusPill status={item.status} />
               </td>
               <td className="px-4 py-3">
                 <Link

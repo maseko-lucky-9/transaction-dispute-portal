@@ -5,7 +5,7 @@ import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 import { disputeDetailOptions, disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
 import { DisputeOverview } from "@/components/dispute-overview";
-import { DisputeStatusBadge } from "@/components/dispute-status-badge";
+import { DisputeStatusPill } from "@/components/status-pill";
 import { DisputeTimeline } from "@/components/dispute-timeline";
 import { ErrorState } from "@/components/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,7 +65,7 @@ export function DisputeDetailPage() {
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">Dispute: {dispute.merchantName}</h1>
-          <DisputeStatusBadge status={dispute.status} />
+          <DisputeStatusPill status={dispute.status} />
         </div>
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
       </div>

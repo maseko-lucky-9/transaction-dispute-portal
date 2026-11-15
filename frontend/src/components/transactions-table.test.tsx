@@ -112,7 +112,7 @@ describe("TransactionsTable rows", () => {
     await renderTable([
       makeTransaction({ reference: "X", dispute: { id: "d1", status: "UnderReview" } }),
     ]);
-    expect(within(rowFor("X")).getByText("Dispute: UnderReview")).toBeInTheDocument();
+    expect(within(rowFor("X")).getByText("Dispute: Under review")).toBeInTheDocument();
   });
 });
 

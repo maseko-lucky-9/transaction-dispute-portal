@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Link } from "@tanstack/react-router";
 
 import type { TransactionItem } from "@/api/transactions";
-import { Badge } from "@/components/ui/badge";
+import { DisputeStatusPill, TransactionStatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { describeBlockReasons } from "@/lib/dispute-reasons";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -70,8 +70,10 @@ function TransactionRow({ item }: { item: TransactionItem }) {
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-col items-start gap-1">
-          <Badge variant={item.status === "Posted" ? "secondary" : "outline"}>{item.status}</Badge>
-          {item.dispute ? <Badge>Dispute: {item.dispute.status}</Badge> : null}
+          <TransactionStatusPill status={item.status} />
+          {item.dispute ? (
+            <DisputeStatusPill status={item.dispute.status} prefix="Dispute" />
+          ) : null}
         </div>
       </td>
       <td className="px-4 py-3">
