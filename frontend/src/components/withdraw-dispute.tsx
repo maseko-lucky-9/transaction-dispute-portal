@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/error-state";
 import { TraceReference } from "@/components/trace-reference";
 import { Button } from "@/components/ui/button";
 import { WITHDRAWABLE_STATUSES } from "@/lib/dispute-filters";
+import { CARD } from "@/lib/table-styles";
 
 type Outcome = "withdrawn" | "reloaded" | "already-closed" | null;
 
@@ -85,7 +86,7 @@ export function WithdrawDispute({ id, current }: { id: string; current: DisputeW
   const canWithdraw = WITHDRAWABLE_STATUSES.includes(current.dispute.status);
 
   return (
-    <section aria-labelledby="withdraw-heading" className="flex flex-col gap-3">
+    <section aria-labelledby="withdraw-heading" className={CARD}>
       <h2 id="withdraw-heading" className="text-lg font-semibold">
         Withdraw
       </h2>

@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { WithdrawDispute } from "@/components/withdraw-dispute";
 import { formatDateTime } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
+import { BACK_LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/disputes/$disputeId");
@@ -54,17 +55,17 @@ export function DisputeDetailPage() {
   const { dispute, etag } = query.data;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <title>Dispute - Transactions Dispute Portal</title>
 
       <SubmissionNotice key={dispute.id} />
 
       <div className="flex flex-col gap-2">
-        <Link to="/disputes" className="text-sm underline underline-offset-4">
+        <Link to="/disputes" className={BACK_LINK}>
           Back to my disputes
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold">Dispute: {dispute.merchantName}</h1>
+          <h1 className={PAGE_TITLE}>Dispute: {dispute.merchantName}</h1>
           <DisputeStatusPill status={dispute.status} />
         </div>
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
@@ -112,7 +113,7 @@ function SubmissionNotice() {
       role="status"
       tabIndex={-1}
       ref={focusOnMount}
-      className="flex flex-col gap-1 rounded-md border bg-muted/50 px-4 py-2 text-sm outline-none"
+      className="flex flex-col gap-1 rounded-card bg-card px-5 py-3 text-sm shadow-card outline-none"
     >
       <p className="font-medium">
         Your dispute was submitted. We will review it and update the timeline below.
@@ -131,7 +132,7 @@ function SubmissionNotice() {
 function NotFoundDispute() {
   return (
     <div className="flex flex-col items-start gap-3">
-      <h1 className="text-2xl font-semibold">Dispute not found</h1>
+      <h1 className={PAGE_TITLE}>Dispute not found</h1>
       <p className="text-muted-foreground">
         We could not find that dispute. It may belong to someone else or no longer exist.
       </p>

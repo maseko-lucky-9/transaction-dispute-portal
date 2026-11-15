@@ -2,25 +2,19 @@ import { useId } from "react";
 import { Link } from "@tanstack/react-router";
 
 import type { TransactionItem } from "@/api/transactions";
+import { TableCard } from "@/components/table-card";
 import { DisputeStatusPill, TransactionStatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { describeBlockReasons } from "@/lib/dispute-reasons";
 import { formatDate, formatMoney } from "@/lib/format";
-
-const COLUMN_HEADER = "px-4 py-3 text-left font-medium text-muted-foreground";
+import { AMOUNT_CELL, COLUMN_HEADER, TABLE_ROW } from "@/lib/table-styles";
 
 export function TransactionsTable({ items }: { items: readonly TransactionItem[] }) {
   return (
-    // A scrollable region must be reachable by keyboard (axe: scrollable-region-focusable).
-    <div
-      role="region"
-      aria-label="Transactions table"
-      tabIndex={0}
-      className="overflow-x-auto rounded-xl border"
-    >
+    <TableCard label="Transactions table" flat>
       <table className="w-full min-w-[44rem] border-collapse text-sm">
         <caption className="sr-only">Your transactions, newest first</caption>
-        <thead className="border-b bg-muted/50">
+        <thead>
           <tr>
             <th scope="col" className={COLUMN_HEADER}>
               Date (UTC)
@@ -48,13 +42,13 @@ export function TransactionsTable({ items }: { items: readonly TransactionItem[]
           ))}
         </tbody>
       </table>
-    </div>
+    </TableCard>
   );
 }
 
 function TransactionRow({ item }: { item: TransactionItem }) {
   return (
-    <tr className="align-top">
+    <tr className={TABLE_ROW}>
       <td className="px-4 py-3 whitespace-nowrap">
         <time dateTime={item.transactionDate}>{formatDate(item.transactionDate)}</time>
       </td>
@@ -65,7 +59,7 @@ function TransactionRow({ item }: { item: TransactionItem }) {
         </div>
       </th>
       <td className="px-4 py-3 whitespace-nowrap">{item.account.maskedNumber}</td>
-      <td className="px-4 py-3 text-right whitespace-nowrap">
+      <td className={AMOUNT_CELL}>
         <Amount item={item} />
       </td>
       <td className="px-4 py-3">

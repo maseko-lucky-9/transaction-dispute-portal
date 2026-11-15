@@ -4,6 +4,7 @@ import type { DisputeDetail, DisputeReason } from "@/api/disputes";
 import { Fact } from "@/components/fact";
 import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { CARD } from "@/lib/table-styles";
 
 interface DisputeOverviewProps {
   dispute: Pick<
@@ -37,7 +38,7 @@ export function DisputeOverview(props: DisputeOverviewProps) {
   const { transaction } = dispute;
   return (
     <>
-      <section aria-labelledby="summary-heading" className="flex flex-col gap-3">
+      <section aria-labelledby="summary-heading" className={CARD}>
         <h2 id="summary-heading" className="text-lg font-semibold">
           {props.summaryHeading}
         </h2>
@@ -56,14 +57,14 @@ export function DisputeOverview(props: DisputeOverviewProps) {
           <p className="whitespace-pre-wrap">{dispute.description}</p>
         </div>
         {dispute.resolutionNote ? (
-          <div className="flex flex-col gap-1 rounded-md border bg-muted/50 p-4">
+          <div className="flex flex-col gap-1 rounded-xl bg-accent p-4">
             <h3 className="text-sm font-medium text-muted-foreground">Resolution note</h3>
             <p className="whitespace-pre-wrap">{dispute.resolutionNote}</p>
           </div>
         ) : null}
       </section>
 
-      <section aria-labelledby="transaction-heading" className="flex flex-col gap-3">
+      <section aria-labelledby="transaction-heading" className={CARD}>
         <h2 id="transaction-heading" className="text-lg font-semibold">
           The transaction
         </h2>
@@ -75,7 +76,7 @@ export function DisputeOverview(props: DisputeOverviewProps) {
         </dl>
       </section>
 
-      <section aria-labelledby="timeline-heading" className="flex flex-col gap-3">
+      <section aria-labelledby="timeline-heading" className={CARD}>
         <h2 id="timeline-heading" className="text-lg font-semibold">
           Timeline
         </h2>

@@ -774,3 +774,52 @@ describe("transactions page: keyboard focus and live regions", () => {
     expect(screen.getByRole("status", { name: "Result count" })).toBeEmptyDOMElement();
   });
 });
+
+describe("transactions page: status links", () => {
+  const filterLinks = () => within(screen.getByRole("navigation", { name: "Filter by status" }));
+
+  it("keeps limit, from and to, swaps only the status, and marks one link current", async () => {
+    await openTransactions("/transactions?status=Posted&from=2026-01-01&to=2026-02-01&limit=50", 5);
+    const href = (name: string) =>
+      new URL(filterLinks().getByRole("link", { name }).getAttribute("href") ?? "", "http://x");
+
+    expect(
+      filterLinks()
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["All", "Pending", "Posted", "Reversed"]);
+    expect(Object.fromEntries(href("Pending").searchParams)).toEqual({
+      status: "Pending",
+      from: "2026-01-01",
+      to: "2026-02-01",
+      limit: "50",
+    });
+    // "All" drops the status, as choosing "All statuses" in the form does.
+    expect(Object.fromEntries(href("All").searchParams)).toEqual({
+      from: "2026-01-01",
+      to: "2026-02-01",
+      limit: "50",
+    });
+    const current = filterLinks()
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+    expect(current).toEqual([filterLinks().getByRole("link", { name: "Posted" })]);
+  });
+
+  it("clicking a link filters the list and moves the current mark", async () => {
+    const { router } = await openTransactions("/transactions", 5);
+    expect(filterLinks().getByRole("link", { name: "All" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await userEvent.setup().click(filterLinks().getByRole("link", { name: "Reversed" }));
+
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ status: "Reversed" }));
+    expect(filterLinks().getByRole("link", { name: "Reversed" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(filterLinks().getByRole("link", { name: "All" })).not.toHaveAttribute("aria-current");
+  });
+});
