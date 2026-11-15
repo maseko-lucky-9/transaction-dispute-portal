@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dispute · E Soft Canvas</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+    <nav class="pillnav" aria-label="Primary"><a href="transactions.html">Transactions</a><a href="dispute.html" aria-current="page">Disputes</a></nav>
+    <div class="user"><button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button><span data-testid="header-user">Thandi Nkosi</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="dispute">
+      <a class="back" href="transactions.html">&larr; Back to my disputes</a>
+      <div class="page-head dispute-head">
+        <h1>Dispute: Takealot.com <span class="pill" data-status="review">Under review</span></h1>
+        <p>Raised 11 Nov 2026, 10:04 UTC</p>
+        <div class="actions"><button class="btn btn-outline" type="button">Withdraw dispute</button></div>
+      </div>
+
+      <section class="card panel tint-crimson" aria-labelledby="summary-heading">
+        <h2 id="summary-heading">Summary</h2>
+        <p class="amount-big">R 2 349.00</p>
+        <dl class="facts">
+          <div><dt>Reason</dt><dd>Goods or services not received</dd></div>
+          <div><dt>Amount disputed</dt><dd class="num">R 2 349.00</dd></div>
+          <div><dt>Reference</dt><dd class="mono">TX-88021</dd></div>
+        </dl>
+        <div class="story"><span class="label">What happened</span><p>I ordered a pair of running shoes on 1 November. The order shows as delivered but nothing arrived, and the courier can't say where it was left.</p></div>
+      </section>
+
+      <section class="card panel" aria-labelledby="txn-heading">
+        <h2 id="txn-heading">The transaction</h2>
+        <dl class="facts">
+          <div><dt>Merchant</dt><dd>Takealot.com</dd></div>
+          <div><dt>Date</dt><dd class="num">11 Nov 2026</dd></div>
+          <div><dt>Account</dt><dd class="mono">••••4821</dd></div>
+          <div><dt>Status</dt><dd><span class="pill" data-status="posted">Posted</span></dd></div>
+        </dl>
+      </section>
+
+      <section class="card panel tint-gem" aria-labelledby="timeline-heading">
+        <h2 id="timeline-heading">Timeline</h2>
+        <ol class="timeline">
+          <li><div><strong>Submitted</strong><p class="muted">By you · 11 Nov 2026, 10:04</p></div></li>
+          <li><div><strong>Under review</strong><p class="muted">By the disputes team · 12 Nov 2026, 09:12</p></div></li>
+        </ol>
+        <p class="muted note">You'll see the decision here. Most disputes are decided within 10 business days.</p>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

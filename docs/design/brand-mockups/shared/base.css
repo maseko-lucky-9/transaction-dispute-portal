@@ -1,0 +1,141 @@
+/*
+ * Shared primitives for the mock-ups (PROTOTYPE). Layout lives in each direction's dir.css; this file
+ * only defines the pieces every direction reuses: type, buttons, cards, status pills, table, fields,
+ * filter links, the icon-only stepper and the prototype switcher bar.
+ */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--fg);
+  font: 15px/1.5 var(--font-sans);
+  padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); /* room for the switcher bar */
+}
+img { max-width: 100%; display: block; }
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; color: var(--fg); }
+p { margin: 0; }
+a { color: var(--gem-text); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); font-size: 0.85em; }
+.credit { color: var(--st-posted-fg); }
+
+/* logo: the supplied JPG has a white background, so it always sits on a white tile */
+.logo-tile {
+  display: inline-grid; place-items: center;
+  background: var(--logo-tile); border-radius: 12px;
+  padding: 7px 8px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 6%);
+}
+.logo-tile img { width: 40px; height: auto; }
+.brand-link { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 650; }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 0 16px; border-radius: var(--radius-pill);
+  border: 1px solid transparent; font: inherit; font-weight: 600; font-size: 14px;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.btn-primary { background: var(--primary); color: var(--on-primary); }
+.btn-primary:hover { filter: brightness(0.93); }
+.btn-gem { background: var(--gem); color: #fff; }
+.btn-outline { background: var(--card); color: var(--fg); border-color: var(--border); }
+.btn-outline:hover { background: var(--hover); }
+.btn-ghost { background: transparent; color: var(--fg); }
+.btn-ghost:hover { background: var(--hover); }
+.btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+/* cards */
+.card { background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+
+/* status pill: a word always, plus a shape per status; colour is never the only cue */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px 3px 8px; border-radius: var(--radius-pill);
+  font-size: 12.5px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.pill::before { font-size: 11px; line-height: 1; }
+.pill[data-status="submitted"] { color: var(--st-submitted-fg); background: var(--st-submitted-bg); }
+.pill[data-status="submitted"]::before { content: "\25CF" / ""; }
+.pill[data-status="review"] { color: var(--st-review-fg); background: var(--st-review-bg); }
+.pill[data-status="review"]::before { content: "\25D0" / ""; }
+.pill[data-status="accepted"] { color: var(--st-accepted-fg); background: var(--st-accepted-bg); }
+.pill[data-status="accepted"]::before { content: "\2713" / ""; }
+.pill[data-status="rejected"] { color: var(--st-rejected-fg); background: var(--st-rejected-bg); }
+.pill[data-status="rejected"]::before { content: "\2715" / ""; }
+.pill[data-status="withdrawn"] { color: var(--st-withdrawn-fg); background: var(--st-withdrawn-bg); }
+.pill[data-status="withdrawn"]::before { content: "\2013" / ""; }
+.pill[data-status="pending"] { color: var(--st-pending-fg); background: var(--st-pending-bg); }
+.pill[data-status="pending"]::before { content: "\25F7" / ""; }
+.pill[data-status="posted"] { color: var(--st-posted-fg); background: var(--st-posted-bg); }
+.pill[data-status="posted"]::before { content: "\2713" / ""; }
+.pill[data-status="reversed"] { color: var(--st-reversed-fg); background: var(--st-reversed-bg); }
+.pill[data-status="reversed"]::before { content: "\21BA" / ""; }
+
+/* table (real table/thead/tbody/tr, scrolls inside its own region) */
+.table-wrap { overflow-x: auto; position: relative; } /* contains .sr-only spans so they can't widen the page */
+.table { width: 100%; border-collapse: collapse; min-width: 44rem; font-size: 14px; }
+.table th { text-align: left; font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 10px 14px; white-space: nowrap; }
+.table td, .table tbody th { padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: middle; text-align: left; font-weight: 400; }
+.table tbody th { font-weight: 600; font-size: 14px; color: var(--fg); white-space: normal; }
+.table tbody tr:hover { background: var(--hover); }
+.table .amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table .sub { display: block; font-size: 12.5px; color: var(--muted); font-weight: 400; }
+
+/* fields */
+.field { display: grid; gap: 6px; min-width: 0; }
+.field label { font-size: 13px; font-weight: 600; }
+.input, .select, .textarea {
+  font: inherit; font-size: 14px; color: var(--fg); background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius-md); padding: 9px 12px; min-height: 40px; width: 100%;
+}
+.textarea { min-height: 120px; resize: vertical; }
+
+/* status filter links (links, not tabs; the "Status" select stays beside them) */
+.filter-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-links a {
+  color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600;
+  padding: 7px 14px; border-radius: var(--radius-pill);
+}
+.filter-links a:hover { color: var(--fg); background: var(--hover); }
+.filter-links a[aria-current="page"] { color: var(--fg); background: var(--card); box-shadow: inset 0 0 0 1px var(--border); }
+
+/* lifecycle stepper: icon-only, no status words; role="img" + aria-label "Step N of 3" */
+.stepper { display: inline-flex; align-items: center; gap: 0; }
+.stepper .step {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--canvas); box-shadow: inset 0 0 0 1.5px var(--border); color: var(--muted); font-size: 11px;
+}
+.stepper .bar { width: 26px; height: 2px; background: var(--border); }
+.stepper .step[data-state="done"] { background: var(--fg); color: var(--card); box-shadow: none; }
+.stepper .bar[data-state="done"] { background: var(--fg); }
+.stepper .step[data-state="current"] { background: var(--card); box-shadow: inset 0 0 0 2px var(--fg); color: var(--fg); }
+.stepper[data-tone="accepted"] .step[data-state="done"]:last-child { background: var(--st-accepted-fg); }
+.stepper[data-tone="rejected"] .step[data-state="done"]:last-child { background: var(--st-rejected-fg); }
+.stepper[data-tone="withdrawn"] .step, .stepper[data-tone="withdrawn"] .bar { opacity: 0.45; }
+
+/* Keycloak keeps its own form structure: centred card, Username, Password + eye toggle, Sign In */
+.kc-note { font-size: 13px; color: var(--muted); max-width: 30rem; text-align: center; margin-inline: auto; }
+
+/* PROTOTYPE switcher bar: obviously not part of the design */
+.proto-bar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 50;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 24px);
+  padding: 6px; border-radius: 999px; background: #111; color: #fff;
+  font: 600 12.5px/1 var(--font-sans); box-shadow: 0 8px 30px rgb(0 0 0 / 35%);
+}
+.proto-bar a, .proto-bar button {
+  color: #fff; background: transparent; border: 0; font: inherit; cursor: pointer;
+  padding: 8px 10px; border-radius: 999px; text-decoration: none;
+}
+.proto-bar a:hover, .proto-bar button:hover { background: #333; }
+.proto-bar .label { padding: 0 6px; white-space: nowrap; }
+@media (max-width: 520px) { .proto-bar { border-radius: 18px; gap: 2px; } .proto-bar .label { display: none; } }
+.proto-bar select { font: inherit; color: #fff; background: #222; border: 0; border-radius: 999px; padding: 7px 10px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

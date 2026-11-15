@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home · C Compact Ledger</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<header class="topbar"><div class="bar">
+  <a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+  <span class="sep" aria-hidden="true">/</span><nav class="pillnav" aria-label="Primary"><a href="transactions.html">Transactions</a><a href="dispute.html">Disputes</a></nav>
+  <div class="user"><button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button><span data-testid="header-user">Thandi Nkosi</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+</div></header>
+  <main id="main" class="page">
+    <section class="page-head" aria-labelledby="home-heading">
+      <div>
+        <h1 id="home-heading">Good afternoon, Thandi</h1>
+        <p>Signed in as <strong>Thandi Nkosi</strong></p>
+      </div>
+      <div class="roles"><span class="muted">Roles</span><ul aria-label="Roles"><li>customer</li></ul></div>
+    </section>
+    <div class="home-grid">
+      <nav aria-label="Main">
+        <ul class="rows">
+          <li><h2><a href="transactions.html">My transactions</a></h2><p>View your transactions and dispute a charge you don't recognise.</p></li>
+          <li><h2><a href="dispute.html">My disputes</a></h2><p>Follow each dispute from submitted to a decision.</p></li>
+        </ul>
+      </nav>
+      <aside class="panel" aria-labelledby="lifecycle-heading">
+        <h2 id="lifecycle-heading">How a dispute moves</h2>
+        <ul class="legend">
+          <li><span><span class="pill" data-status="submitted">Submitted</span></span><span class="muted">You raised it</span></li>
+          <li><span><span class="pill" data-status="review">Under review</span></span><span class="muted">Being checked</span></li>
+          <li><span><span class="pill" data-status="accepted">Accepted</span></span><span class="muted">Refund approved</span></li>
+          <li><span><span class="pill" data-status="rejected">Rejected</span></span><span class="muted">Charge stands</span></li>
+          <li><span><span class="pill" data-status="withdrawn">Withdrawn</span></span><span class="muted">You cancelled it</span></li>
+        </ul>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

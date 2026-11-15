@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dispute Portal Brand Directions</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/base.css">
+<style>
+  body { padding-bottom: 32px; }
+  .wrap { max-width: 1100px; margin-inline: auto; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px; display: grid; gap: 28px; }
+  header { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  h1 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; }
+  .intro { max-width: 68ch; display: grid; gap: 10px; color: var(--muted); }
+  .dirs { display: grid; gap: 16px; }
+  .dir { padding: 20px; display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 720px) { .dir { grid-template-columns: minmax(0, 1fr); } }
+  .dir h2 { font-size: 18px; }
+  .dir p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  .swatches { display: flex; gap: 6px; margin-top: 12px; }
+  .swatches span { width: 22px; height: 22px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); }
+  .pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; list-style: none; margin: 0; padding: 0; }
+  .pages a { display: block; padding: 10px 12px; border-radius: 10px; background: var(--canvas); color: var(--fg); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .pages a:hover { box-shadow: inset 0 0 0 1px var(--border); background: var(--hover); }
+  .rules { padding: 20px; display: grid; gap: 10px; }
+  .rules h2 { font-size: 16px; }
+  .rules ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo-tile"><img src="shared/capitec-bank-logo.jpg" alt="Capitec"></span>
+    <h1>Dispute Portal brand directions</h1>
+  </header>
+  <div class="intro">
+    <p>Five design directions for the Capitec rebrand, each across the same six pages and the same sample data. Open any page, then use the dark bar at the bottom to switch direction on that page (or press the left and right arrow keys), jump between pages and flip light and dark.</p>
+    <p>Pick one direction, or name the parts you want from several, for example the header from A with the table from C.</p>
+  </div>
+
+  <section class="card rules" aria-labelledby="status-heading">
+    <h2 id="status-heading">Status colours, shared by every direction</h2>
+    <div class="legend">
+      <span class="pill" data-status="submitted">Submitted</span><span class="pill" data-status="review">Under review</span><span class="pill" data-status="accepted">Accepted</span><span class="pill" data-status="rejected">Rejected</span><span class="pill" data-status="withdrawn">Withdrawn</span>
+      <span class="pill" data-status="pending">Pending</span><span class="pill" data-status="posted">Posted</span><span class="pill" data-status="reversed">Reversed</span>
+    </div>
+  </section>
+
+  <div class="dirs">
+    <article class="card dir">
+      <div><h2>A · Crimson Pill</h2><p>Floating white header with pill navigation, as in the dashboard reference. Crimson for the one main action, Blue Gem for links. Landing splits the sign-in card and a Royal Blue panel.</p>
+        <div class="swatches" aria-hidden="true"><span style="background:#e51718"></span><span style="background:#4111a4"></span><span style="background:#2f70ef"></span><span style="background:#3a3a3a"></span></div></div>
+      <ul class="pages"><li><a href="a-crimson-pill/landing.html">Landing</a></li><li><a href="a-crimson-pill/sign-in.html">Sign in</a></li><li><a href="a-crimson-pill/home.html">Home</a></li><li><a href="a-crimson-pill/transactions.html">Transactions</a></li><li><a href="a-crimson-pill/dispute.html">Dispute</a></li><li><a href="a-crimson-pill/agent.html">Agent</a></li></ul>
+    </article>
+    <article class="card dir">
+      <div><h2>B · Gem Sidebar</h2><p>Blue Gem sidebar navigation, as in the agent table reference. Crimson only for the main action. Landing is a full-width Blue Gem panel.</p>
+        <div class="swatches" aria-hidden="true"><span style="background:#4111a4"></span><span style="background:#e51718"></span><span style="background:#ffffff"></span><span style="background:#3a3a3a"></span></div></div>
+      <ul class="pages"><li><a href="b-gem-sidebar/landing.html">Landing</a></li><li><a href="b-gem-sidebar/sign-in.html">Sign in</a></li><li><a href="b-gem-sidebar/home.html">Home</a></li><li><a href="b-gem-sidebar/transactions.html">Transactions</a></li><li><a href="b-gem-sidebar/dispute.html">Dispute</a></li><li><a href="b-gem-sidebar/agent.html">Agent</a></li></ul>
+    </article>
+    <article class="card dir">
+      <div><h2>C · Compact Ledger</h2><p>Dense, Mine Shaft led, built for scanning many rows. One crimson action per page. Landing is text-led with a thin crimson rule.</p>
+        <div class="swatches" aria-hidden="true"><span style="background:#3a3a3a"></span><span style="background:#e51718"></span><span style="background:#ffffff"></span><span style="background:#2f70ef"></span></div></div>
+      <ul class="pages"><li><a href="c-compact-ledger/landing.html">Landing</a></li><li><a href="c-compact-ledger/sign-in.html">Sign in</a></li><li><a href="c-compact-ledger/home.html">Home</a></li><li><a href="c-compact-ledger/transactions.html">Transactions</a></li><li><a href="c-compact-ledger/dispute.html">Dispute</a></li><li><a href="c-compact-ledger/agent.html">Agent</a></li></ul>
+    </article>
+    <article class="card dir">
+      <div><h2>D · Royal Dashboard</h2><p>Collapsed icon sidebar, Royal Blue as the main colour with crimson kept for reject and warnings. Landing has a Royal Blue to Blue Gem hero.</p>
+        <div class="swatches" aria-hidden="true"><span style="background:#2f70ef"></span><span style="background:#4111a4"></span><span style="background:#e51718"></span><span style="background:#3a3a3a"></span></div></div>
+      <ul class="pages"><li><a href="d-royal-dashboard/landing.html">Landing</a></li><li><a href="d-royal-dashboard/sign-in.html">Sign in</a></li><li><a href="d-royal-dashboard/home.html">Home</a></li><li><a href="d-royal-dashboard/transactions.html">Transactions</a></li><li><a href="d-royal-dashboard/dispute.html">Dispute</a></li><li><a href="d-royal-dashboard/agent.html">Agent</a></li></ul>
+    </article>
+    <article class="card dir">
+      <div><h2>E · Soft Canvas</h2><p>Airy, large type, soft tinted fills of crimson and Blue Gem instead of solid blocks. Landing is a centred card with a three-step row.</p>
+        <div class="swatches" aria-hidden="true"><span style="background:#fde4e4"></span><span style="background:#ece6fb"></span><span style="background:#e51718"></span><span style="background:#4111a4"></span></div></div>
+      <ul class="pages"><li><a href="e-soft-canvas/landing.html">Landing</a></li><li><a href="e-soft-canvas/sign-in.html">Sign in</a></li><li><a href="e-soft-canvas/home.html">Home</a></li><li><a href="e-soft-canvas/transactions.html">Transactions</a></li><li><a href="e-soft-canvas/dispute.html">Dispute</a></li><li><a href="e-soft-canvas/agent.html">Agent</a></li></ul>
+    </article>
+  </div>
+
+  <section class="card rules" aria-labelledby="limits-heading">
+    <h2 id="limits-heading">What every direction keeps, so the chosen one can be built as shown</h2>
+    <ul>
+      <li>No counts on the filter links and no totals on Home: the API pages results and does not return totals.</li>
+      <li>The Capitec logo appears once, in the header, on a white tile (the supplied file has a white background).</li>
+      <li>The signed-out page's main heading reads "Sign in", and it has a single Sign in button.</li>
+      <li>Home links are named My transactions, My disputes and Review queue, one each.</li>
+      <li>The Status dropdown stays next to the status filter links.</li>
+      <li>The agent progress stepper uses icons only; the status word lives in the pill beside it.</li>
+      <li>The sign-in page is Keycloak's own login form, restyled: same fields, same order, new colours and logo.</li>
+      <li>Royal Blue is used for fills and large text only; it is too light for small text on white.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

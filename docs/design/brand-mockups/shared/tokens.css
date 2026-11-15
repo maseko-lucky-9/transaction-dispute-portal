@@ -1,0 +1,94 @@
+/*
+ * Capitec brand palette for the Dispute Portal mock-ups (PROTOTYPE, Stage A).
+ * These hex values are the real palette: every text/background pair below was checked at 4.5:1 or
+ * better in both themes, and they move into frontend/src/index.css in Stage B.
+ * Royal Blue (#2F70EF) is 4.48:1 against white: fills, borders and large text only, never small text
+ * and never white text on it. Small blue text uses --royal-text.
+ */
+:root {
+  /* brand (fixed in both themes) */
+  --crimson: #e51718;
+  --royal: #2f70ef;
+  --gem: #4111a4;
+  --mine-shaft: #3a3a3a;
+  --white: #ffffff;
+
+  /* surfaces and text, light */
+  --canvas: #f3f4f8;
+  --card: #ffffff;
+  --card-raised: #ffffff;
+  --fg: #3a3a3a;
+  --muted: #5e606a;
+  --border: #e3e5ec;
+  --hover: #f6f7fa;
+  --primary: var(--crimson);
+  --on-primary: #ffffff;
+  --crimson-text: #e51718;
+  --gem-text: #4111a4;
+  --royal-text: #2459c9;
+  --focus: #2459c9;
+  --logo-tile: #ffffff;
+
+  /* status: text on tint, light */
+  --st-submitted-fg: #2459c9;  --st-submitted-bg: #e6eefd;
+  --st-review-fg: #9a4a00;     --st-review-bg: #fdebd8;
+  --st-accepted-fg: #116b3a;   --st-accepted-bg: #e3f4ea;
+  --st-rejected-fg: #b4121a;   --st-rejected-bg: #fde4e4;
+  --st-withdrawn-fg: #4a4b52;  --st-withdrawn-bg: #ecedf1;
+  /* transactions reuse the same three tones */
+  --st-pending-fg: var(--st-review-fg);    --st-pending-bg: var(--st-review-bg);
+  --st-posted-fg: var(--st-accepted-fg);   --st-posted-bg: var(--st-accepted-bg);
+  --st-reversed-fg: var(--st-rejected-fg); --st-reversed-bg: var(--st-rejected-bg);
+
+  --shadow: 0 1px 2px rgb(20 22 40 / 6%), 0 4px 16px rgb(20 22 40 / 5%);
+  --radius-lg: 20px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #121216;
+    --card: #1c1c22;
+    --card-raised: #24242b;
+    --fg: #ededf0;
+    --muted: #a6a7b0;
+    --border: #2e2f37;
+    --hover: #24242b;
+    --crimson-text: #ff6b6c;
+    --gem-text: #b9a2ff;
+    --royal-text: #8cb0ff;
+    --focus: #8cb0ff;
+    --st-submitted-fg: #9dbbff;  --st-submitted-bg: #18264a;
+    --st-review-fg: #ffb067;     --st-review-bg: #3a2610;
+    --st-accepted-fg: #6fd69a;   --st-accepted-bg: #16301f;
+    --st-rejected-fg: #ff8a8a;   --st-rejected-bg: #3d1414;
+    --st-withdrawn-fg: #c5c6ce;  --st-withdrawn-bg: #2c2d33;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --canvas: #121216;
+  --card: #1c1c22;
+  --card-raised: #24242b;
+  --fg: #ededf0;
+  --muted: #a6a7b0;
+  --border: #2e2f37;
+  --hover: #24242b;
+  --crimson-text: #ff6b6c;
+  --gem-text: #b9a2ff;
+  --royal-text: #8cb0ff;
+  --focus: #8cb0ff;
+  --st-submitted-fg: #9dbbff;  --st-submitted-bg: #18264a;
+  --st-review-fg: #ffb067;     --st-review-bg: #3a2610;
+  --st-accepted-fg: #6fd69a;   --st-accepted-bg: #16301f;
+  --st-rejected-fg: #ff8a8a;   --st-rejected-bg: #3d1414;
+  --st-withdrawn-fg: #c5c6ce;  --st-withdrawn-bg: #2c2d33;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  color-scheme: dark;
+}

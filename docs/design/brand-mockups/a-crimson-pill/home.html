@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home · A Crimson Pill</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+    <nav class="pillnav" aria-label="Primary"><a href="transactions.html">Transactions</a><a href="dispute.html">Disputes</a></nav>
+    <div class="user"><button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button><span data-testid="header-user">Thandi Nkosi</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+  </header>
+
+  <main id="main" class="split">
+    <div style="display:grid;gap:24px;min-width:0">
+      <section class="page-head" aria-labelledby="home-heading">
+        <div>
+          <h1 id="home-heading">Good afternoon, Thandi</h1>
+          <p>Signed in as <strong>Thandi Nkosi</strong></p>
+        </div>
+        <div class="roles"><span class="muted">Roles</span><ul aria-label="Roles"><li>customer</li></ul></div>
+      </section>
+      <nav aria-label="Main">
+        <ul class="home-cards">
+          <li class="card home-card primary"><h2><a href="transactions.html">My transactions</a></h2><p>View your transactions and dispute a charge you don't recognise.</p></li>
+          <li class="card home-card"><h2><a href="dispute.html">My disputes</a></h2><p class="muted">Follow each dispute from submitted to a decision.</p></li>
+        </ul>
+      </nav>
+    </div>
+    <aside class="card panel" aria-labelledby="lifecycle-heading">
+      <h2 id="lifecycle-heading" style="font-size:16px">How a dispute moves</h2>
+      <ul class="legend" style="list-style:none;margin:0;padding:0;display:grid;gap:10px">
+        <li><span class="pill" data-status="submitted">Submitted</span><span class="muted">You raised it</span></li>
+        <li><span class="pill" data-status="review">Under review</span><span class="muted">Being checked</span></li>
+        <li><span class="pill" data-status="accepted">Accepted</span><span class="muted">Refund approved</span></li>
+        <li><span class="pill" data-status="rejected">Rejected</span><span class="muted">Charge stands</span></li>
+        <li><span class="pill" data-status="withdrawn">Withdrawn</span><span class="muted">You cancelled it</span></li>
+      </ul>
+    </aside>
+  </main>
+</div>
+</body>
+</html>

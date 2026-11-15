@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agent queue · A Crimson Pill</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+    <nav class="pillnav" aria-label="Primary"><a href="agent.html" aria-current="page">Queue</a></nav>
+    <div class="user"><button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button><span data-testid="header-user">Anele Agent</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+  </header>
+
+  <main id="main" style="display:grid;gap:20px">
+    <div class="page-head"><div><h1>Review queue</h1><p>Oldest first, so nothing waits too long.</p></div></div>
+
+    <section class="card panel" aria-label="Queue">
+      <div class="panel-head">
+        <nav class="filter-links" aria-label="Filter by status">
+          <a href="#" aria-current="page">Open</a><a href="#">Submitted</a><a href="#">Under review</a><a href="#">Accepted</a><a href="#">Rejected</a><a href="#">Withdrawn</a>
+        </nav>
+        <div class="field" style="min-width:180px"><label for="status">Status</label><select class="select" id="status"><option>Open</option><option>Submitted</option><option>Under review</option><option>Accepted</option><option>Rejected</option><option>Withdrawn</option></select></div>
+      </div>
+      <div class="table-wrap" role="region" aria-label="Queue table" tabindex="0">
+        <table class="table" style="min-width:58rem">
+          <thead><tr><th scope="col">Raised</th><th scope="col">Customer</th><th scope="col">Merchant</th><th scope="col" class="amount">Amount</th><th scope="col">Reason</th><th scope="col">Progress</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead>
+          <tbody>
+            <tr><td class="num">05 Nov 2026</td><td>Thandi Nkosi<span class="sub mono">••••4821</span></td><th scope="row">Woolworths Food</th><td class="amount">R 412.30</td><td>Charged more than once</td>
+              <td><span class="stepper" role="img" aria-label="Step 1 of 3"><span class="step" data-state="current"></span><span class="bar"></span><span class="step"></span><span class="bar"></span><span class="step"></span></span></td>
+              <td><span class="pill" data-status="submitted">Submitted</span></td><td><a class="btn btn-primary btn-sm" href="dispute.html">Review<span class="sr-only"> dispute from Thandi Nkosi</span></a></td></tr>
+            <tr><td class="num">08 Nov 2026</td><td>Sipho Dlamini<span class="sub mono">••••7730</span></td><th scope="row">MTN Airtime</th><td class="amount">R 299.00</td><td>I don't recognise this transaction</td>
+              <td><span class="stepper" role="img" aria-label="Step 2 of 3"><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="current"></span><span class="bar"></span><span class="step"></span></span></td>
+              <td><span class="pill" data-status="review">Under review</span></td><td><a class="btn btn-outline btn-sm" href="dispute.html">Review<span class="sr-only"> dispute from Sipho Dlamini</span></a></td></tr>
+            <tr><td class="num">11 Nov 2026</td><td>Thandi Nkosi<span class="sub mono">••••4821</span></td><th scope="row">Takealot.com</th><td class="amount">R 2 349.00</td><td>Goods or services not received</td>
+              <td><span class="stepper" role="img" aria-label="Step 2 of 3"><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="current"></span><span class="bar"></span><span class="step"></span></span></td>
+              <td><span class="pill" data-status="review">Under review</span></td><td><a class="btn btn-outline btn-sm" href="dispute.html">Review<span class="sr-only"> dispute from Thandi Nkosi</span></a></td></tr>
+            <tr><td class="num">12 Nov 2026</td><td>Sipho Dlamini<span class="sub mono">••••7730</span></td><th scope="row">Spotify</th><td class="amount">R 59.99</td><td>Subscription already cancelled</td>
+              <td><span class="stepper" role="img" aria-label="Step 1 of 3"><span class="step" data-state="current"></span><span class="bar"></span><span class="step"></span><span class="bar"></span><span class="step"></span></span></td>
+              <td><span class="pill" data-status="submitted">Submitted</span></td><td><a class="btn btn-primary btn-sm" href="dispute.html">Review<span class="sr-only"> dispute from Sipho Dlamini</span></a></td></tr>
+            <tr><td class="num">28 Oct 2026</td><td>Sipho Dlamini<span class="sub mono">••••7730</span></td><th scope="row">Mr Price</th><td class="amount">R 649.95</td><td>Wrong amount charged</td>
+              <td><span class="stepper" role="img" aria-label="Step 3 of 3" data-tone="accepted"><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="done">&#10003;</span></span></td>
+              <td><span class="pill" data-status="accepted">Accepted</span></td><td><a class="btn btn-ghost btn-sm" href="dispute.html">View<span class="sr-only"> dispute from Sipho Dlamini</span></a></td></tr>
+            <tr><td class="num">24 Oct 2026</td><td>Thandi Nkosi<span class="sub mono">••••4821</span></td><th scope="row">Bolt</th><td class="amount">R 142.00</td><td>Something else</td>
+              <td><span class="stepper" role="img" aria-label="Step 3 of 3" data-tone="rejected"><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="done">&#10003;</span><span class="bar" data-state="done"></span><span class="step" data-state="done">&#10005;</span></span></td>
+              <td><span class="pill" data-status="rejected">Rejected</span></td><td><a class="btn btn-ghost btn-sm" href="dispute.html">View<span class="sr-only"> dispute from Thandi Nkosi</span></a></td></tr>
+            <tr><td class="num">20 Oct 2026</td><td>Sipho Dlamini<span class="sub mono">••••7730</span></td><th scope="row">Pick n Pay</th><td class="amount">R 318.40</td><td>Charged more than once</td>
+              <td><span class="stepper" role="img" aria-label="Stopped at step 1 of 3" data-tone="withdrawn"><span class="step" data-state="done">&#10003;</span><span class="bar"></span><span class="step"></span><span class="bar"></span><span class="step"></span></span></td>
+              <td><span class="pill" data-status="withdrawn">Withdrawn</span></td><td><a class="btn btn-ghost btn-sm" href="dispute.html">View<span class="sr-only"> dispute from Sipho Dlamini</span></a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:13px">The Open view lists Submitted and Under review. The other rows show how decided disputes look under their own filters.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

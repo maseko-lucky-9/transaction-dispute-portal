@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transactions · C Compact Ledger</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar"><div class="bar">
+<a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+  <span class="sep" aria-hidden="true">/</span><nav class="pillnav" aria-label="Primary"><a href="transactions.html" aria-current="page">Transactions</a><a href="dispute.html">Disputes</a></nav>
+  <div class="user"><button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button><span data-testid="header-user">Thandi Nkosi</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+</div></header>
+
+  <main id="main" class="page">
+    <div class="page-head"><h1>Transactions</h1><p>Newest first. Dates are shown in UTC.</p></div>
+
+    <section class="ledger" aria-label="Transactions list">
+      <div class="toolbar">
+      <form class="filterbar" aria-label="Filter transactions" onsubmit="return false">
+        <div class="field"><label for="from">From</label><input class="input" id="from" type="date" value="2026-10-15"></div>
+        <div class="field"><label for="to">To</label><input class="input" id="to" type="date" value="2026-11-15"></div>
+        <div class="field"><label for="status">Status</label><select class="select" id="status"><option>All statuses</option><option>Pending</option><option>Posted</option><option>Reversed</option></select></div>
+        <div class="actions"><button class="btn btn-primary" type="submit">Apply filters</button><button class="btn btn-ghost" type="reset">Clear</button></div>
+      </form>
+
+      <nav class="filter-links" aria-label="Filter by status">
+        <a href="#" aria-current="page">All</a><a href="#">Pending</a><a href="#">Posted</a><a href="#">Reversed</a>
+      </nav>
+      </div>
+
+      <div class="table-wrap" role="region" aria-label="Transactions table" tabindex="0">
+        <table class="table">
+          <thead><tr><th scope="col">Date (UTC)</th><th scope="col">Merchant</th><th scope="col">Account</th><th scope="col" class="amount">Amount</th><th scope="col">Status</th><th scope="col">Dispute</th></tr></thead>
+          <tbody>
+            <tr><td class="num">14 Nov 2026</td><th scope="row">Checkers Hyper Sandton<span class="sub">Groceries · Ref TX-88213</span></th><td class="mono">••••4821</td><td class="amount">−R 1 284.50</td><td><span class="pill" data-status="posted">Posted</span></td><td><a class="btn btn-outline btn-sm" href="dispute.html">Dispute</a></td></tr>
+            <tr><td class="num">13 Nov 2026</td><th scope="row">Uber SA<span class="sub">Transport · Ref TX-88190</span></th><td class="mono">••••4821</td><td class="amount">−R 186.00</td><td><span class="pill" data-status="pending">Pending</span></td><td><span class="btn btn-outline btn-sm" aria-disabled="true">Dispute</span><span class="sub">Not posted yet</span></td></tr>
+            <tr><td class="num">12 Nov 2026</td><th scope="row">Salary · Acme Holdings<span class="sub">Income · Ref TX-88104</span></th><td class="mono">••••4821</td><td class="amount credit">+R 32 500.00</td><td><span class="pill" data-status="posted">Posted</span></td><td><span class="btn btn-outline btn-sm" aria-disabled="true">Dispute</span><span class="sub">Credits can't be disputed</span></td></tr>
+            <tr><td class="num">11 Nov 2026</td><th scope="row">Takealot.com<span class="sub">Shopping · Ref TX-88021</span></th><td class="mono">••••4821</td><td class="amount">−R 2 349.00</td><td><span class="pill" data-status="posted">Posted</span></td><td><span class="pill" data-status="review">Dispute: Under review</span> <a class="sub" href="dispute.html">View dispute</a></td></tr>
+            <tr><td class="num">09 Nov 2026</td><th scope="row">DStv Premium<span class="sub">Subscriptions · Ref TX-87950</span></th><td class="mono">••••4821</td><td class="amount">−R 929.00</td><td><span class="pill" data-status="posted">Posted</span></td><td><a class="btn btn-outline btn-sm" href="dispute.html">Dispute</a></td></tr>
+            <tr><td class="num">07 Nov 2026</td><th scope="row">Engen Rivonia<span class="sub">Fuel · Ref TX-87911</span></th><td class="mono">••••4821</td><td class="amount">−R 850.00</td><td><span class="pill" data-status="reversed">Reversed</span></td><td><span class="btn btn-outline btn-sm" aria-disabled="true">Dispute</span><span class="sub">Reversed by the merchant</span></td></tr>
+            <tr><td class="num">05 Nov 2026</td><th scope="row">Woolworths Food<span class="sub">Groceries · Ref TX-87874</span></th><td class="mono">••••4821</td><td class="amount">−R 412.30</td><td><span class="pill" data-status="posted">Posted</span></td><td><span class="pill" data-status="submitted">Dispute: Submitted</span> <a class="sub" href="dispute.html">View dispute</a></td></tr>
+            <tr><td class="num">02 Nov 2026</td><th scope="row">Netflix<span class="sub">Subscriptions · Ref TX-87802</span></th><td class="mono">••••4821</td><td class="amount">−R 199.00</td><td><span class="pill" data-status="posted">Posted</span></td><td><a class="btn btn-outline btn-sm" href="dispute.html">Dispute</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="ledger-foot"><span class="muted">Showing 8 transactions</span><button class="btn btn-outline btn-sm" type="button">Load more</button></div>
+    </section>
+  </main>
+</div>
+</body>
+</html>
