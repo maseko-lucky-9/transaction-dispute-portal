@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firstNameOf, greetingFor } from "./greeting";
+import { firstNameOf, greetingFor, homeGreeting } from "./greeting";
 
 describe("greetingFor", () => {
   it.each([
@@ -23,5 +23,15 @@ describe("firstNameOf", () => {
     ["", ""],
   ])("%j gives %j", (name, expected) => {
     expect(firstNameOf(name)).toBe(expected);
+  });
+});
+
+describe("homeGreeting", () => {
+  it("adds the first name after a comma", () => {
+    expect(homeGreeting(9, "Thandi Nkosi")).toBe("Good morning, Thandi");
+  });
+
+  it.each(["", "   "])("drops the comma when the name %j has no first word", (name) => {
+    expect(homeGreeting(20, name)).toBe("Good evening");
   });
 });

@@ -10,3 +10,9 @@ export function firstNameOf(name: string): string {
   const trimmed = name.trim();
   return trimmed.split(/\s+/)[0] ?? trimmed;
 }
+
+/** "Good morning, Alice", or just "Good morning" when the name has no usable first word. */
+export function homeGreeting(hour: number, name: string): string {
+  const first = firstNameOf(name);
+  return first ? `${greetingFor(hour)}, ${first}` : greetingFor(hour);
+}

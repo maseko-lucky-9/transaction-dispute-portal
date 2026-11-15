@@ -6,14 +6,14 @@ import { DisputeStatusPill } from "@/components/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useUser } from "@/components/user-context";
-import { firstNameOf, greetingFor } from "@/lib/greeting";
+import { homeGreeting } from "@/lib/greeting";
 import { accessFor, type Access } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 const LIFECYCLE: readonly { status: DisputeStatus; meaning: string }[] = [
   { status: "Submitted", meaning: "You raised it" },
   { status: "UnderReview", meaning: "Being checked" },
-  { status: "Accepted", meaning: "Decided in your favour" },
+  { status: "Accepted", meaning: "The dispute was upheld" },
   { status: "Rejected", meaning: "The charge stands" },
   { status: "Withdrawn", meaning: "You cancelled it" },
 ];
@@ -31,7 +31,7 @@ export function HomePage() {
         >
           <div className="flex flex-col gap-1.5">
             <h1 id="home-heading" className="text-[clamp(28px,4vw,40px)] font-bold tracking-tight">
-              {greetingFor(new Date().getHours())}, {firstNameOf(user.name)}
+              {homeGreeting(new Date().getHours(), user.name)}
             </h1>
             <p className="text-muted-foreground">
               Signed in as <strong className="text-foreground">{user.name}</strong>

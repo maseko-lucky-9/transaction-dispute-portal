@@ -34,7 +34,7 @@ export function SignIn() {
             Sign in
           </h1>
           <p className="text-[clamp(30px,4.4vw,44px)] leading-[1.08] font-bold tracking-tight">
-            Question a card transaction in a few minutes.
+            Question a card transaction you don't recognise.
           </p>
           <p className="text-muted-foreground">
             See every transaction on your accounts, dispute the ones you don&apos;t recognise, and
@@ -86,7 +86,7 @@ export function SignIn() {
             <Card className="h-full gap-2 p-6">
               <span
                 aria-hidden="true"
-                className="mb-1 grid size-9 place-items-center rounded-[10px] bg-background font-bold text-brand-crimson"
+                className="mb-1 grid size-9 place-items-center rounded-[10px] bg-card font-bold text-brand-crimson ring-1 ring-border"
               >
                 {index + 1}
               </span>
