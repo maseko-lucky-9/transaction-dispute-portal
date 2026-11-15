@@ -2,6 +2,7 @@
   "realm": "dispute-portal",
   "enabled": true,
   "displayName": "Dispute Portal",
+  "loginTheme": "dispute-portal",
   "sslRequired": "external",
   "registrationAllowed": false,
   "registrationEmailAsUsername": false,

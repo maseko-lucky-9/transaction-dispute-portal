@@ -1,0 +1,62 @@
+/* Brand tokens mirror frontend/src/index.css. White on #e51718 is 4.70:1; hover is #c41213 (6.10:1). */
+:root {
+  --dp-bg: #f3f4f8;
+  --dp-card: #ffffff;
+  --dp-fg: #3a3a3a;
+  --dp-crimson: #e51718;
+  --dp-crimson-hover: #c41213;
+  --dp-gem: #4111a4;
+  --keycloak-card-top-color: var(--dp-crimson);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dp-bg: #121216;
+    --dp-card: #1c1c22;
+    --dp-fg: #ededf0;
+    --dp-gem: #b9a2ff;
+  }
+}
+
+.login-pf body,
+.pf-v5-c-login,
+#keycloak-bg {
+  background: var(--dp-bg) !important;
+}
+
+/* Logo on a white tile, as in the app header; the realm name text is replaced by it. */
+#kc-header-wrapper {
+  font-size: 0;
+  line-height: 0;
+  width: 14rem;
+  height: 4rem;
+  margin: 0 auto 1.25rem;
+  background: #fff url("../img/logo.jpg") center / auto 80% no-repeat;
+  border-radius: 0.875rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+.pf-v5-c-login__main {
+  background: var(--dp-card);
+  color: var(--dp-fg);
+  border-radius: 0.875rem;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.1);
+}
+#kc-page-title {
+  color: var(--dp-fg);
+}
+
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--dp-crimson);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--dp-crimson-hover);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--dp-crimson-hover);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--dp-crimson-hover);
+  --pf-v5-c-button--m-primary--Color: #fff;
+  border-radius: 999px;
+}
+
+a {
+  color: var(--dp-gem);
+}
+.pf-v5-c-form-control:focus-within {
+  --pf-v5-c-form-control--focus--BorderBottomColor: var(--dp-crimson);
+}
