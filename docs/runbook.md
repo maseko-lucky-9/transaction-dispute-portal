@@ -283,6 +283,14 @@ status directly:
   re-seeds. The secrets volume and the Postgres volume must be reset together, because the database role passwords come
   from the secrets volume on first start (README).
 - **Safari** and `Secure` cookies on `http://localhost` are unverified; use Chromium or Firefox.
+- **A 404 on the auth origin is by design.** `AUTH_PORT` (8180) serves an allow-list of the Keycloak paths a browser
+  needs to sign in and out (`login-actions/*`, `protocol/openid-connect/auth` and `logout`, the login-status iframe,
+  `3p-cookies`, and `/resources/`); everything else is nginx's own 404. That includes the realm root and
+  `/realms/dispute-portal/.well-known/openid-configuration`, so a 404 there is not a Keycloak fault and not a
+  monitoring target. Discovery is read over the data network (`Keycloak__MetadataAddress`, e.g.
+  `http://keycloak:8080/realms/dispute-portal/.well-known/openid-configuration`), and `e2e/tests/auth.spec.ts` asserts
+  the 404. Check it with `curl -s -o /dev/null -w '%{http_code}' http://localhost:8180/realms/dispute-portal/.well-known/openid-configuration`
+  (prints `404`). Threat model row E in `docs/threat-model.md`.
 - **Ports and subnets**: `APP_PORT`, `AUTH_PORT`, `APP_SUBNET`, `DATA_SUBNET` (see `.env.example`). `DATA_SUBNET` is
   also the API's `Ports__InternalNetwork`: the management port answers only loopback and that network.
 - **Back-channel logout check** (replace `dispute-portal` with your project name):
