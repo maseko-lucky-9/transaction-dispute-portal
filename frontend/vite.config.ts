@@ -14,6 +14,10 @@ const apiTarget = process.env["DISPUTE_API_URL"] ?? "http://localhost:8080";
 const openApiPath = fileURLToPath(new URL("../docs/openapi.json", import.meta.url));
 const openApiSpec = existsSync(openApiPath) ? readFileSync(openApiPath, "utf8") : null;
 
+// The theme tokens, handed to the contrast test (src/lib/contrast.test.ts) as plain text:
+// Vitest blanks CSS imports, so the test cannot import the stylesheet itself.
+const indexCss = readFileSync(fileURLToPath(new URL("./src/index.css", import.meta.url)), "utf8");
+
 // Paths owned by the backend. In production nginx routes these; in dev Vite does.
 const backendPaths = ["/api", "/bff", "/signin-oidc", "/signout-callback-oidc"];
 
@@ -43,7 +47,7 @@ export default defineConfig({
     // Generous on purpose: the heaviest tests render 150 rows and, on a loaded machine, the
     // lazy route chunks too. A test that is wrong still fails; it just is not killed for being slow.
     testTimeout: 20_000,
-    provide: { openApiSpec },
+    provide: { openApiSpec, indexCss },
     unstubGlobals: true,
     coverage: {
       provider: "v8",
