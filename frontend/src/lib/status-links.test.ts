@@ -25,6 +25,13 @@ describe("searchWithStatus", () => {
     expect(next).toEqual({ from: "2026-01-01", to: "2026-02-01", limit: 50 });
   });
 
+  it("also drops the key when the status type has no undefined (a default such as Open)", () => {
+    const queue = { status: "Accepted" as "open" | "Accepted", limit: 10 };
+    const next = searchWithStatus(queue, undefined);
+    expect("status" in next).toBe(false);
+    expect(next).toEqual({ limit: 10 });
+  });
+
   it("does not mutate the current search", () => {
     searchWithStatus(current, undefined);
     expect(current.status).toBe("Posted");
