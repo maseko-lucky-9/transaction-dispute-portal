@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home · D Royal Dashboard</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="dir.css">
+<script src="../shared/switcher.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <nav class="rail-nav" aria-label="Primary"><a href="transactions.html"><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></span><span class="lbl">Transactions</span></a><a href="dispute.html"><span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg></span><span class="lbl">Disputes</span></a></nav>
+    <button class="icon-btn" type="button" aria-label="Switch to dark theme">&#9789;</button>
+  </aside>
+  <div class="main-col">
+    <header class="top">
+      <div class="top-row">
+        <a class="brand-link" href="home.html"><span class="logo-tile"><img src="../shared/capitec-bank-logo.jpg" alt=""></span><span class="brand-text">Transactions Dispute Portal</span></a>
+        <div class="user"><span data-testid="header-user">Thandi Nkosi</span><a class="btn btn-outline btn-sm" href="landing.html">Logout</a></div>
+      </div>
+      <div class="title-row">
+        <div><h1 id="home-heading">Good afternoon, Thandi</h1><p>Signed in as <strong>Thandi Nkosi</strong></p></div><div class="roles"><span class="muted">Roles</span><ul aria-label="Roles"><li>customer</li></ul></div>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="home-grid">
+        <nav aria-label="Main">
+          <ul class="home-links">
+            <li class="card home-link"><span class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></span><div><h2><a href="transactions.html">My transactions</a></h2><p class="muted">View your transactions and dispute a charge you don't recognise.</p></div><span class="go" aria-hidden="true">&rarr;</span></li>
+            <li class="card home-link"><span class="ico" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h12l-2 4 2 4H5"/></svg></span><div><h2><a href="dispute.html">My disputes</a></h2><p class="muted">Follow each dispute from submitted to a decision.</p></div><span class="go" aria-hidden="true">&rarr;</span></li>
+          </ul>
+        </nav>
+        <section class="card panel" aria-labelledby="lifecycle-heading">
+          <h2 id="lifecycle-heading">How a dispute moves</h2>
+          <ul class="track">
+            <li><span class="pill" data-status="submitted">Submitted</span><span class="muted">You raised it</span></li>
+            <li><span class="pill" data-status="review">Under review</span><span class="muted">Being checked</span></li>
+            <li><span class="pill" data-status="accepted">Accepted</span><span class="muted">Refund approved</span></li>
+            <li><span class="pill" data-status="rejected">Rejected</span><span class="muted">Charge stands</span></li>
+            <li><span class="pill" data-status="withdrawn">Withdrawn</span><span class="muted">You cancelled it</span></li>
+          </ul>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>
