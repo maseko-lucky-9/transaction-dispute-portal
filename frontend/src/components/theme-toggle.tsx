@@ -10,6 +10,7 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
+      className="rounded-full bg-background"
       onClick={toggleTheme}
       aria-label={`Switch to ${next} theme`}
     >

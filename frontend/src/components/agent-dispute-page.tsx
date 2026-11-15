@@ -11,7 +11,8 @@ import {
 import { disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
 import { DisputeOverview } from "@/components/dispute-overview";
-import { DisputeStatusBadge } from "@/components/dispute-status-badge";
+import { LifecycleStepper } from "@/components/lifecycle-stepper";
+import { DisputeStatusPill } from "@/components/status-pill";
 import { DisputeTimeline } from "@/components/dispute-timeline";
 import { ErrorState } from "@/components/error-state";
 import { Fact } from "@/components/fact";
@@ -30,6 +31,7 @@ import {
   type TransitionOption,
   type TransitionTarget,
 } from "@/lib/transitions";
+import { BACK_LINK, CARD, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/agent/disputes/$disputeId");
@@ -47,7 +49,7 @@ export function AgentDisputePage() {
   if (!validId || (isApiError(query.error) && query.error.status === 404)) {
     return (
       <div className="flex flex-col items-start gap-3">
-        <h1 className="text-2xl font-semibold">Dispute not found</h1>
+        <h1 className={PAGE_TITLE}>Dispute not found</h1>
         <p className="text-muted-foreground">We could not find that dispute.</p>
         <Link to="/agent" className="underline underline-offset-4">
           Back to the review queue
@@ -77,15 +79,19 @@ export function AgentDisputePage() {
 
   const { dispute } = query.data;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <title>Dispute review - Transactions Dispute Portal</title>
       <div className="flex flex-col gap-2">
-        <Link to="/agent" className="text-sm underline underline-offset-4">
+        <Link to="/agent" className={BACK_LINK}>
           Back to the review queue
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold">Dispute: {dispute.transaction.merchantName}</h1>
-          <DisputeStatusBadge status={dispute.status} />
+          <h1 className={PAGE_TITLE}>Dispute: {dispute.transaction.merchantName}</h1>
+          <DisputeStatusPill status={dispute.status} />
+          <LifecycleStepper
+            status={dispute.status}
+            reviewStarted={dispute.timeline.some((entry) => entry.to === "UnderReview")}
+          />
         </div>
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
       </div>
@@ -174,7 +180,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
 
   if (options.length === 0) {
     return (
-      <section aria-labelledby="transition-heading" className="flex flex-col gap-2">
+      <section aria-labelledby="transition-heading" className={CARD}>
         <h2 id="transition-heading" className="text-lg font-semibold">
           Decision
         </h2>
@@ -220,7 +226,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
   const handled = apiError?.status === 412 || apiError?.status === 409;
 
   return (
-    <section aria-labelledby="transition-heading" className="flex flex-col gap-3">
+    <section aria-labelledby="transition-heading" className={CARD}>
       <h2 id="transition-heading" className="text-lg font-semibold">
         Decision
       </h2>
@@ -228,7 +234,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
         {message ?? ""}
       </p>
       {handled ? (
-        <div role="alert" className="flex flex-col gap-1 rounded-xl border p-4">
+        <div role="alert" className="flex flex-col gap-1 rounded-xl bg-accent p-4">
           <p className="font-medium">{apiError?.status === 412 ? "Reloaded" : "Not possible"}</p>
           <p className="text-sm">{apiError?.problem.detail ?? "Check the status and try again."}</p>
           <TraceReference error={error} />

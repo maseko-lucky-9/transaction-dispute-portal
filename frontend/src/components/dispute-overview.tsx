@@ -4,6 +4,7 @@ import type { DisputeDetail, DisputeReason } from "@/api/disputes";
 import { Fact } from "@/components/fact";
 import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { CARD } from "@/lib/table-styles";
 
 interface DisputeOverviewProps {
   dispute: Pick<
@@ -26,6 +27,8 @@ interface DisputeOverviewProps {
   extraFacts?: ReactNode;
   /** The timeline section, already built for this viewer. */
   timeline: ReactNode;
+  /** Shown under the timeline in the right rail (the customer's withdraw section). */
+  aside?: ReactNode;
 }
 
 /**
@@ -36,51 +39,59 @@ export function DisputeOverview(props: DisputeOverviewProps) {
   const { dispute } = props;
   const { transaction } = dispute;
   return (
-    <>
-      <section aria-labelledby="summary-heading" className="flex flex-col gap-3">
-        <h2 id="summary-heading" className="text-lg font-semibold">
-          {props.summaryHeading}
-        </h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-          {props.extraFacts}
-          <Fact term="Amount disputed" value={formatMoney(dispute.amount, dispute.currency)} />
-          <Fact term="Reason" value={reasonLabel(dispute.reasonCode, props.reasons)} />
-          <Fact term="Last updated" value={formatDateTime(dispute.updatedAt)} />
-          {dispute.resolvedAt ? (
-            <Fact term="Closed" value={formatDateTime(dispute.resolvedAt)} />
-          ) : null}
-        </dl>
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium text-muted-foreground">{props.descriptionHeading}</h3>
-          {/* User text: rendered as text (React escapes it), keeping the line breaks. */}
-          <p className="whitespace-pre-wrap">{dispute.description}</p>
-        </div>
-        {dispute.resolutionNote ? (
-          <div className="flex flex-col gap-1 rounded-md border bg-muted/50 p-4">
-            <h3 className="text-sm font-medium text-muted-foreground">Resolution note</h3>
-            <p className="whitespace-pre-wrap">{dispute.resolutionNote}</p>
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="flex min-w-0 flex-col gap-5">
+        <section aria-labelledby="summary-heading" className={CARD}>
+          <h2 id="summary-heading" className="text-lg font-semibold">
+            {props.summaryHeading}
+          </h2>
+          <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+            {props.extraFacts}
+            <Fact term="Amount disputed" value={formatMoney(dispute.amount, dispute.currency)} />
+            <Fact term="Reason" value={reasonLabel(dispute.reasonCode, props.reasons)} />
+            <Fact term="Last updated" value={formatDateTime(dispute.updatedAt)} />
+            {dispute.resolvedAt ? (
+              <Fact term="Closed" value={formatDateTime(dispute.resolvedAt)} />
+            ) : null}
+          </dl>
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              {props.descriptionHeading}
+            </h3>
+            {/* User text: rendered as text (React escapes it), keeping the line breaks. */}
+            <p className="whitespace-pre-wrap">{dispute.description}</p>
           </div>
-        ) : null}
-      </section>
+          {dispute.resolutionNote ? (
+            <div className="flex flex-col gap-1 rounded-xl bg-accent p-4">
+              <h3 className="text-sm font-medium text-muted-foreground">Resolution note</h3>
+              <p className="whitespace-pre-wrap">{dispute.resolutionNote}</p>
+            </div>
+          ) : null}
+        </section>
 
-      <section aria-labelledby="transaction-heading" className="flex flex-col gap-3">
-        <h2 id="transaction-heading" className="text-lg font-semibold">
-          The transaction
-        </h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-          <Fact term="Merchant" value={transaction.merchantName} />
-          <Fact term="Reference" value={transaction.reference} />
-          <Fact term="Amount" value={formatMoney(transaction.amount, transaction.currency)} />
-          <Fact term="Date (UTC)" value={formatDate(transaction.transactionDate)} />
-        </dl>
-      </section>
+        <section aria-labelledby="transaction-heading" className={CARD}>
+          <h2 id="transaction-heading" className="text-lg font-semibold">
+            The transaction
+          </h2>
+          <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+            <Fact term="Merchant" value={transaction.merchantName} />
+            <Fact term="Reference" value={transaction.reference} />
+            <Fact term="Amount" value={formatMoney(transaction.amount, transaction.currency)} />
+            <Fact term="Date (UTC)" value={formatDate(transaction.transactionDate)} />
+          </dl>
+        </section>
+      </div>
 
-      <section aria-labelledby="timeline-heading" className="flex flex-col gap-3">
-        <h2 id="timeline-heading" className="text-lg font-semibold">
-          Timeline
-        </h2>
-        {props.timeline}
-      </section>
-    </>
+      {/* Right rail: the timeline, then whatever the page adds (the customer's withdraw). */}
+      <div className="flex min-w-0 flex-col gap-5">
+        <section aria-labelledby="timeline-heading" className={CARD}>
+          <h2 id="timeline-heading" className="text-lg font-semibold">
+            Timeline
+          </h2>
+          {props.timeline}
+        </section>
+        {props.aside}
+      </div>
+    </div>
   );
 }

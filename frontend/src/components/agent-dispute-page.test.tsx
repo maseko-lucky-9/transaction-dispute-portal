@@ -47,6 +47,26 @@ describe("agent dispute page", () => {
     expect(screen.getByText(/nothing more to do/)).toBeInTheDocument();
   });
 
+  it.each([
+    ["withdrawn after review started", true, "Stopped at step 2 of 3"],
+    ["withdrawn before review", false, "Stopped at step 1 of 3"],
+  ])("the stepper reads the timeline: %s", async (_case, reviewed, label) => {
+    const base = makeAgentDispute({ status: "Withdrawn" });
+    const first = base.timeline[0]!;
+    const timeline = [
+      first,
+      ...(reviewed ? [{ ...first, from: "Submitted" as const, to: "UnderReview" as const }] : []),
+      {
+        ...first,
+        from: reviewed ? ("UnderReview" as const) : ("Submitted" as const),
+        to: "Withdrawn" as const,
+      },
+    ];
+    server.use(signedIn(bob), ...fakeAgentApi([{ ...base, timeline }]).handlers);
+    renderApp(`/agent/disputes/${ID}`);
+    expect(await screen.findByRole("img", { name: label })).toBeInTheDocument();
+  });
+
   it("is not found for a malformed or unknown id", async () => {
     server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
     renderApp("/agent/disputes/not-an-id");

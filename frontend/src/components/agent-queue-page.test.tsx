@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -96,5 +96,73 @@ describe("agent queue", () => {
       await screen.findByRole("heading", { name: "We could not load the review queue" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+});
+
+describe("agent queue: status links", () => {
+  const filterLinks = () => within(screen.getByRole("navigation", { name: "Filter by status" }));
+
+  it("offers Open and the five statuses, with exactly one marked current", async () => {
+    await openQueue("/agent?status=Accepted");
+    const links = filterLinks().getAllByRole("link");
+
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Open",
+      "Submitted",
+      "Under review",
+      "Accepted",
+      "Rejected",
+      "Withdrawn",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/agent",
+      "/agent?status=Submitted",
+      "/agent?status=UnderReview",
+      "/agent?status=Accepted",
+      "/agent?status=Rejected",
+      "/agent?status=Withdrawn",
+    ]);
+    expect(links.filter((link) => link.getAttribute("aria-current") === "page")).toEqual([
+      filterLinks().getByRole("link", { name: "Accepted" }),
+    ]);
+    expect(filterLinks().queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("Open drops the status and keeps the limit; Open is current by default", async () => {
+    const { router } = await openQueue("/agent?status=Accepted&limit=10");
+    expect(filterLinks().getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/agent?limit=10",
+    );
+    expect(filterLinks().getByRole("link", { name: "Withdrawn" })).toHaveAttribute(
+      "href",
+      "/agent?limit=10&status=Withdrawn",
+    );
+
+    await userEvent.setup().click(filterLinks().getByRole("link", { name: "Open" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ limit: 10 }));
+    expect(filterLinks().getByRole("link", { name: "Open" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(filterLinks().getByRole("link", { name: "Accepted" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+});
+
+describe("agent queue: progress", () => {
+  it("gives each row an icon-only stepper named by its step, and Review buttons keep their names", async () => {
+    await openQueue();
+    const [first, second] = within(screen.getByRole("table")).getAllByRole("row").slice(1);
+    expect(within(first as HTMLElement).getByRole("img")).toHaveAccessibleName("Step 1 of 3");
+    expect(within(second as HTMLElement).getByRole("img")).toHaveAccessibleName("Step 2 of 3");
+    expect(within(first as HTMLElement).getByRole("img")).toHaveTextContent("");
+    expect(
+      within(first as HTMLElement).getByRole("link", {
+        name: "Review dispute for Merchant 0001 from Customer 1",
+      }),
+    ).toBeInTheDocument();
   });
 });

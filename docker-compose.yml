@@ -112,6 +112,7 @@ services:
       - { type: volume, source: secrets, target: /run/kc, read_only: true, volume: { subpath: keycloak } }
       - ./deploy/keycloak/dispute-portal-realm.json:/opt/keycloak/data/import/dispute-portal-realm.json:ro
       - ./deploy/keycloak/dispute-portal-users-0.json:/opt/keycloak/data/import/dispute-portal-users-0.json:ro
+      - ./deploy/keycloak/themes/dispute-portal:/opt/keycloak/themes/dispute-portal:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
       interval: 10s

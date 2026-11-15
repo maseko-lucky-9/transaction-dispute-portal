@@ -12,6 +12,17 @@ const badgeVariants = cva(
         secondary: "border-transparent bg-secondary text-secondary-foreground",
         destructive: "border-transparent bg-destructive text-destructive-foreground",
         outline: "text-foreground",
+        // Status pills: tinted background, coloured text, always shown with the status word.
+        submitted:
+          "rounded-full border-transparent bg-status-submitted-bg font-semibold text-status-submitted",
+        review:
+          "rounded-full border-transparent bg-status-review-bg font-semibold text-status-review",
+        accepted:
+          "rounded-full border-transparent bg-status-accepted-bg font-semibold text-status-accepted",
+        rejected:
+          "rounded-full border-transparent bg-status-rejected-bg font-semibold text-status-rejected",
+        withdrawn:
+          "rounded-full border-transparent bg-status-withdrawn-bg font-semibold text-status-withdrawn",
       },
     },
     defaultVariants: {

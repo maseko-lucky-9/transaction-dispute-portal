@@ -105,7 +105,7 @@ export function TransactionFiltersForm({ applied, onApply, onClear }: Transactio
       aria-label="Filter transactions"
       noValidate
       onSubmit={(event) => void submit(event)}
-      className="flex flex-wrap items-start gap-4 rounded-xl border p-4"
+      className="flex flex-wrap items-start gap-4"
     >
       <Field id="filter-from" label="From" error={errors.from?.message}>
         <Input
@@ -174,7 +174,7 @@ function Field(props: {
   children: ReactNode;
 }) {
   return (
-    <div className="flex w-52 flex-col gap-1.5">
+    <div className="flex min-w-40 flex-1 basis-40 flex-col gap-1.5">
       <Label htmlFor={props.id}>{props.label}</Label>
       {props.children}
       {/*

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { describeBlockReasons } from "@/lib/dispute-reasons";
 import { formatDate, formatMoney } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
+import { BACK_LINK, CARD, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/transactions/$transactionId/dispute");
@@ -51,13 +52,13 @@ export function DisputeFormPage() {
     <div className="flex max-w-2xl flex-col gap-6">
       <title>Dispute a transaction - Transactions Dispute Portal</title>
       <div className="flex flex-col gap-2">
-        <Link to="/transactions" className="text-sm underline underline-offset-4">
+        <Link to="/transactions" className={BACK_LINK}>
           Back to my transactions
         </Link>
-        <h1 className="text-2xl font-semibold">Dispute a transaction</h1>
+        <h1 className={PAGE_TITLE}>Dispute a transaction</h1>
       </div>
 
-      <section aria-labelledby="transaction-heading" className="flex flex-col gap-3">
+      <section aria-labelledby="transaction-heading" className={CARD}>
         <h2 id="transaction-heading" className="text-lg font-semibold">
           The transaction
         </h2>
@@ -93,10 +94,7 @@ export function DisputeFormPage() {
 /** The list already said so; this is what a bookmarked or shared link to the form shows. */
 function NotDisputable({ item }: { item: TransactionItem }) {
   return (
-    <section
-      aria-labelledby="blocked-heading"
-      className="flex flex-col gap-3 rounded-xl border p-4"
-    >
+    <section aria-labelledby="blocked-heading" className={CARD}>
       <h2 id="blocked-heading" className="font-semibold">
         This transaction can&apos;t be disputed
       </h2>
@@ -121,7 +119,7 @@ function NotDisputable({ item }: { item: TransactionItem }) {
 function NotFoundTransaction() {
   return (
     <div className="flex flex-col items-start gap-3">
-      <h1 className="text-2xl font-semibold">Transaction not found</h1>
+      <h1 className={PAGE_TITLE}>Transaction not found</h1>
       <p className="text-muted-foreground">
         We could not find that transaction. It may belong to someone else or no longer exist.
       </p>

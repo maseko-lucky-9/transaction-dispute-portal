@@ -290,3 +290,42 @@ describe("disputes history: empty and error states", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
   });
 });
+
+describe("disputes history: status links", () => {
+  const filterLinks = () => within(screen.getByRole("navigation", { name: "Filter by status" }));
+
+  it("offers All and the five statuses, with exactly one marked current", async () => {
+    await openDisputes("/disputes?status=Accepted");
+    const links = filterLinks().getAllByRole("link");
+
+    expect(links.map((link) => link.textContent)).toEqual([
+      "All",
+      "Submitted",
+      "Under review",
+      "Accepted",
+      "Rejected",
+      "Withdrawn",
+    ]);
+    expect(links.filter((link) => link.getAttribute("aria-current") === "page")).toEqual([
+      filterLinks().getByRole("link", { name: "Accepted" }),
+    ]);
+    expect(filterLinks().queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("All is current without a status, and clicking a link filters the list", async () => {
+    const { router } = await openDisputes();
+    expect(filterLinks().getByRole("link", { name: "All" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await userEvent.setup().click(filterLinks().getByRole("link", { name: "Rejected" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "Rejected" }));
+    expect(filterLinks().getByRole("link", { name: "Rejected" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(filterLinks().getByRole("link", { name: "All" })).not.toHaveAttribute("aria-current");
+  });
+});
