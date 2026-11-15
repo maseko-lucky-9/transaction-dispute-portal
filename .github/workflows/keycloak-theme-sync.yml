@@ -1,0 +1,41 @@
+name: keycloak-theme-sync
+
+# ADR-018: the Keycloak login theme is copied by hand into homelab-infra (nothing publishes it, so a theme edit opens no
+# bump PR). This fails when the two copies differ. It is a workflow of its own, not a job of ci.yml, so a red result can
+# never change ci.yml's "last successful run on main" base (ADR-012) or the required `ci-ok` check. It runs after the
+# merge, not on the pull request: the homelab-infra token is an environment secret that only deployments from `main` can
+# read (ADR-017), and it must stay that way. A daily run keeps a forgotten drift red, and also catches an edit made on
+# the homelab side only.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/keycloak/themes/**
+      - scripts/check-keycloak-theme-sync.sh
+      - .github/workflows/keycloak-theme-sync.yml
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  theme-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: homelab-infra
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the portal theme is byte-identical to homelab-infra's apps/dispute-portal/keycloak-theme
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_INFRA_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error title=HOMELAB_INFRA_TOKEN is not set::The theme check reads homelab-infra with the environment secret HOMELAB_INFRA_TOKEN (environment homelab-infra). Without it nothing was compared. See ADR-017 and ADR-018." >&2
+            exit 1
+          fi
+          scripts/check-keycloak-theme-sync.sh
