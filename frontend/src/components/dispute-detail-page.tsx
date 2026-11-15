@@ -77,9 +77,8 @@ export function DisputeDetailPage() {
         summaryHeading="Your dispute"
         descriptionHeading="What you told us"
         timeline={<DisputeTimeline entries={dispute.timeline} />}
+        aside={<WithdrawDispute id={dispute.id} current={{ dispute, etag }} />}
       />
-
-      <WithdrawDispute id={dispute.id} current={{ dispute, etag }} />
     </div>
   );
 }
