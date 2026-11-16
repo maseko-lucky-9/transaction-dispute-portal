@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http } from "msw";
 import { axe } from "vitest-axe";
@@ -11,7 +11,12 @@ import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { fakeDisputesApi, makeDisputeDetail } from "@/test/disputes";
 import { fakeTransactionsApi, makeTransaction, makeTransactions } from "@/test/transactions";
-import { fakeAgentApi, makeAgentCustomerTransaction, makeAgentDispute } from "@/test/agent";
+import {
+  fakeAgentApi,
+  makeAgentCustomerTransaction,
+  makeAgentDispute,
+  OTHER_AGENT,
+} from "@/test/agent";
 import { bob } from "@/test/handlers";
 import type { HttpHandler } from "msw";
 
@@ -349,6 +354,94 @@ describe("accessibility (axe): the agent dispute page with the customer's transa
       ),
     ]);
     await screen.findByText("We could not load this customer's transactions");
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("accessibility (axe): the agent workbench (an agent's Home)", () => {
+  const oneEach = () => [
+    makeAgentDispute({ status: "UnderReview" }, 0),
+    makeAgentDispute({ status: "Submitted" }, 1),
+    makeAgentDispute({ status: "UnderReview", assigneeId: OTHER_AGENT }, 2),
+  ];
+
+  it("has no violations with every section populated", async () => {
+    server.use(signedIn(bob), ...fakeAgentApi(oneEach()).handlers);
+    const { container } = renderApp("/");
+    await screen.findByRole("button", { name: "Take next" });
+    await waitFor(() => expect(screen.getAllByRole("table")).toHaveLength(3));
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations with every section empty and the nothing-waiting message", async () => {
+    server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
+    const { container } = renderApp("/");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Take next" }));
+    await screen.findByText("Nothing is waiting for review right now.");
+    await screen.findByText("No other agent is reviewing a dispute right now.");
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations when a section and take next fail", async () => {
+    server.use(
+      signedIn(bob),
+      http.get("/api/v1/agent/disputes", ({ request }) =>
+        new URL(request.url).searchParams.get("assignment") === "others"
+          ? problem(503, { code: "idp_unavailable" })
+          : undefined,
+      ),
+      http.post("/api/v1/agent/disputes/take-next", () => problem(503)),
+      ...fakeAgentApi(oneEach()).handlers,
+    );
+    const { container } = renderApp("/");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Take next" }));
+    await screen.findByText("We could not take the next dispute");
+    await screen.findByText("We could not load the disputes other agents are reviewing");
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("accessibility (axe): the agent dispute page by reviewer", () => {
+  const DISPUTE = "dddddddd-0000-4000-8000-000000000001";
+
+  it("has no violations for the reviewing agent, with the release confirmation open", async () => {
+    server.use(
+      signedIn(bob),
+      ...fakeAgentApi([makeAgentDispute({ status: "UnderReview" })]).handlers,
+    );
+    const { container } = renderApp(`/agent/disputes/${DISPUTE}`);
+    await screen.findByText("In review by you");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Release to queue" }));
+    await screen.findByRole("group", { name: "Confirm decision" });
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations for another agent's review, read only", async () => {
+    server.use(
+      signedIn(bob),
+      ...fakeAgentApi([makeAgentDispute({ status: "UnderReview", assigneeId: OTHER_AGENT })])
+        .handlers,
+    );
+    const { container } = renderApp(`/agent/disputes/${DISPUTE}`);
+    await screen.findByText(
+      "Another agent is reviewing this dispute. You can read it but not decide it.",
+    );
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations for an unclaimed dispute", async () => {
+    server.use(
+      signedIn(bob),
+      ...fakeAgentApi([makeAgentDispute({ status: "Submitted" })]).handlers,
+    );
+    const { container } = renderApp(`/agent/disputes/${DISPUTE}`);
+    await screen.findByText("Unclaimed");
 
     expect(await axe(container)).toHaveNoViolations();
   });

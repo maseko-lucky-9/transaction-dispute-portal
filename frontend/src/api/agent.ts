@@ -1,6 +1,11 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
-import { QUEUE_OPEN, statusesOf, type QueueFilters } from "@/lib/agent-filters";
+import {
+  QUEUE_OPEN,
+  statusesOf,
+  type AssignmentFilters,
+  type QueueFilters,
+} from "@/lib/agent-filters";
 import type { TransitionTarget } from "@/lib/transitions";
 
 import { apiFetch, apiRequest } from "./client";
@@ -25,7 +30,7 @@ export interface AgentDisputeWithEtag {
 }
 
 export const agentKeys = {
-  queue: (filters: QueueFilters) => ["agent", "queue", filters] as const,
+  queue: (filters: QueueFilters | AssignmentFilters) => ["agent", "queue", filters] as const,
   detail: (id: string) => ["agent", "detail", id] as const,
   customerTransactions: (disputeId: string) =>
     ["agent", "customer-transactions", disputeId] as const,
@@ -39,18 +44,32 @@ const withEtag = (response: {
   etag: response.headers.get("ETag"),
 });
 
-/** `GET /api/v1/agent/disputes`: oldest first. No status in the request means the open queue. */
+/** The query for a filter set: a status OR an assignment, never both (the API answers 400). */
+function queueQuery(
+  filters: QueueFilters | AssignmentFilters,
+  cursor: string | undefined,
+): ListAgentQueueQuery {
+  if ("assignment" in filters) {
+    return { limit: filters.limit, assignment: filters.assignment, cursor };
+  }
+  return {
+    limit: filters.limit,
+    status: filters.status === QUEUE_OPEN ? undefined : statusesOf(filters.status)[0],
+    cursor,
+  };
+}
+
+/**
+ * `GET /api/v1/agent/disputes`: oldest first. No status in the request means the open queue; an
+ * assignment asks for one of the workbench's sections. An older api ignores the assignment and
+ * answers with the open queue, which the workbench detects (lib/assignment.ts).
+ */
 export function fetchAgentQueue(
-  filters: QueueFilters,
+  filters: QueueFilters | AssignmentFilters,
   cursor: string | undefined,
   signal?: AbortSignal,
 ): Promise<AgentQueuePage> {
-  const statuses = statusesOf(filters.status);
-  const query = {
-    limit: filters.limit,
-    status: filters.status === QUEUE_OPEN ? undefined : statuses[0],
-    cursor,
-  } satisfies ListAgentQueueQuery;
+  const query = queueQuery(filters, cursor);
   const params = new URLSearchParams();
   for (const [name, value] of Object.entries(query)) {
     if (value !== undefined && value !== "") params.set(name, String(value));
@@ -61,7 +80,7 @@ export function fetchAgentQueue(
   );
 }
 
-export function agentQueueInfiniteOptions(filters: QueueFilters) {
+export function agentQueueInfiniteOptions(filters: QueueFilters | AssignmentFilters) {
   return infiniteQueryOptions({
     queryKey: agentKeys.queue(filters),
     queryFn: ({ pageParam, signal }) => fetchAgentQueue(filters, pageParam, signal),
@@ -130,6 +149,19 @@ export const agentDisputeOptions = (id: string) =>
     // The ETag is the version the agent decides on: always revalidate on open.
     staleTime: 0,
   });
+
+/**
+ * `POST /api/v1/agent/disputes/take-next`: claim the oldest unclaimed dispute and start its
+ * review. The dispute and its ETag, or null when nothing is waiting (204).
+ */
+export async function takeNextDispute(): Promise<AgentDisputeWithEtag | null> {
+  const response = await apiRequest<AgentDisputeDetail | undefined>(
+    "/api/v1/agent/disputes/take-next",
+    { method: "POST" },
+  );
+  if (response.status === 204 || response.data === undefined) return null;
+  return withEtag({ data: response.data, headers: response.headers });
+}
 
 /**
  * `POST /api/v1/agent/disputes/{id}/transitions` with `If-Match`. A missing ETag is sent as no

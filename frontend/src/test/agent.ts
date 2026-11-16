@@ -7,23 +7,31 @@ import { freeTextProblem } from "@/lib/validation";
 import { problem } from "./handlers";
 import { makeDisputeDetail, reasons } from "./disputes";
 
-const AGENT = "aaaaaaaa-0000-4000-8000-000000000001";
-/** The colleague behind `otherAgentActs`. */
-const OTHER_AGENT = "bbbbbbbb-0000-4000-8000-000000000002";
+/** The signed-in agent every request of the fake comes from (the viewer). */
+export const AGENT = "aaaaaaaa-0000-4000-8000-000000000001";
+/** A colleague: the one behind `otherAgentActs`, and the assignee of a dispute someone else holds. */
+export const OTHER_AGENT = "bbbbbbbb-0000-4000-8000-000000000002";
 const OPEN: DisputeStatus[] = ["Submitted", "UnderReview"];
 const NEXT: Partial<Record<DisputeStatus, DisputeStatus[]>> = {
   Submitted: ["UnderReview"],
-  UnderReview: ["Accepted", "Rejected"],
+  // Back to Submitted is the release (ADR-019).
+  UnderReview: ["Accepted", "Rejected", "Submitted"],
 };
+/** The moves only the reviewing agent may make (DisputeLifecycle.IsAssigneeOnly). */
+const ASSIGNEE_ONLY: DisputeStatus[] = ["Accepted", "Rejected", "Submitted"];
 
 type Assignment = Pick<AgentDisputeDetail, "assignment" | "assigneeId" | "claimedAt">;
 
 /**
- * Who is reviewing, as the server reports it for a status (ADR-019): an UnderReview dispute is the
- * assignee's (the fake agent unless a colleague acted), claimed at `at`; a decided or withdrawn
- * one is nobody's. The fake does not refuse a non-assignee's move (409 not_assignee) yet.
+ * Who is reviewing, as the server reports it to the viewer (ADR-019): an UnderReview dispute is
+ * its assignee's ("You" for the viewer, "AnotherAgent" for anyone else, including a legacy row
+ * with no assignee), claimed at `at`; Submitted is unclaimed; a decided or withdrawn one is nobody's.
  */
-function assignmentFor(status: DisputeStatus, at: string, assignee = AGENT): Assignment {
+function assignmentFor(
+  status: DisputeStatus,
+  at: string | null,
+  assignee: string | null = AGENT,
+): Assignment {
   if (status === "Submitted") return { assignment: "Unclaimed", assigneeId: null, claimedAt: null };
   if (status === "UnderReview") {
     return {
@@ -34,6 +42,12 @@ function assignmentFor(status: DisputeStatus, at: string, assignee = AGENT): Ass
   }
   return { assignment: null, assigneeId: null, claimedAt: null };
 }
+
+/** The stored dispute as the viewer gets it: `assignment` is always relative to who asks. */
+const viewOf = (d: AgentDisputeDetail): AgentDisputeDetail => ({
+  ...d,
+  ...assignmentFor(d.status, d.claimedAt, d.assigneeId),
+});
 
 /** An agent's view of a dispute; `index` 0 is the OLDEST. */
 export function makeAgentDispute(
@@ -55,7 +69,11 @@ export function makeAgentDispute(
       actorId: "cccccccc-0000-4000-8000-000000000001",
       occurredAt: createdAt,
     })),
-    ...assignmentFor(overrides.status ?? rest.status, createdAt),
+    ...assignmentFor(
+      overrides.status ?? rest.status,
+      createdAt,
+      overrides.assigneeId === undefined ? AGENT : overrides.assigneeId,
+    ),
     ...overrides,
   };
 }
@@ -93,8 +111,12 @@ export interface FakeAgentApi {
   /** Every customer-transactions request, with its path's dispute id. */
   readonly customerTransactionRequests: { id: string; url: URL }[];
   readonly transitionCalls: { id: string; ifMatch: string | null; body: TransitionRequest }[];
-  /** Another agent acts: the ETag moves on. */
+  /** How many times take next was asked. */
+  readonly takeNext: { calls: number };
+  /** Another agent acts: the ETag moves on (to UnderReview: that agent holds the review). */
   otherAgentActs(id: string, to: DisputeStatus): void;
+  /** The same agent acts somewhere else (another tab): the ETag moves on, the review is theirs. */
+  sameAgentActs(id: string, to: DisputeStatus): void;
   /** The version moves on but the status does not: a refetch brings a newer ETag, same page. */
   versionMovesOn(id: string): void;
 }
@@ -102,8 +124,10 @@ export interface FakeAgentApi {
 const etagOf = (version: number) => `"v${version}"`;
 
 /**
- * The agent endpoints with the server's rules: 428 / 412 / 409 / 400, ETag on every read. The
- * customer's transactions (newest first, any dispute of the store reads the same list) default to none.
+ * The agent endpoints with the server's rules: 428 / 412 / 409 (invalid_transition, then
+ * not_assignee) / 400, ETag on every read, the assignment filters, take next and release
+ * (ADR-019). Every request comes from AGENT. The customer's transactions (newest first, any
+ * dispute of the store reads the same list) default to none.
  */
 export function fakeAgentApi(
   initial: AgentDisputeDetail[],
@@ -116,8 +140,12 @@ export function fakeAgentApi(
     queueRequests: [],
     customerTransactionRequests: [],
     transitionCalls: [],
+    takeNext: { calls: 0 },
     otherAgentActs(id, to) {
-      apply(id, to, "Handled elsewhere", OTHER_AGENT);
+      apply(id, to, to === "Submitted" ? null : "Handled elsewhere", OTHER_AGENT);
+    },
+    sameAgentActs(id, to) {
+      apply(id, to, null, AGENT);
     },
     versionMovesOn(id) {
       versions.set(id, (versions.get(id) ?? 1) + 1);
@@ -136,6 +164,7 @@ export function fakeAgentApi(
       updatedAt: at,
       resolvedAt: done ? at : null,
       resolutionNote: done ? note : null,
+      // The aggregate sets the assignee on the way into UnderReview and clears it on every way out.
       ...assignmentFor(to, at, actor),
       timeline: [
         ...current.timeline,
@@ -151,10 +180,33 @@ export function fakeAgentApi(
     api.queueRequests.push(url);
     const limit = Number(url.searchParams.get("limit") ?? 25);
     const status = url.searchParams.get("status");
+    const assignment = url.searchParams.get("assignment")?.toLowerCase() ?? null;
+    if (assignment !== null && !["unclaimed", "mine", "others"].includes(assignment)) {
+      return problem(400, {
+        title: "One or more validation errors occurred.",
+        code: "validation_failed",
+        errors: { assignment: ["assignment must be unclaimed, mine or others."] },
+      });
+    }
+    if (assignment !== null && status !== null) {
+      return problem(400, {
+        title: "One or more validation errors occurred.",
+        code: "validation_failed",
+        errors: { assignment: ["assignment cannot be combined with status."] },
+      });
+    }
     const offsetText = url.searchParams.get("cursor");
     const offset = offsetText ? Number(atob(offsetText).replace("cursor:", "")) : 0;
+    const inQueue = (d: AgentDisputeDetail) => {
+      if (assignment === "unclaimed") return d.status === "Submitted";
+      if (assignment === "mine") return d.status === "UnderReview" && d.assigneeId === AGENT;
+      // Any other assignee, or none (a legacy row): IS DISTINCT FROM.
+      if (assignment === "others") return d.status === "UnderReview" && d.assigneeId !== AGENT;
+      return status ? d.status === status : OPEN.includes(d.status);
+    };
     const matching = store
-      .filter((d) => (status ? d.status === status : OPEN.includes(d.status)))
+      .filter(inQueue)
+      .map(viewOf)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const items = matching.slice(offset, offset + limit).map((d) => ({
       id: d.id,
@@ -181,8 +233,20 @@ export function fakeAgentApi(
     const id = String(params["id"]);
     const found = store.find((d) => d.id === id);
     return found
-      ? HttpResponse.json(found, { headers: headers(id) })
+      ? HttpResponse.json(viewOf(found), { headers: headers(id) })
       : problem(404, { title: "Not Found", code: "not_found" });
+  });
+
+  // The oldest unclaimed dispute becomes the viewer's; 204 when none is waiting.
+  const takeNext = http.post("/api/v1/agent/disputes/take-next", () => {
+    api.takeNext.calls += 1;
+    const oldest = store
+      .filter((d) => d.status === "Submitted")
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    if (!oldest) return new HttpResponse(null, { status: 204 });
+    apply(oldest.id, "UnderReview", null, AGENT);
+    const taken = store.find((d) => d.id === oldest.id)!;
+    return HttpResponse.json(viewOf(taken), { headers: headers(oldest.id) });
   });
 
   // The server reads a row's dispute from the database, so a decision shows on the next read.
@@ -234,7 +298,14 @@ export function fakeAgentApi(
         );
       }
       const note = body.note?.trim() ?? "";
-      if (body.toStatus !== "UnderReview" && note === "") {
+      if (body.toStatus === "Submitted" && note !== "") {
+        return problem(400, {
+          title: "One or more validation errors occurred.",
+          code: "validation_failed",
+          errors: { note: ["note is not allowed when releasing a dispute."] },
+        });
+      }
+      if ((body.toStatus === "Accepted" || body.toStatus === "Rejected") && note === "") {
         return problem(400, {
           title: "One or more validation errors occurred.",
           code: "validation_failed",
@@ -256,14 +327,23 @@ export function fakeAgentApi(
           code: "invalid_transition",
         });
       }
+      if (
+        current.status === "UnderReview" &&
+        ASSIGNEE_ONLY.includes(body.toStatus) &&
+        current.assigneeId !== null &&
+        current.assigneeId !== AGENT
+      ) {
+        return problem(409, {
+          title: "Conflict",
+          detail: "Another agent is reviewing this dispute.",
+          code: "not_assignee",
+        });
+      }
       apply(id, body.toStatus, note === "" ? null : note);
-      return HttpResponse.json(
-        store.find((d) => d.id === id),
-        { headers: headers(id) },
-      );
+      return HttpResponse.json(viewOf(store.find((d) => d.id === id)!), { headers: headers(id) });
     },
   );
 
   const reasonList = http.get("/api/v1/dispute-reasons", () => HttpResponse.json(reasons));
-  return { api, handlers: [reasonList, queue, get, customerList, transition] };
+  return { api, handlers: [reasonList, queue, takeNext, get, customerList, transition] };
 }

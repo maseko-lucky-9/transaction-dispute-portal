@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 
 import type { DisputeStatus } from "@/api/disputes";
+import { AgentWorkbench } from "@/components/agent-workbench";
 import { DisputeStatusPill } from "@/components/status-pill";
 import { TransactionResults } from "@/components/transaction-results";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,11 @@ export function HomePage() {
   // A session with no roles is treated as a customer, but the API refuses it the list (403): it
   // gets the "none assigned" hint instead of a list that cannot load.
   const showRecent = access === "customer" && user.roles.includes(CUSTOMER_ROLE);
-  const showRoles = access !== "customer" || user.roles.length === 0;
+  // Role names help only a refused session: one with both roles, or with none.
+  const showRoles = access === "both" || user.roles.length === 0;
+
+  // An agent lands on their workbench (take next, what they hold, what is waiting).
+  if (access === "agent") return <AgentWorkbench />;
 
   return (
     <div className="grid items-start gap-5 min-[960px]:grid-cols-[minmax(0,1fr)_320px]">
@@ -51,7 +56,7 @@ export function HomePage() {
               Signed in as <strong className="text-foreground">{user.name}</strong>
             </p>
           </div>
-          {/* A customer has no use for their role names; the back-office, a refused session and one with no role do. */}
+          {/* A customer or an agent has no use for their role names; a refused session and one with no role do. */}
           {showRoles && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted-foreground">Roles</span>
@@ -117,7 +122,7 @@ function LifecyclePanel() {
   );
 }
 
-/** The cards for what this session may open: customer pages, or the queue, never both. */
+/** The customer's cards; a session with both roles is told why it gets none. */
 function HomeLinks({ access }: { access: Access }) {
   if (access === "both") {
     return (
@@ -130,35 +135,24 @@ function HomeLinks({ access }: { access: Access }) {
   return (
     <nav aria-label="Main">
       <ul className="grid gap-5 min-[700px]:grid-cols-2">
-        {access === "agent" ? (
-          <HomeCard
-            primary
-            to="/agent"
-            title="Review queue"
-            description="Open disputes across customers, oldest first. Start a review, accept or reject."
-          />
-        ) : (
-          <>
-            <HomeCard
-              primary
-              to="/transactions"
-              title="My transactions"
-              description="Browse your transactions and dispute a charge."
-            />
-            <HomeCard
-              to="/disputes"
-              title="My disputes"
-              description="Follow your disputes and withdraw one if you need to."
-            />
-          </>
-        )}
+        <HomeCard
+          primary
+          to="/transactions"
+          title="My transactions"
+          description="Browse your transactions and dispute a charge."
+        />
+        <HomeCard
+          to="/disputes"
+          title="My disputes"
+          description="Follow your disputes and withdraw one if you need to."
+        />
       </ul>
     </nav>
   );
 }
 
 function HomeCard(props: {
-  to: "/agent" | "/transactions" | "/disputes";
+  to: "/transactions" | "/disputes";
   title: string;
   description: string;
   primary?: boolean;

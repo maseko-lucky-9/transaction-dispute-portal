@@ -32,6 +32,13 @@ function describe(entry: TimelineEntryView, viewer: TimelineViewer): string {
       : `${actor} set the status to ${label(entry.to)}`;
   }
   if (isCustomer && entry.to === "Withdrawn") return `${verb("withdrew")} this dispute`;
+  // An agent handing a dispute under review back to the pool (ADR-019). The customer is told what
+  // happened, never by whom.
+  if (!isCustomer && entry.from === "UnderReview" && entry.to === "Submitted") {
+    return viewer === "customer"
+      ? "Back-office returned this dispute to the review queue"
+      : `${actor} released this dispute to the queue`;
+  }
   return `${actor} changed the status from ${label(entry.from)} to ${label(entry.to)}`;
 }
 
