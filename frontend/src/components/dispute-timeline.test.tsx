@@ -59,6 +59,26 @@ describe("DisputeTimeline", () => {
     );
   });
 
+  it("words an agent's release as a return to the review queue, never saying who", () => {
+    const AGENT_ID = "3f2a9c1d-5b7e-4c1a-9d3e-0123456789ab";
+    render(
+      <DisputeTimeline
+        entries={[
+          {
+            ...entry({ from: "UnderReview", to: "Submitted", actorType: "Agent" }),
+            actorId: AGENT_ID,
+          },
+        ]}
+      />,
+    );
+    expect(items()[0]).toHaveTextContent("Back-office returned this dispute to the review queue");
+    expect(items()[0]?.querySelector("p")?.textContent).toBe(
+      "Back-office returned this dispute to the review queue",
+    );
+    expect(document.body.textContent).not.toContain("3f2a9c1d");
+    expect(document.body.textContent).not.toMatch(/Agent /);
+  });
+
   it("words a customer withdrawal naturally", () => {
     render(<DisputeTimeline entries={[entry({ from: "Submitted", to: "Withdrawn" })]} />);
     expect(items()[0]).toHaveTextContent("You withdrew this dispute");
@@ -175,6 +195,26 @@ describe("DisputeTimeline as an agent sees it", () => {
       />,
     );
     expect(items()[0]).toHaveTextContent("Agent 3f2a9c1d set the status to Submitted");
+  });
+
+  it("words a release as the agent handing the dispute back to the queue, with the short id", () => {
+    render(
+      <DisputeTimeline
+        viewer="agent"
+        entries={[
+          agentEntry({
+            from: "UnderReview",
+            to: "Submitted",
+            actorType: "Agent",
+            actorId: AGENT_ID,
+          }),
+          agentEntry({ from: "UnderReview", to: "Submitted", actorType: "Agent", actorId: null }),
+        ]}
+      />,
+    );
+    expect(items()[0]).toHaveTextContent("Agent 3f2a9c1d released this dispute to the queue");
+    expect(items()[1]).toHaveTextContent("An agent released this dispute to the queue");
+    expect(document.body.textContent).not.toContain(AGENT_ID);
   });
 
   it("the customer's view never shows an agent id even if one is present in the data", () => {

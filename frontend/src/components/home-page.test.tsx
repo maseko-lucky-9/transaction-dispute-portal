@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { fakeAgentApi } from "@/test/agent";
 import { alice, bob, carol, problem, signedIn } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
@@ -33,7 +34,7 @@ describe("home page", () => {
     ["an agent", bob],
     ["a user with both roles", carol],
   ])("does not show the customer status legend to %s", async (_who, user) => {
-    server.use(signedIn(user));
+    server.use(signedIn(user), ...fakeAgentApi([]).handlers);
     renderApp("/");
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("heading", { name: "How a dispute moves" })).not.toBeInTheDocument();
@@ -50,26 +51,37 @@ describe("home page", () => {
     await screen.findByText("You have no transactions yet");
   });
 
-  it.each([
-    ["an agent", bob, ["dispute-agent"]],
-    ["a user with both roles", carol, ["customer", "dispute-agent"]],
-  ])(
-    "still shows %s their role names, until the agent Home replaces this",
-    async (_who, user, roles) => {
-      const { api, handler } = fakeTransactionsApi(makeTransactions(3));
-      server.use(signedIn(user), handler);
-      renderApp("/");
+  it("shows a session with both roles its role names, and asks for no customer's data", async () => {
+    const { api, handler } = fakeTransactionsApi(makeTransactions(3));
+    server.use(signedIn(carol), handler);
+    renderApp("/");
 
-      const list = within(await screen.findByRole("list", { name: "Roles" }));
-      expect(list.getAllByRole("listitem").map((item) => item.textContent)).toEqual(roles);
-      // Nothing on this Home asks for a customer's data.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(api.requests).toEqual([]);
-      expect(
-        screen.queryByRole("heading", { name: "Recent transactions" }),
-      ).not.toBeInTheDocument();
-    },
-  );
+    const list = within(await screen.findByRole("list", { name: "Roles" }));
+    expect(list.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "customer",
+      "dispute-agent",
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.requests).toEqual([]);
+    expect(screen.queryByRole("heading", { name: "Recent transactions" })).not.toBeInTheDocument();
+  });
+
+  it("gives an agent the workbench: no role names and no customer's data", async () => {
+    const transactions = fakeTransactionsApi(makeTransactions(3));
+    server.use(signedIn(bob), transactions.handler, ...fakeAgentApi([]).handlers);
+    renderApp("/");
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Good morning, Bob" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take next" })).toBeInTheDocument();
+    expect(screen.queryByText("Roles")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Roles" })).not.toBeInTheDocument();
+    expect(screen.queryByText("dispute-agent")).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transactions.api.requests).toEqual([]);
+    expect(screen.queryByRole("heading", { name: "Recent transactions" })).not.toBeInTheDocument();
+  });
 });
 
 describe("home page: recent transactions", () => {

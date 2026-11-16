@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DISPUTE_STATUSES } from "./dispute-filters";
-import { NEXT_TRANSITIONS, noteIsRequired } from "./transitions";
+import { NEXT_TRANSITIONS, noteIsRequired, optionsFor, RELEASE } from "./transitions";
 
 describe("NEXT_TRANSITIONS (mirrors the Domain's agent transitions)", () => {
   it("offers exactly the legal next states, in order", () => {
@@ -56,5 +56,47 @@ describe("NEXT_TRANSITIONS (mirrors the Domain's agent transitions)", () => {
     expect(noteIsRequired("Submitted")).toBe(false);
     expect(noteIsRequired("UnderReview")).toBe(true);
     expect(noteIsRequired("Accepted")).toBe(false);
+  });
+});
+
+describe("optionsFor (who is reviewing decides what this agent may do, ADR-019)", () => {
+  const labels = (options: readonly { label: string }[]) => options.map((o) => o.label);
+
+  it("the reviewing agent may accept, reject or release", () => {
+    expect(labels(optionsFor("UnderReview", { kind: "mine", claimedAt: null }))).toEqual([
+      "Accept",
+      "Reject",
+      "Release to queue",
+    ]);
+  });
+
+  it("another agent's review offers nothing", () => {
+    expect(
+      optionsFor("UnderReview", { kind: "other", assignee: "bbbbbbbb", claimedAt: null }),
+    ).toEqual([]);
+  });
+
+  it("an unknown reviewer (an older api) falls back to the status alone, with no release", () => {
+    expect(labels(optionsFor("UnderReview", { kind: "unknown" }))).toEqual(["Accept", "Reject"]);
+    expect(labels(optionsFor("Submitted", { kind: "unknown" }))).toEqual(["Start review"]);
+  });
+
+  it("an unclaimed dispute offers Start review, the claim, and a closed one nothing", () => {
+    expect(labels(optionsFor("Submitted", { kind: "unclaimed" }))).toEqual(["Start review"]);
+    expect(optionsFor("Accepted", { kind: "unknown" })).toEqual([]);
+  });
+
+  it("release goes back to Submitted, takes no note, is confirmed, and is never crimson", () => {
+    expect(RELEASE).toMatchObject({
+      to: "Submitted",
+      takesNote: false,
+      noteRequired: false,
+      confirm: true,
+      variant: "ghost",
+    });
+    const crimson = optionsFor("UnderReview", { kind: "mine", claimedAt: null }).filter(
+      (o) => o.variant === "default",
+    );
+    expect(labels(crimson)).toEqual(["Accept"]);
   });
 });

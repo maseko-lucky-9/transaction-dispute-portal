@@ -19,6 +19,15 @@ export interface QueueFilters {
   limit: number;
 }
 
+/** The workbench's sections, relative to the agent asking (ADR-019). Never sent with a status. */
+export const QUEUE_ASSIGNMENTS = ["mine", "unclaimed", "others"] as const;
+export type QueueAssignment = (typeof QUEUE_ASSIGNMENTS)[number];
+
+export interface AssignmentFilters {
+  assignment: QueueAssignment;
+  limit: number;
+}
+
 /**
  * The queue's URL: `status` is "open" (the default, kept off the URL) or one status; `limit` as
  * on every list. Each field falls back on its own, so no link can crash the page.

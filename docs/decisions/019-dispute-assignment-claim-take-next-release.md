@@ -104,7 +104,7 @@ assignee's own decision, the runbook's break-glass statement read from the runbo
 fails with 55P03, rolls back, leaves no session setting and succeeds on the retry);
 `DatabasePrivilegeTests.TheAppRoleCanClaimAndReleaseADispute`, `TwoAppSessionsTakingNextSkipEachOthersLockedRow`
 (the repository's own SQL, two sessions, the second gets the next row without waiting; column grants);
-`DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; e2e `assignment.spec.ts`.
+`DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; e2e `work-assignment.spec.ts`.
 
 ## Rollout (expand, then contract)
 - **Deploy order: web first, then api.** Until the Phase 5 web ships, a claim made with Start review cannot be released

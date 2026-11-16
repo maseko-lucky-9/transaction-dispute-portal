@@ -67,6 +67,12 @@ interface PagedResultsProps<T extends { id: string }> {
   /** Shown instead of the list when there are no items. */
   empty: ReactNode;
   renderItems: (items: T[]) => ReactNode;
+  /**
+   * Say what is loaded without a number ("Unclaimed disputes: more to load"). For lists that sit
+   * side by side, where per-list numbers would read as the totals the API never returns; the noun
+   * tells the lists' announcements apart.
+   */
+  countless?: boolean;
 }
 
 /**
@@ -85,6 +91,7 @@ export function PagedResults<T extends { id: string }>({
   titles,
   empty,
   renderItems,
+  countless = false,
 }: PagedResultsProps<T>) {
   const queryClient = useQueryClient();
   const { data, error, isPending, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } = query;
@@ -143,7 +150,10 @@ export function PagedResults<T extends { id: string }>({
   let summary = "";
   if (isPending) summary = `Loading ${noun.many}`;
   else if (data && isFetchingNextPage) summary = `Loading more ${noun.many}`;
-  else if (data) {
+  else if (data && countless) {
+    const what = noun.many.charAt(0).toUpperCase() + noun.many.slice(1);
+    summary = count === 0 ? "" : `${what}: ${hasNextPage ? "more to load" : "all loaded"}`;
+  } else if (data) {
     summary = `Showing ${count} ${count === 1 ? noun.one : noun.many}${hasNextPage ? "" : ", all loaded"}`;
   }
 

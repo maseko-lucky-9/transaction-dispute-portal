@@ -2,13 +2,10 @@ import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 
-import { agentQueueInfiniteOptions, type AgentQueueItem } from "@/api/agent";
-import { disputeReasonsOptions, type DisputeReason, type DisputeStatus } from "@/api/disputes";
-import { DisputeStatusPill } from "@/components/status-pill";
-import { TableCard } from "@/components/table-card";
+import { agentQueueInfiniteOptions } from "@/api/agent";
+import { disputeReasonsOptions } from "@/api/disputes";
 import { PagedResults } from "@/components/paged-results";
-import { LifecycleStepper } from "@/components/lifecycle-stepper";
-import { buttonVariants } from "@/components/ui/button";
+import { QueueTable } from "@/components/queue-table";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
@@ -19,17 +16,8 @@ import {
   type QueueStatus,
 } from "@/lib/agent-filters";
 import { DISPUTE_STATUSES, DISPUTE_STATUS_LABELS } from "@/lib/dispute-filters";
-import { reasonLabel } from "@/lib/dispute-reasons-catalogue";
-import { formatDate, formatMoney } from "@/lib/format";
 import { searchWithStatus } from "@/lib/status-links";
-import {
-  AMOUNT_CELL,
-  CARD,
-  COLUMN_HEADER,
-  FILTER_LINK,
-  PAGE_TITLE,
-  TABLE_ROW,
-} from "@/lib/table-styles";
+import { CARD, FILTER_LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/agent");
@@ -129,102 +117,14 @@ function QueueResults({ filters }: { filters: QueueFilters }) {
           </p>
         </div>
       }
-      renderItems={(items) => <QueueTable items={items} reasons={reasons.data} />}
+      renderItems={(items) => (
+        <QueueTable
+          items={items}
+          reasons={reasons.data}
+          label="Queue table"
+          caption="Disputes awaiting review, oldest first"
+        />
+      )}
     />
-  );
-}
-
-/** Submitted is the call to act; Under review is in hand; a decided row is only for reading. */
-const REVIEW_VARIANT: Record<DisputeStatus, "default" | "outline" | "ghost"> = {
-  Submitted: "default",
-  UnderReview: "outline",
-  Accepted: "ghost",
-  Rejected: "ghost",
-  Withdrawn: "ghost",
-};
-
-function QueueTable({
-  items,
-  reasons,
-}: {
-  items: readonly AgentQueueItem[];
-  reasons: readonly DisputeReason[] | undefined;
-}) {
-  return (
-    <TableCard label="Queue table" flat>
-      <table className="w-full min-w-[48rem] border-collapse text-sm">
-        <caption className="sr-only">Disputes awaiting review, oldest first</caption>
-        <thead>
-          <tr>
-            <th scope="col" className={COLUMN_HEADER}>
-              Raised (UTC)
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Customer
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Merchant
-            </th>
-            <th scope="col" className={`${COLUMN_HEADER} text-right`}>
-              Amount
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Reason
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Progress
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Status
-            </th>
-            <th scope="col" className={COLUMN_HEADER}>
-              Details
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {items.map((item) => (
-            <tr key={item.id} className={TABLE_ROW}>
-              <td className="px-4 py-3 whitespace-nowrap">
-                <time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time>
-              </td>
-              <td className="px-4 py-3">
-                {item.customerDisplayName}
-                <span className="block text-xs text-muted-foreground">
-                  {item.maskedAccountNumber}
-                </span>
-              </td>
-              <th scope="row" className="px-4 py-3 text-left font-medium">
-                {item.merchantName}
-              </th>
-              <td className={AMOUNT_CELL}>{formatMoney(item.amount, item.currency)}</td>
-              <td className="px-4 py-3">{reasonLabel(item.reasonCode, reasons)}</td>
-              <td className="px-4 py-3">
-                <LifecycleStepper status={item.status} />
-              </td>
-              <td className="px-4 py-3">
-                <DisputeStatusPill status={item.status} />
-              </td>
-              <td className="px-4 py-3">
-                <Link
-                  to="/agent/disputes/$disputeId"
-                  params={{ disputeId: item.id }}
-                  className={buttonVariants({
-                    variant: REVIEW_VARIANT[item.status],
-                    size: "sm",
-                  })}
-                >
-                  {/* The space sits outside the sr-only span: a flex item drops its leading space. */}
-                  Review{" "}
-                  <span className="sr-only">
-                    dispute for {item.merchantName} from {item.customerDisplayName}
-                  </span>
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </TableCard>
   );
 }

@@ -39,7 +39,7 @@ describe("header navigation by role", () => {
   });
 
   it("an agent sees ONLY the Queue", async () => {
-    server.use(signedIn(bob));
+    server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
     renderApp("/");
     await screen.findByText(/Signed in as/);
 
@@ -69,15 +69,19 @@ describe("header navigation by role", () => {
 });
 
 describe("home by role", () => {
-  it("an agent gets a link to the queue and no customer cards", async () => {
-    server.use(signedIn(bob));
+  it("an agent gets the workbench, a link to the full queue and no customer cards", async () => {
+    server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
     renderApp("/");
     await screen.findByText(/Signed in as/);
 
-    const main = within(screen.getByRole("navigation", { name: "Main" }));
-    expect(main.getByRole("link", { name: "Review queue" })).toHaveAttribute("href", "/agent");
-    expect(main.queryByRole("link", { name: "My transactions" })).not.toBeInTheDocument();
-    expect(main.queryByRole("link", { name: "My disputes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take next" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the full review queue" })).toHaveAttribute(
+      "href",
+      "/agent",
+    );
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My transactions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My disputes" })).not.toBeInTheDocument();
   });
 
   it("a customer gets the customer cards and no queue", async () => {
@@ -104,13 +108,13 @@ describe("home by role", () => {
   });
 
   it("follows the queue link to the queue", async () => {
-    server.use(signedIn(bob));
+    server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
     const { router } = renderApp("/");
     await screen.findByText(/Signed in as/);
 
-    await userEvent.setup().click(screen.getByRole("link", { name: "Review queue" }));
+    await userEvent.setup().click(screen.getByRole("link", { name: "Open the full review queue" }));
 
-    await screen.findByRole("heading", { level: 1 });
+    await screen.findByRole("heading", { level: 1, name: "Review queue" });
     expect(router.state.location.pathname).toBe("/agent");
   });
 });

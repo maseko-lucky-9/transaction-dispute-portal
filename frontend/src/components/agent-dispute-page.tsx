@@ -23,13 +23,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { isUnderReview } from "@/lib/agent-filters";
+import { assignmentLine, assignmentOf, reviewedByAnother } from "@/lib/assignment";
 import { DESCRIPTION_MAX } from "@/lib/dispute-form";
 import { formatDateTime } from "@/lib/format";
 import { freeTextField } from "@/lib/free-text";
 import { isGuid } from "@/lib/guid";
 import {
-  NEXT_TRANSITIONS,
   noteIsRequired,
+  optionsFor,
   type TransitionOption,
   type TransitionTarget,
 } from "@/lib/transitions";
@@ -80,6 +81,8 @@ export function AgentDisputePage() {
   }
 
   const { dispute } = query.data;
+  const assignment = assignmentOf(dispute);
+  const reviewer = assignmentLine(assignment);
   return (
     <div className="flex flex-col gap-6">
       <title>Dispute review - Transactions Dispute Portal</title>
@@ -96,6 +99,8 @@ export function AgentDisputePage() {
           />
         </div>
         <p className="text-sm text-muted-foreground">Raised {formatDateTime(dispute.createdAt)}</p>
+        {/* Absent from an older api, and once decided: then nothing is said rather than guessed. */}
+        {reviewer ? <p className="text-sm font-semibold">{reviewer}</p> : null}
       </div>
 
       <DisputeOverview
@@ -121,21 +126,47 @@ export function AgentDisputePage() {
         />
       ) : null}
 
-      {/* Keyed by status: a new version of the dispute starts a fresh form. */}
-      <TransitionForm
-        key={dispute.status}
-        id={dispute.id}
-        current={query.data}
-        message={message}
-        setMessage={setMessage}
-        note={note}
-        setNote={setNote}
-      />
+      {/* Only the reviewing agent may decide (ADR-019): a colleague's review is read only. Otherwise keyed by status and reviewer: a new version of the dispute starts a fresh form. */}
+      {dispute.status === "UnderReview" && reviewedByAnother(assignment) ? (
+        <ReadOnlyDecision message={message} />
+      ) : (
+        <TransitionForm
+          key={`${dispute.status}-${assignment.kind}`}
+          id={dispute.id}
+          current={query.data}
+          options={optionsFor(dispute.status, assignment)}
+          message={message}
+          setMessage={setMessage}
+          note={note}
+          setNote={setNote}
+        />
+      )}
     </div>
   );
 }
 
 const NOTE_ID = "transition-note";
+
+/** Another agent holds the review: this one reads, and is told why there is nothing to press. */
+function ReadOnlyDecision({ message }: { message: string | null }) {
+  return (
+    <section aria-labelledby="transition-heading" className={CARD}>
+      <h2 id="transition-heading" className="text-lg font-semibold">
+        Decision
+      </h2>
+      <p role="status" className="text-sm font-medium">
+        {message ?? ""}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Another agent is reviewing this dispute. You can read it but not decide it.
+      </p>
+    </section>
+  );
+}
+
+/** A 409 not_assignee, in plain words: someone else holds the review now. */
+const NOT_ASSIGNEE =
+  "Another agent is reviewing this dispute, so you cannot decide or release it. We reloaded it.";
 
 /** A decision that asks for confirmation, with the ETag of the version it was chosen on. */
 interface PendingDecision {
@@ -146,17 +177,27 @@ interface PendingDecision {
 interface TransitionFormProps {
   id: string;
   current: AgentDisputeWithEtag;
+  /** What this agent may do now (status and reviewer). */
+  options: readonly TransitionOption[];
   message: string | null;
   setMessage: (message: string | null) => void;
   note: string;
   setNote: (note: string) => void;
 }
 
-function TransitionForm({ id, current, message, setMessage, note, setNote }: TransitionFormProps) {
+function TransitionForm({
+  id,
+  current,
+  options,
+  message,
+  setMessage,
+  note,
+  setNote,
+}: TransitionFormProps) {
   const queryClient = useQueryClient();
   const status = current.dispute.status;
-  const options = NEXT_TRANSITIONS[status];
   const required = noteIsRequired(status);
+  const offersRelease = options.some((option) => !option.takesNote);
   const [noteError, setNoteError] = useState<string | undefined>();
   // A decision waiting for its confirmation keeps the version the agent chose it on.
   const [pending, setPending] = useState<PendingDecision | null>(null);
@@ -169,22 +210,40 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
     // and silently overwrite a change the agent never saw. A stale one is a 412 and a reload.
     mutationFn: (variables: { to: TransitionTarget; note: string; etag: string | null }) =>
       transitionDispute(id, variables.etag, variables.to, variables.note),
-    onSuccess: async (result) => {
+    onSuccess: async (result, variables) => {
       queryClient.setQueryData(detailKey, result);
       setPending(null);
+      // The draft is spent either way: after a release it would otherwise go out with the next
+      // Start review, as the claim's note to the customer.
       setNote("");
-      setMessage("Status updated.");
+      setMessage(
+        variables.to === "Submitted"
+          ? "Released. The dispute is back in the queue for any agent."
+          : "Status updated.",
+      );
       await queryClient.invalidateQueries({ queryKey: ["agent", "queue"] });
     },
     onError: async (error) => {
       setPending(null);
       if (!isApiError(error)) return;
       if (error.status === 412) {
-        await queryClient.refetchQueries({ queryKey: detailKey });
+        await Promise.all([
+          queryClient.refetchQueries({ queryKey: detailKey }),
+          queryClient.invalidateQueries({ queryKey: ["agent", "queue"] }),
+        ]);
         setMessage("This dispute changed while you were reviewing it. We reloaded it.");
       } else if (error.status === 409) {
-        await queryClient.refetchQueries({ queryKey: detailKey });
-        setMessage("That move is no longer possible. We reloaded the dispute.");
+        // Set first: when another agent holds the review, the reload swaps this form for the
+        // read-only card, which shows the same message.
+        setMessage(
+          error.code === "not_assignee"
+            ? NOT_ASSIGNEE
+            : "That move is no longer possible. We reloaded the dispute.",
+        );
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: detailKey }),
+          queryClient.invalidateQueries({ queryKey: ["agent", "queue"] }),
+        ]);
       }
     },
   });
@@ -212,8 +271,9 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
   });
 
   function choose(option: TransitionOption) {
-    const parsed = noteSchema.safeParse(note);
-    if (!parsed.success) {
+    // A move that takes no note (a release) neither checks nor sends what is in the field.
+    const parsed = option.takesNote ? noteSchema.safeParse(note) : null;
+    if (parsed && !parsed.success) {
       setNoteError(parsed.error.issues[0]?.message ?? "Check the note");
       document.getElementById(NOTE_ID)?.focus();
       return;
@@ -227,7 +287,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
 
   function send(option: TransitionOption, etag: string | null) {
     if (queryClient.isMutating({ mutationKey: ["agent", "transition", id] }) > 0) return;
-    mutation.mutate({ to: option.to, note: note.trim(), etag });
+    mutation.mutate({ to: option.to, note: option.takesNote ? note.trim() : "", etag });
   }
 
   const error = mutation.error;
@@ -235,6 +295,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
   // 400 problem documents name the field: `errors: { note: [...] }`.
   const serverNote = apiError?.status === 400 ? firstNoteError(apiError.problem["errors"]) : null;
   const handled = apiError?.status === 412 || apiError?.status === 409;
+  const notAssignee = apiError?.code === "not_assignee";
 
   return (
     <section aria-labelledby="transition-heading" className={CARD}>
@@ -247,7 +308,11 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
       {handled ? (
         <div role="alert" className="flex flex-col gap-1 rounded-xl bg-accent p-4">
           <p className="font-medium">{apiError?.status === 412 ? "Reloaded" : "Not possible"}</p>
-          <p className="text-sm">{apiError?.problem.detail ?? "Check the status and try again."}</p>
+          <p className="text-sm">
+            {notAssignee
+              ? "Another agent is reviewing this dispute."
+              : (apiError?.problem.detail ?? "Check the status and try again.")}
+          </p>
           <TraceReference error={error} />
         </div>
       ) : error && !serverNote ? (
@@ -266,7 +331,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
           error={noteError ?? serverNote ?? undefined}
           hint={
             required
-              ? "Required to accept or reject. The customer sees it. Do not include card or ID numbers."
+              ? `Required to accept or reject. The customer sees it. Do not include card or ID numbers.${offersRelease ? " Not sent when you release." : ""}`
               : "Optional. The customer sees it."
           }
         >
@@ -286,22 +351,39 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
         {pending ? (
           <div role="group" aria-label="Confirm decision" className="flex flex-col gap-3">
             <p className="font-medium">Do you want to {pending.option.verb} this dispute?</p>
+            {pending.option.takesNote ? null : (
+              <p className="text-sm text-muted-foreground">
+                It goes back to Unclaimed, where any agent can claim it. No note is sent.
+              </p>
+            )}
             <div className="flex gap-2">
+              {/* A ghost move (release) confirms outlined, so the answer still outranks Cancel. */}
               <Button
                 type="button"
-                variant={pending.option.variant}
+                variant={pending.option.variant === "ghost" ? "outline" : pending.option.variant}
                 aria-disabled={mutation.isPending ? true : undefined}
                 onClick={() => send(pending.option, pending.etag)}
               >
                 {mutation.isPending ? "Saving..." : `Yes, ${pending.option.label.toLowerCase()}`}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setPending(null)}>
+              {/* Not while the move is in flight: the answer would land on a form that no longer asks. */}
+              <Button
+                type="button"
+                variant="ghost"
+                aria-disabled={mutation.isPending ? true : undefined}
+                onClick={() => {
+                  if (queryClient.isMutating({ mutationKey: ["agent", "transition", id] }) > 0) {
+                    return;
+                  }
+                  setPending(null);
+                }}
+              >
                 Cancel
               </Button>
             </div>
           </div>
         ) : (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {options.map((option) => (
               <Button
                 key={option.to}

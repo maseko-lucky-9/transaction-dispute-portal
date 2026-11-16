@@ -80,6 +80,18 @@ describe("agent queue", () => {
     expect(new Set(merchants).size).toBe(40);
   });
 
+  it("outlines every open row's Review link: the queue has no crimson control", async () => {
+    await openQueue();
+    const [submitted, underReview] = within(screen.getByRole("table")).getAllByRole("row").slice(1);
+
+    for (const row of [submitted, underReview]) {
+      const link = within(row as HTMLElement).getByRole("link", { name: /^Review/ });
+      expect(link).toHaveClass("border");
+      expect(link).not.toHaveClass("bg-primary");
+    }
+    expect(document.querySelectorAll(".bg-primary")).toHaveLength(0);
+  });
+
   it("says so when the queue is empty", async () => {
     server.use(signedIn(bob), ...fakeAgentApi([]).handlers);
     renderApp("/agent");
