@@ -35,13 +35,18 @@ those two variables, but the realm is imported only into an empty database: on a
 `/api/openapi/v1.json`. Reading the contract works. "Try it out" works for `/api/*` too: sign in at `/bff/login` in the same browser, click
 Authorize in the UI and enter `1` for `csrf` (the session cookie is sent by the browser on its own). Use `docs/openapi.json` and `api.http` for calls.
 
-Demo users (local-only, imported from `deploy/keycloak/`):
+Demo users (local-only, in `deploy/keycloak/demo-users.json`):
 
 | User | Password | Role |
 |---|---|---|
 | `thandi` | `Thandi-Demo-2026!` | customer |
 | `sipho` | `Sipho-Demo-2026!` | customer |
 | `agent` | `Agent-Demo-2026!` | dispute-agent |
+| `agent2` | `Agent2-Demo-2026!` | dispute-agent |
+| `agent3` | `Agent3-Demo-2026!` | dispute-agent |
+
+The `keycloak-users` service adds them on every `docker compose up`; existing users are left alone, so a stack that
+already has data gains the missing ones without a reset.
 
 The two internal networks use `10.231.28.0/24` (data) and `10.231.29.0/24` (app); set `DATA_SUBNET` / `APP_SUBNET` if
 they clash with a VPN or another Docker network. Compose never gives `web` (the internet-facing container) a route to

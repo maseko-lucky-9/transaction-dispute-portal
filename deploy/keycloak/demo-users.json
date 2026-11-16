@@ -1,5 +1,5 @@
 {
-  "realm": "dispute-portal",
+  "ifResourceExists": "SKIP",
   "users": [
     {
       "id": "a1b2c3d4-0000-4000-8000-000000000001",
@@ -32,6 +32,28 @@
       "lastName": "Agent",
       "email": "agent@example.test",
       "credentials": [{ "type": "password", "value": "Agent-Demo-2026!", "temporary": false }],
+      "realmRoles": ["dispute-agent"]
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-0000000000a2",
+      "username": "agent2",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lindiwe",
+      "lastName": "Agent",
+      "email": "agent2@example.test",
+      "credentials": [{ "type": "password", "value": "Agent2-Demo-2026!", "temporary": false }],
+      "realmRoles": ["dispute-agent"]
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-0000000000a3",
+      "username": "agent3",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Themba",
+      "lastName": "Agent",
+      "email": "agent3@example.test",
+      "credentials": [{ "type": "password", "value": "Agent3-Demo-2026!", "temporary": false }],
       "realmRoles": ["dispute-agent"]
     }
   ]

@@ -61,6 +61,25 @@ test('the agent role is separate from the customer role', async ({ page }) => {
   expect(user.roles).not.toContain('customer');
 });
 
+test('agent2 and agent3 sign in and land in the back office', async ({ browser }) => {
+  for (const agent of [DEMO.agent2, DEMO.agent3]) {
+    await test.step(`${agent.user} signs in`, async () => {
+      const context = await browser.newContext(); // its own session, so the second agent is not signed in already
+      try {
+        const page = await context.newPage();
+        await signIn(page, agent);
+        const user = await page.evaluate(async () => (await fetch('/bff/user', { headers: { 'X-CSRF': '1' } })).json());
+        expect(user.roles).toContain('dispute-agent');
+        expect(user.roles).not.toContain('customer');
+        await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Queue' }).click();
+        await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible();
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});
+
 test('edge: security headers per location, no-store on the API, Keycloak admin is not exposed', async ({ request }) => {
   const root = await request.get('/');
   const csp = root.headers()['content-security-policy'];

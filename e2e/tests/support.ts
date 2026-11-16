@@ -4,6 +4,8 @@ export const DEMO = {
   customer: { user: 'thandi', password: 'Thandi-Demo-2026!', name: 'Thandi Nkosi' },
   customer2: { user: 'sipho', password: 'Sipho-Demo-2026!', name: 'Sipho Dlamini' },
   agent: { user: 'agent', password: 'Agent-Demo-2026!', name: 'Anele Agent' },
+  agent2: { user: 'agent2', password: 'Agent2-Demo-2026!', name: 'Lindiwe Agent' },
+  agent3: { user: 'agent3', password: 'Agent3-Demo-2026!', name: 'Themba Agent' },
 };
 
 /** Collect Content-Security-Policy violations in the page; assert none at the end of a test. */
@@ -84,4 +86,25 @@ export const DESCRIPTION = 'The merchant charged me twice for a single purchase.
 export async function fillValid(page: Page, description = DESCRIPTION) {
   await page.getByLabel(/^Reason/).selectOption({ index: 1 });
   await page.getByLabel(/^What happened\?/).fill(description);
+}
+
+/** Submit through the API (the same call the form makes); for tests whose subject is not the form. */
+export async function submitViaApi(page: Page, transactionId: string): Promise<string> {
+  const reason = (await api(page, 'GET', '/api/v1/dispute-reasons')).body[0].code as string;
+  const id = crypto.randomUUID();
+  const created = await api(page, 'POST', '/api/v1/disputes', {
+    json: { id, transactionId, reasonCode: reason, description: DESCRIPTION },
+  });
+  expect(created.status).toBe(201);
+  return id;
+}
+
+/** Leave the stack as found: a dispute the test left open is withdrawn so it does not clutter the queue. */
+export async function withdrawIfOpen(customer: Page, id: string) {
+  if (!id) return; // the test failed before a dispute existed
+  const current = await api(customer, 'GET', `/api/v1/disputes/${id}`).catch(() => null);
+  if (current?.status !== 200 || !['Submitted', 'UnderReview'].includes(current.body.status)) return;
+  await api(customer, 'POST', `/api/v1/disputes/${id}/withdraw`, {
+    headers: { 'If-Match': current.etag! },
+  }).catch(() => null);
 }

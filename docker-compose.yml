@@ -111,7 +111,6 @@ services:
     volumes:
       - { type: volume, source: secrets, target: /run/kc, read_only: true, volume: { subpath: keycloak } }
       - ./deploy/keycloak/dispute-portal-realm.json:/opt/keycloak/data/import/dispute-portal-realm.json:ro
-      - ./deploy/keycloak/dispute-portal-users-0.json:/opt/keycloak/data/import/dispute-portal-users-0.json:ro
       - ./deploy/keycloak/themes/dispute-portal:/opt/keycloak/themes/dispute-portal:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
@@ -121,6 +120,26 @@ services:
       start_period: 40s
     <<: *hardened
     networks: [app, data]
+
+  # One-shot, local only: adds the demo users to the dispute-portal realm on every `up` (users are not part of the realm
+  # import, which runs only into an empty database). Joins keycloak's network namespace so kcadm reaches it on localhost
+  # (the admin API is on no published port); the admin password is read from the secrets volume inside the script.
+  keycloak-users:
+    image: quay.io/keycloak/keycloak:26.8@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+    depends_on:
+      keycloak: { condition: service_healthy }
+    network_mode: "service:keycloak"
+    entrypoint: ["/bin/sh", "/seed/seed-users.sh"]
+    environment:
+      HOME: /tmp
+    volumes:
+      - { type: volume, source: secrets, target: /run/kc, read_only: true, volume: { subpath: keycloak } }
+      - ./deploy/keycloak/seed-users.sh:/seed/seed-users.sh:ro
+      - ./deploy/keycloak/demo-users.json:/seed/demo-users.json:ro
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    restart: "no"
 
   migrate:
     build: { context: ., target: api }
@@ -184,6 +203,7 @@ services:
     depends_on:
       api: { condition: service_healthy }
       keycloak: { condition: service_healthy }
+      keycloak-users: { condition: service_completed_successfully }
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
       - "127.0.0.1:${AUTH_PORT:-8180}:8180"
@@ -229,6 +249,7 @@ volumes:
 #   app   - internal; edge to the app tier web, api, keycloak (the API trusts X-Forwarded-* only from this subnet)
 #   data  - internal; stores and Vault     vault, bootstrap, postgres, redis, migrate, api, keycloak (AppRoles are bound to this subnet;
 #           Keycloak's back-channel logout reaches the api's management port here, as api-mgmt)
+# keycloak-users has no network of its own: it shares keycloak's.
 networks:
   edge: {}
   app:
