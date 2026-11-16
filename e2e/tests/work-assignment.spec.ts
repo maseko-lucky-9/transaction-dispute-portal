@@ -3,8 +3,10 @@ import { expect, test, type Browser, type Page, type Request } from '@playwright
 
 import { api, DEMO, pickDisputable, signIn, submitViaApi, trackCspViolations, withdrawIfOpen } from './support';
 
-// These tests submit disputes as the second demo customer: submits are limited to 10 a minute per customer, and the
-// first one (also used by agent.spec and disputes.spec within the same minute) would run out.
+// This file is named to sort after every other spec on purpose: Playwright runs files alphabetically, and dispute
+// submits are limited to 10 a minute per customer (a fixed window). Run early, these submits used up the window that
+// disputes.spec's own submits need; run last, the worst case is that submitViaApi waits for a fresh window.
+test.describe.configure({ timeout: 120_000 }); // room for that wait
 
 /**
  * Dispute assignment (ADR-019), at the API level against the real stack: take next hands concurrent agents different
@@ -43,7 +45,7 @@ test('two agents taking next at the same moment get different disputes', async (
   const held: { page: Page; id: string }[] = [];
 
   try {
-    await signIn(customer, DEMO.customer2);
+    await signIn(customer, DEMO.customer);
     for (let i = 0; i < 2; i++) submitted.push(await submitViaApi(customer, (await pickDisputable(customer)).id));
     await signIn(first, DEMO.agent);
     await signIn(second, DEMO.agent2);
@@ -87,7 +89,7 @@ test('only the reviewing agent may decide or release, and the customer never see
   let id = '';
 
   try {
-    await signIn(customer, DEMO.customer2);
+    await signIn(customer, DEMO.customer);
     id = await submitViaApi(customer, (await pickDisputable(customer)).id);
     await signIn(reviewer, DEMO.agent3);
     await signIn(colleague, DEMO.agent2);
@@ -191,7 +193,7 @@ test('the workbench: take next lands under "In review by you", a colleague can o
   let taken = '';
 
   try {
-    await signIn(customer, DEMO.customer2);
+    await signIn(customer, DEMO.customer);
     const submitted = await submitViaApi(customer, (await pickDisputable(customer)).id);
     id = submitted; // set at once: a skip below still withdraws it
     await signIn(agent, DEMO.agent);

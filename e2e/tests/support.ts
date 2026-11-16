@@ -92,9 +92,17 @@ export async function fillValid(page: Page, description = DESCRIPTION) {
 export async function submitViaApi(page: Page, transactionId: string): Promise<string> {
   const reason = (await api(page, 'GET', '/api/v1/dispute-reasons')).body[0].code as string;
   const id = crypto.randomUUID();
-  const created = await api(page, 'POST', '/api/v1/disputes', {
+  // Submits are limited to 10 a minute per customer (a fixed window). The same id is a safe replay, so a refused one is
+  // retried until the window turns over, instead of failing a test that is not about the limit.
+  let created = await api(page, 'POST', '/api/v1/disputes', {
     json: { id, transactionId, reasonCode: reason, description: DESCRIPTION },
   });
+  for (let attempt = 0; created.status === 429 && attempt < 14; attempt++) {
+    await page.waitForTimeout(5_000);
+    created = await api(page, 'POST', '/api/v1/disputes', {
+      json: { id, transactionId, reasonCode: reason, description: DESCRIPTION },
+    });
+  }
   expect(created.status).toBe(201);
   return id;
 }
