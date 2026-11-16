@@ -11,11 +11,15 @@ public static class AgentRegistration
     public static IServiceCollection AddAgent(this IServiceCollection services)
     {
         services.AddSingleton<AgentCursorProtector>();
+        services.AddSingleton<AgentCustomerTransactionCursorProtector>();
         services.AddSingleton<IValidator<AgentQueueRequest>, AgentQueueRequestValidator>();
+        services.AddSingleton<IValidator<AgentCustomerTransactionsRequest>, AgentCustomerTransactionsRequestValidator>();
         services.AddSingleton<IValidator<TransitionRequest>, TransitionRequestValidator>();
         services.AddScoped<IAgentDisputeRepository, AgentDisputeRepository>();
+        services.AddScoped<IAgentCustomerTransactionRepository, AgentCustomerTransactionRepository>();
         services.AddScoped<AgentCommands>();
         services.AddScoped<AgentQueries>();
+        services.AddScoped<AgentCustomerTransactionQueries>();
         services.Configure<OpenApiOptions>("v1", options => options.AddSchemaTransformer(DescribeTransitionRequest));
         return services;
     }

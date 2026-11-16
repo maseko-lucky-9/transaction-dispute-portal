@@ -8,8 +8,9 @@ namespace DisputePortal.Api.Features.Agent;
 
 public sealed class AgentDisputeRepository(DisputePortalDbContext db) : IAgentDisputeRepository
 {
-    // Agents work across customers: the one place the Owner filter is lifted. By name, so any other filter still
-    // applies, and for the whole query, so the transactions, accounts and history it reaches are unfiltered too.
+    // Agents work across customers: the Owner filter is lifted here and in AgentCustomerTransactionRepository, the two
+    // places it is. By name, so any other filter still applies, and for the whole query, so the transactions, accounts
+    // and history it reaches are unfiltered too.
     private static readonly string[] OwnerFilter = [DisputePortalDbContext.OwnerFilter];
 
     public Task<Dispute?> FindAsync(Guid id, CancellationToken cancellationToken) =>

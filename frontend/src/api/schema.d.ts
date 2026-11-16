@@ -348,6 +348,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/disputes/{id}/customer-transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The recent transactions of the customer behind a dispute, newest first, read-only: from the earlier of 90 days ago and the disputed transaction's day. Only while the dispute is Submitted or UnderReview (otherwise 404). Every page read is audited. */
+        get: operations["ListAgentCustomerTransactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/disputes/{id}/transitions": {
         parameters: {
             query?: never;
@@ -371,6 +388,29 @@ export interface components {
     schemas: {
         /** @enum {unknown} */
         ActorType: "Customer" | "Agent";
+        AgentCustomerTransaction: {
+            /** Format: uuid */
+            id: string;
+            reference: string;
+            merchantName: string;
+            category: string;
+            amount: string;
+            currency: string;
+            direction: components["schemas"]["TransactionDirection"];
+            status: components["schemas"]["TransactionStatus"];
+            /** Format: date-time */
+            transactionDate: string;
+            /** Format: date-time */
+            postedAt: null | string;
+            maskedAccountNumber: string;
+            dispute: null | components["schemas"]["DisputeSummary"];
+        };
+        AgentCustomerTransactionsResponse: {
+            items: components["schemas"]["AgentCustomerTransaction"][];
+            nextCursor: null | string;
+            /** Format: date */
+            from: string;
+        };
         AgentDisputeDetail: {
             /** Format: uuid */
             id: string;
@@ -1112,6 +1152,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentDisputeDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListAgentCustomerTransactions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCustomerTransactionsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
             /** @description Unauthorized */

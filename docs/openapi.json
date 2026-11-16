@@ -981,6 +981,102 @@
         ]
       }
     },
+    "/api/v1/agent/disputes/{id}/customer-transactions": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "The recent transactions of the customer behind a dispute, newest first, read-only: from the earlier of 90 days ago and the disputed transaction's day. Only while the dispute is Submitted or UnderReview (otherwise 404). Every page read is audited.",
+        "operationId": "ListAgentCustomerTransactions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32",
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "maxLength": 1024,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCustomerTransactionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent/disputes/{id}/transitions": {
       "post": {
         "tags": [
@@ -1132,6 +1228,100 @@
           "Customer",
           "Agent"
         ]
+      },
+      "AgentCustomerTransaction": {
+        "required": [
+          "id",
+          "reference",
+          "merchantName",
+          "category",
+          "amount",
+          "currency",
+          "direction",
+          "status",
+          "transactionDate",
+          "postedAt",
+          "maskedAccountNumber",
+          "dispute"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "merchantName": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/TransactionDirection"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "transactionDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "postedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "maskedAccountNumber": {
+            "type": "string"
+          },
+          "dispute": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DisputeSummary"
+              }
+            ]
+          }
+        }
+      },
+      "AgentCustomerTransactionsResponse": {
+        "required": [
+          "items",
+          "nextCursor",
+          "from"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentCustomerTransaction"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          }
+        }
       },
       "AgentDisputeDetail": {
         "required": [

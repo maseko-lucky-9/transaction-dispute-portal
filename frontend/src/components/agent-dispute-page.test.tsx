@@ -4,7 +4,7 @@ import { http } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { agentKeys } from "@/api/agent";
-import { fakeAgentApi, makeAgentDispute } from "@/test/agent";
+import { fakeAgentApi, makeAgentCustomerTransaction, makeAgentDispute } from "@/test/agent";
 import { bob, problem, signedIn } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
@@ -306,4 +306,98 @@ describe("agent dispute page", () => {
     await screen.findByRole("alert");
     expect(fake.api.transitionCalls[0]?.ifMatch).toBeNull();
   });
+});
+
+describe("agent dispute page: the customer's transactions", () => {
+  // The first row is the disputed transaction (the fake dispute's transactionId).
+  const TXN = "00000000-0000-4000-8000-000000000001";
+
+  async function openWithTransactions(status: "Submitted" | "UnderReview" = "UnderReview") {
+    const fake = fakeAgentApi(
+      [makeAgentDispute({ status })],
+      [makeAgentCustomerTransaction({ id: TXN, dispute: { id: ID, status } }, 0)],
+    );
+    server.use(signedIn(bob), ...fake.handlers);
+    renderApp(`/agent/disputes/${ID}`);
+    await screen.findByText("Shop 0001");
+    return fake;
+  }
+
+  const row = () => screen.getByText("Shop 0001").closest("tr") as HTMLElement;
+  const sectionHeading = () => screen.queryByRole("heading", { name: /^Transactions since/ });
+
+  it("sits between the dispute's overview and the decision", async () => {
+    await openWithTransactions();
+
+    const overview = screen.getByRole("heading", { level: 2, name: "The transaction" });
+    const list = screen.getByRole("heading", { level: 2, name: "Transactions since 04 Aug 2026" });
+    const decision = screen.getByRole("heading", { level: 2, name: "Decision" });
+    expect(overview.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.compareDocumentPosition(decision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("reads the dispute's own list, not a customer's, and only once on open", async () => {
+    const { api } = await openWithTransactions();
+
+    expect(api.customerTransactionRequests.map((request) => request.id)).toEqual([ID]);
+  });
+
+  it("reads the list afresh when the review starts, so this dispute's row shows its new status", async () => {
+    const { api } = await openWithTransactions("Submitted");
+    expect(within(row()).getByText("Dispute: Submitted")).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Start review" }));
+
+    await waitFor(() =>
+      expect(within(row()).getByText("Dispute: Under review")).toBeInTheDocument(),
+    );
+    expect(within(row()).getByText("This dispute")).toBeInTheDocument();
+    expect(api.customerTransactionRequests).toHaveLength(2);
+  });
+
+  it.each(["Accepted", "Rejected", "Withdrawn"] as const)(
+    "shows no section, and asks for nothing, for a %s dispute",
+    async (status) => {
+      const fake = fakeAgentApi(
+        [makeAgentDispute({ status })],
+        [makeAgentCustomerTransaction({ id: TXN, dispute: { id: ID, status } }, 0)],
+      );
+      server.use(signedIn(bob), ...fake.handlers);
+      renderApp(`/agent/disputes/${ID}`);
+      await screen.findByText(/nothing more to do/);
+      // A request would be made as the page mounts: give it the time it needs to show up.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(sectionHeading()).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "Customer transactions" }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("Shop 0001")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(fake.api.customerTransactionRequests).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["Accept", "Yes, accept"],
+    ["Reject", "Yes, reject"],
+  ])(
+    "takes the section away when %s closes the dispute, without another read",
+    async (choice, confirm) => {
+      const { api } = await openWithTransactions();
+      expect(api.customerTransactionRequests).toHaveLength(1);
+      const user = userEvent.setup();
+
+      await user.type(note(), "Decided.");
+      await user.click(screen.getByRole("button", { name: choice }));
+      await user.click(await screen.findByRole("button", { name: confirm }));
+
+      await screen.findByText(/Status updated\./);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(sectionHeading()).not.toBeInTheDocument();
+      expect(screen.queryByText("Shop 0001")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(api.customerTransactionRequests).toHaveLength(1);
+    },
+  );
 });

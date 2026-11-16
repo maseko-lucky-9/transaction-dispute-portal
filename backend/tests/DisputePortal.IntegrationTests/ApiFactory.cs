@@ -93,6 +93,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // As compose: Keycloak reaches the management port under this name, from the data network (ADR-011).
         builder.UseSetting("Ports:InternalHost", InternalHost);
         builder.UseSetting("Ports:InternalNetwork", InternalNetwork);
+        // Every test signs in, and a sign-in is anonymous traffic: two requests on the one "ip:" bucket the whole suite shares
+        // (RateLimits). The default 300 a minute is a production quota, not what a fast suite may spend; the tests that
+        // check a limit derive a host with their own (OverallRateLimitTests, AuthHardeningTests, BackchannelLogoutTests).
+        builder.UseSetting("RateLimiting:PermitsPerMinute", "100000");
         // Off by default everywhere, so the suite that reads the document turns it on; SwaggerUiTests derives hosts without it.
         builder.UseSetting(ApiDocumentation.EnabledSetting, "true");
         builder.ConfigureTestServices(services =>

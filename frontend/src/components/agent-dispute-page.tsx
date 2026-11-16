@@ -10,6 +10,7 @@ import {
 } from "@/api/agent";
 import { disputeReasonsOptions } from "@/api/disputes";
 import { isApiError } from "@/api/problem";
+import { AgentCustomerTransactions } from "@/components/agent-customer-transactions";
 import { DisputeOverview } from "@/components/dispute-overview";
 import { LifecycleStepper } from "@/components/lifecycle-stepper";
 import { DisputeStatusPill } from "@/components/status-pill";
@@ -21,6 +22,7 @@ import { TraceReference } from "@/components/trace-reference";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { isUnderReview } from "@/lib/agent-filters";
 import { DESCRIPTION_MAX } from "@/lib/dispute-form";
 import { formatDateTime } from "@/lib/format";
 import { freeTextField } from "@/lib/free-text";
@@ -109,6 +111,15 @@ export function AgentDisputePage() {
         }
         timeline={<DisputeTimeline entries={dispute.timeline} viewer="agent" />}
       />
+
+      {/* Only while under review (the API refuses a closed dispute). Keyed by status (and not like the form below: siblings must not share a key): Start review changes this dispute's own row, so the list is read afresh; a decision that closes the dispute unmounts it, with no read. */}
+      {isUnderReview(dispute.status) ? (
+        <AgentCustomerTransactions
+          key={`transactions-${dispute.status}`}
+          disputeId={dispute.id}
+          transactionId={dispute.transactionId}
+        />
+      ) : null}
 
       {/* Keyed by status: a new version of the dispute starts a fresh form. */}
       <TransitionForm

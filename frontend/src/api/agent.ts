@@ -9,9 +9,14 @@ import type { components, operations } from "./schema";
 type Schemas = components["schemas"];
 export type AgentQueueItem = Schemas["AgentQueueItem"];
 export type AgentQueuePage = Schemas["AgentQueueResponse"];
+export type AgentCustomerTransaction = Schemas["AgentCustomerTransaction"];
+export type AgentCustomerTransactionsPage = Schemas["AgentCustomerTransactionsResponse"];
 export type AgentDisputeDetail = Schemas["AgentDisputeDetail"];
 export type TransitionRequest = Schemas["TransitionRequest"];
 export type ListAgentQueueQuery = NonNullable<operations["ListAgentQueue"]["parameters"]["query"]>;
+export type ListAgentCustomerTransactionsQuery = NonNullable<
+  operations["ListAgentCustomerTransactions"]["parameters"]["query"]
+>;
 
 /** An agent's view of a dispute with the ETag it was read with: a transition must echo it. */
 export interface AgentDisputeWithEtag {
@@ -22,6 +27,8 @@ export interface AgentDisputeWithEtag {
 export const agentKeys = {
   queue: (filters: QueueFilters) => ["agent", "queue", filters] as const,
   detail: (id: string) => ["agent", "detail", id] as const,
+  customerTransactions: (disputeId: string) =>
+    ["agent", "customer-transactions", disputeId] as const,
 };
 
 const withEtag = (response: {
@@ -61,6 +68,44 @@ export function agentQueueInfiniteOptions(filters: QueueFilters) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+}
+
+/**
+ * `GET /api/v1/agent/disputes/{id}/customer-transactions`: the transactions of the customer behind
+ * a dispute, newest first, from the date in each page's `from`. The server takes the customer from
+ * the dispute; nothing here names one. Every page read is audited, so no limit is sent (the default
+ * page is enough) and nothing refetches on its own.
+ */
+export function fetchAgentCustomerTransactions(
+  disputeId: string,
+  cursor: string | undefined,
+  signal?: AbortSignal,
+): Promise<AgentCustomerTransactionsPage> {
+  const query = { cursor } satisfies ListAgentCustomerTransactionsQuery;
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(name, String(value));
+  }
+  const search = params.size > 0 ? `?${params.toString()}` : "";
+  return apiFetch<AgentCustomerTransactionsPage>(
+    `/api/v1/agent/disputes/${encodeURIComponent(disputeId)}/customer-transactions${search}`,
+    signal ? { signal } : {},
+  );
+}
+
+export function agentCustomerTransactionsInfiniteOptions(disputeId: string) {
+  return infiniteQueryOptions({
+    queryKey: agentKeys.customerTransactions(disputeId),
+    queryFn: ({ pageParam, signal }) =>
+      fetchAgentCustomerTransactions(disputeId, pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    // Each (re)fetch of a page is an audited read of a customer's data: only when the agent opens
+    // the dispute or asks for more, never on focus or on reconnect.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     staleTime: 0,
   });
 }

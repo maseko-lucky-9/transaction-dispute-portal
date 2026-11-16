@@ -31,3 +31,10 @@ export const agentQueueSearchSchema = z.object({
 /** The statuses a queue filter stands for, for the API (open is two). */
 export const statusesOf = (status: QueueStatus): readonly DisputeStatus[] =>
   status === QUEUE_OPEN ? ["Submitted", "UnderReview"] : [status];
+
+/**
+ * A dispute still under review (Submitted or Under review). Only then may an agent read the
+ * customer's other transactions: the API answers 404 for a decided or withdrawn one.
+ */
+export const isUnderReview = (status: DisputeStatus): boolean =>
+  statusesOf(QUEUE_OPEN).includes(status);

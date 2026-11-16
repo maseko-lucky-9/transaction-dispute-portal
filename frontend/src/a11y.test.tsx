@@ -11,6 +11,9 @@ import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { fakeDisputesApi, makeDisputeDetail } from "@/test/disputes";
 import { fakeTransactionsApi, makeTransaction, makeTransactions } from "@/test/transactions";
+import { fakeAgentApi, makeAgentCustomerTransaction, makeAgentDispute } from "@/test/agent";
+import { bob } from "@/test/handlers";
+import type { HttpHandler } from "msw";
 
 // jsdom has no layout, so axe's color-contrast rule cannot run here. Contrast in light and
 // dark is checked in a real browser (playwright-cli), not in this file.
@@ -288,5 +291,65 @@ describe("accessibility (axe)", () => {
       await missing.findByRole("heading", { name: "Transaction not found" });
       expect(await axe(missing.container)).toHaveNoViolations();
     });
+  });
+});
+
+describe("accessibility (axe): the agent dispute page with the customer's transactions", () => {
+  const DISPUTE = "dddddddd-0000-4000-8000-000000000001";
+
+  async function openAgentDispute(
+    items = [makeAgentCustomerTransaction()],
+    first: HttpHandler[] = [],
+  ) {
+    server.use(
+      signedIn(bob),
+      ...first,
+      ...fakeAgentApi([makeAgentDispute({ status: "UnderReview" })], items).handlers,
+    );
+    const view = renderApp(`/agent/disputes/${DISPUTE}`);
+    await view.findByRole("heading", { level: 1, name: /^Dispute: / });
+    return view;
+  }
+
+  it("has no violations with the list loaded: credits, debits, every status and this dispute", async () => {
+    const { container } = await openAgentDispute([
+      makeAgentCustomerTransaction(
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          dispute: { id: DISPUTE, status: "UnderReview" },
+        },
+        0,
+      ),
+      makeAgentCustomerTransaction({ direction: "Credit", amount: "50.00" }, 1),
+      makeAgentCustomerTransaction({ status: "Pending", postedAt: null }, 2),
+      makeAgentCustomerTransaction(
+        {
+          status: "Reversed",
+          dispute: { id: "ffffffff-0000-4000-8000-000000000009", status: "Rejected" },
+        },
+        3,
+      ),
+    ]);
+    await screen.findByText("Shop 0001");
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations when the list is empty", async () => {
+    const { container } = await openAgentDispute([]);
+    await screen.findByText("There are no transactions to show for this period");
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("has no violations when the list failed to load", async () => {
+    const { container } = await openAgentDispute(undefined, [
+      http.get(`/api/v1/agent/disputes/${DISPUTE}/customer-transactions`, () =>
+        problem(503, { code: "idp_unavailable" }),
+      ),
+    ]);
+    await screen.findByText("We could not load this customer's transactions");
+
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

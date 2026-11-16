@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentQueueSearchSchema, QUEUE_STATUSES, statusesOf } from "./agent-filters";
+import { agentQueueSearchSchema, isUnderReview, QUEUE_STATUSES, statusesOf } from "./agent-filters";
 
 describe("agentQueueSearchSchema", () => {
   it("defaults to the open queue and the default limit", () => {
@@ -38,5 +38,17 @@ describe("statusesOf", () => {
   it("expands open to the two awaiting a decision and leaves a status alone", () => {
     expect(statusesOf("open")).toEqual(["Submitted", "UnderReview"]);
     expect(statusesOf("Withdrawn")).toEqual(["Withdrawn"]);
+  });
+});
+
+describe("isUnderReview", () => {
+  it.each([
+    ["Submitted", true],
+    ["UnderReview", true],
+    ["Accepted", false],
+    ["Rejected", false],
+    ["Withdrawn", false],
+  ] as const)("%s is %s", (status, expected) => {
+    expect(isUnderReview(status)).toBe(expected);
   });
 });

@@ -15,6 +15,9 @@ public static class AgentRequests
 
     public static string Detail(Guid id) => $"{Queue}/{id}";
 
+    /// <param name="query">The query string with its leading "?", or nothing.</param>
+    public static string CustomerTransactions(Guid id, string query = "") => $"{Queue}/{id}/customer-transactions{query}";
+
     public static HttpRequestMessage Transition(BrowserSession session, Guid id, string? ifMatch, string toStatus, string? note = null)
     {
         HttpRequestMessage request = session.Request(HttpMethod.Post, $"{Queue}/{id}/transitions");

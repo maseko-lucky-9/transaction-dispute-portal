@@ -4,8 +4,8 @@ using DisputePortal.Domain.Disputes;
 namespace DisputePortal.Api.Features.Agent;
 
 /// <summary>
-/// The Dispute aggregate seen from the back office: every customer's disputes. The only repository that lifts the Owner
-/// filter, and only for the routes the DisputeAgent policy guards.
+/// The Dispute aggregate seen from the back office: every customer's disputes. One of the two repositories (the other is
+/// <see cref="IAgentCustomerTransactionRepository"/>) that lift the Owner filter, only for the routes the DisputeAgent policy guards.
 /// </summary>
 public interface IAgentDisputeRepository
 {
