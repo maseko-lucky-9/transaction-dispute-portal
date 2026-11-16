@@ -120,8 +120,8 @@ public sealed class AgentDisputeRepository(DisputePortalDbContext db) : IAgentDi
 
     /// <summary>
     /// Who is reviewing, as the asking agent sees it; worked out on the client from the row's status and assignee.
-    /// Only an UnderReview row has a reviewer: a decided row an older version left an assignee on is still nobody's, so
-    /// the projections send assigneeId and claimedAt (updated_at: nothing else updates a row under review) only then.
+    /// Only an UnderReview row has a reviewer (ck_disputes_assignee holds an assignee exactly then), so the projections
+    /// send assigneeId and claimedAt (updated_at: nothing else updates a row under review) only then.
     /// </summary>
     internal static AgentAssignment? AssignmentOf(DisputeStatus status, string? assigneeId, string agentSubject) => status switch
     {
@@ -138,9 +138,10 @@ public sealed class AgentDisputeRepository(DisputePortalDbContext db) : IAgentDi
         { Assignment: AgentQueueAssignment.Unclaimed } => query.Where(dispute => dispute.Status == DisputeStatus.Submitted),
         { Assignment: AgentQueueAssignment.Mine } =>
             query.Where(dispute => dispute.Status == DisputeStatus.UnderReview && dispute.AssigneeId == agentSubject),
-        // IS DISTINCT FROM: a row with no recorded assignee (put under review by an older version) is someone else's.
+        // "Others" is any assignee but the caller. EF's C# null semantics still emit `<> @agentSubject OR assignee_id IS
+        // NULL`, the same SQL as before the contract step; the IS NULL arm matches nothing now (ck_disputes_assignee).
         { Assignment: AgentQueueAssignment.Others } =>
-            query.Where(dispute => dispute.Status == DisputeStatus.UnderReview && (dispute.AssigneeId == null || dispute.AssigneeId != agentSubject)),
+            query.Where(dispute => dispute.Status == DisputeStatus.UnderReview && dispute.AssigneeId != agentSubject),
         { Status: { } status } => query.Where(dispute => dispute.Status == status),
         _ => query.Where(dispute => dispute.Status == DisputeStatus.Submitted || dispute.Status == DisputeStatus.UnderReview),
     };

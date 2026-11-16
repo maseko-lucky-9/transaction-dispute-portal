@@ -287,19 +287,44 @@ agent who still has it open gets 412 and reloads. The customer sees a move back 
   retries run it again; the old pods keep serving meanwhile. That retrying is the intended path. If it keeps failing,
   find the holder: `SELECT pid, state, now() - xact_start AS open_for, left(query, 80) FROM pg_stat_activity WHERE
   datname = current_database() AND xact_start IS NOT NULL ORDER BY xact_start;` (`AgentAssignmentMigrationTests`).
-- *Expand (this change).* Old pods write no assignee: one that starts a review leaves it null (any agent may decide it,
-  which is why the guard tolerates null), and one that accepts or rejects a claimed dispute, or serves a customer's
-  withdrawal of one, leaves a stale non-null assignee on a row that is no longer UnderReview. The projections show an
-  assignee only while UnderReview, so neither is visible, but both break the intended invariant
-  `(status = 'UnderReview') = (assignee_id IS NOT NULL)`.
-- *Contract (a later change), only after the Phase 4 api has fully rolled out* (no old pod left serving, including
-  after any rollback). In that order: backfill the assignee of UnderReview rows that have none; clear `assignee_id` on
-  every row that is not UnderReview; `ALTER TABLE disputes ADD CONSTRAINT ck_disputes_assignee CHECK ((status =
-  'UnderReview') = (assignee_id IS NOT NULL)) NOT VALID` (brief lock, no scan); then `ALTER TABLE disputes VALIDATE
-  CONSTRAINT ck_disputes_assignee` (scans without blocking writes); then drop the null tolerance in `Dispute.Transition`.
-  If any old pod still served after the CHECK, every accept, reject or customer withdrawal of a claimed dispute (it
-  leaves the assignee set) and every start review (it sets none) would fail the CHECK.
-- After the contract step, rolling the api back past ADR-019 needs a forward fix, not a revert, for the same reason.
+- *Expand (PR 59).* Pods older than PR 59 wrote no assignee: one that started a review left it null, and one that
+  accepted or rejected a claimed dispute, or served a customer's withdrawal of one, left a stale assignee on a row that
+  was no longer UnderReview. Neither was visible (the projections show an assignee only while UnderReview).
+- *Contract (landed 2026-11-16): migration `AgentAssignmentInvariant`.* Apply it only once no api pod older than PR 59
+  is serving, including after any rollback. Check before merging its api bump:
+  `ssh homelab 'microk8s kubectl -n dispute-portal get pods -o custom-columns=POD:.metadata.name,IMAGE:.status.containerStatuses[*].imageID' | grep dispute-api`.
+  Every listed digest must be `sha256:455404513e376d88352e844032be8870ba2de5e47fa0001e98dfe2f9da25d935` (homelab-infra
+  73934af, "bump api image to 91e6f60", PR 59's merge commit: the first api bump that qualifies) or that of a later api
+  bump; any other digest is an older api. Why: such a pod's start review, and its accept, reject or withdrawal of a claimed
+  dispute, would fail `ck_disputes_assignee` (23514, a 500 to the caller; the pod does not crash-loop, as its readiness
+  check is `SELECT 1` and it never reads the migration history). In one transaction it sets `lock_timeout` 5 s locally,
+  takes ACCESS EXCLUSIVE on `disputes`, assigns each UnderReview row that has no assignee to the agent of its latest move
+  to UnderReview, clears the assignee on every other row, then adds `CHECK ((status = 'UnderReview') = (assignee_id IS
+  NOT NULL))`, validated (`AgentAssignmentInvariantMigrationTests`). Its `SET LOCAL lock_timeout` comes before the
+  `LOCK TABLE` (the script-order test checks it), so behind a long-open transaction it gives up with 55P03 and is
+  retried, as above. While the `LOCK TABLE` waits, every new query on `disputes` from the live pods (reads included)
+  queues behind it: up to 5 s per attempt, not indefinitely, and again on each retry. Once held, the lock lasts two
+  UPDATEs and one table scan. The API's `statement_timeout` is also 5 s, so a request whose query queued for nearly the
+  whole wait plus the hold can fail with 57014 (cancelled); the 10 s command timeout is not the binding limit. If 55P03
+  keeps repeating, find the holder with the query above.
+- *The AgentAssignmentInvariant migration aborted.* The migrate Job log (`job/dispute-migrate`) says `P0001:
+  AgentAssignmentInvariant aborted, nothing changed: N dispute(s) are UnderReview with no assignee and no move to
+  UnderReview in their history`. The migration does not invent a reviewer; it rolled back whole, the old pods keep
+  serving and the sync stops at wave 4 (see "Homelab migrate hook failed"). Such rows should not exist (every move
+  writes a history row), so look at how they got there before changing them. List them as `dispute_owner`:
+  `SELECT d.id, d.updated_at FROM disputes d WHERE d.status = 'UnderReview' AND d.assignee_id IS NULL AND NOT EXISTS
+  (SELECT 1 FROM dispute_status_changes c WHERE c.dispute_id = d.id AND c.to_status = 'UnderReview');`. Return each to
+  the queue with the break-glass statement above (it needs only `status = 'UnderReview'` and records you as the actor),
+  then re-run the migrate Job (re-sync the Application). The break-glass statement stays valid after the CHECK: it
+  writes Submitted with no assignee.
+- *The AgentAssignmentInvariant migration fails with 42710* (`constraint "ck_disputes_assignee" for relation
+  "disputes" already exists`). Someone added the CHECK by hand (earlier runbook text described the `ADD CONSTRAINT ...
+  NOT VALID` and `VALIDATE` statements). It is not transient: every retry rolls back the same way, the sync stays stuck
+  at wave 4 and the old pods keep serving. Drop the hand-added constraint as `dispute_owner`, in one transaction, then
+  re-sync the Application so the migration adds it again, validated:
+  `BEGIN; ALTER TABLE disputes DROP CONSTRAINT ck_disputes_assignee; COMMIT;`
+- After the contract step, rolling the api back past PR 59 needs a forward fix, not a bump revert, for the same reason.
+  The migration's `Down()` is for design-time tooling only: the migrate Job never runs it (see "Homelab rollback").
 
 **Homelab deploy: merging a bump PR** ([ADR-017](decisions/017-homelab-image-bump-prs.md)). After each publish on
 `main`, CI opens one pull request per published half in `maseko-lucky-9/homelab-infra`, titled

@@ -150,11 +150,8 @@ public sealed class AgentAssignmentTests(ApiFactory factory)
         (TestCustomer customer, Guid unclaimed) = await api.SeedDisputeAsync(DisputeStatus.Submitted, at);
         Guid mine = await api.SeedAnotherAsync(customer, DisputeStatus.UnderReview, at, assignee: me.Subject);
         Guid others = await api.SeedAnotherAsync(customer, DisputeStatus.UnderReview, at, assignee: "agent-someone-else");
-        Guid legacy = await api.SeedAnotherAsync(customer, DisputeStatus.UnderReview, at);
         Guid decided = await api.SeedAnotherAsync(customer, DisputeStatus.Accepted, at);
-        // A row put under review by a version older than the assignee column: no assignee recorded.
-        await AdminSql.CountAsync(factory.AdminConnectionString, "WITH changed AS (UPDATE disputes SET assignee_id = NULL WHERE id = @id RETURNING 1) SELECT count(*) FROM changed", ("id", legacy));
-        Guid[] ours = [unclaimed, mine, others, legacy, decided];
+        Guid[] ours = [unclaimed, mine, others, decided];
 
         Dictionary<Guid, JsonElement> unclaimedPage = Ours(await WalkUntilPastAsync(agent, "?assignment=unclaimed", at), ours);
         Dictionary<Guid, JsonElement> minePage = Ours(await WalkUntilPastAsync(agent, "?assignment=MINE", at), ours);
@@ -163,13 +160,12 @@ public sealed class AgentAssignmentTests(ApiFactory factory)
 
         Assert.Equal([unclaimed], unclaimedPage.Keys);
         Assert.Equal([mine], minePage.Keys);
-        Assert.Equal(new HashSet<Guid> { others, legacy }, othersPage.Keys.ToHashSet());
-        Assert.Equal(new HashSet<Guid> { unclaimed, mine, others, legacy }, openPage.Keys.ToHashSet());
+        Assert.Equal([others], othersPage.Keys);
+        Assert.Equal(new HashSet<Guid> { unclaimed, mine, others }, openPage.Keys.ToHashSet());
         Assert.Equal(("Unclaimed", JsonValueKind.Null), (unclaimedPage[unclaimed].GetProperty("assignment").GetString(), unclaimedPage[unclaimed].GetProperty("claimedAt").ValueKind));
         Assert.Equal(("You", me.Subject), (minePage[mine].GetProperty("assignment").GetString(), minePage[mine].GetProperty("assigneeId").GetString()));
         Assert.Equal(at, minePage[mine].GetProperty("claimedAt").GetDateTimeOffset());
         Assert.Equal(("AnotherAgent", "agent-someone-else"), (othersPage[others].GetProperty("assignment").GetString(), othersPage[others].GetProperty("assigneeId").GetString()));
-        Assert.Equal(("AnotherAgent", JsonValueKind.Null), (othersPage[legacy].GetProperty("assignment").GetString(), othersPage[legacy].GetProperty("assigneeId").ValueKind));
     }
 
     [Theory]

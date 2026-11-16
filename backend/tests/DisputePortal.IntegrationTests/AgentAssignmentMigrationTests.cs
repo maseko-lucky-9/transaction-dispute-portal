@@ -84,7 +84,7 @@ public sealed class AgentAssignmentMigrationTests(ApiFactory api)
     }
 
     // Design-time configuration (no seeding): the migrations alone, against the database the data source points at.
-    private static DisputePortalDbContext ContextOn(NpgsqlDataSource source)
+    internal static DisputePortalDbContext ContextOn(NpgsqlDataSource source)
     {
         DbContextOptionsBuilder<DisputePortalDbContext> options = new();
         PersistenceRegistration.Configure(options, source);
