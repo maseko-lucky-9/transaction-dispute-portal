@@ -1,6 +1,17 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request, type Response } from '@playwright/test';
-import { api, DEMO, DESCRIPTION, fillValid, GUID, pickDisputable, signIn, trackCspViolations } from './support';
+import {
+  api,
+  DEMO,
+  DESCRIPTION,
+  fillValid,
+  GUID,
+  pickDisputable,
+  signIn,
+  submitViaApi,
+  trackCspViolations,
+  withdrawIfOpen,
+} from './support';
 
 /**
  * The agent journey. Every test submits its own fresh dispute on a freshly picked transaction, so the
@@ -45,27 +56,6 @@ async function submitViaForm(page: Page, transactionId: string, description: str
   await page.getByRole('button', { name: 'Submit dispute' }).click();
   await expect(page).toHaveURL(new RegExp(`/disputes/${GUID}$`));
   return page.url().split('/').pop()!;
-}
-
-/** Submit through the API (the same call the form makes); for tests whose subject is not the form. */
-async function submitViaApi(page: Page, transactionId: string): Promise<string> {
-  const reason = (await api(page, 'GET', '/api/v1/dispute-reasons')).body[0].code as string;
-  const id = crypto.randomUUID();
-  const created = await api(page, 'POST', '/api/v1/disputes', {
-    json: { id, transactionId, reasonCode: reason, description: DESCRIPTION },
-  });
-  expect(created.status).toBe(201);
-  return id;
-}
-
-/** Leave the stack as found: a dispute the test left open is withdrawn so it does not clutter the queue. */
-async function withdrawIfOpen(customer: Page, id: string) {
-  if (!id) return; // the test failed before a dispute existed
-  const current = await api(customer, 'GET', `/api/v1/disputes/${id}`).catch(() => null);
-  if (current?.status !== 200 || !['Submitted', 'UnderReview'].includes(current.body.status)) return;
-  await api(customer, 'POST', `/api/v1/disputes/${id}/withdraw`, {
-    headers: { 'If-Match': current.etag! },
-  }).catch(() => null);
 }
 
 /** The queue is oldest first and keyset-paged: the newest dispute may be behind "Load more". */

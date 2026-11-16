@@ -177,6 +177,20 @@ a rolling restart of `api` (and a re-run of `migrate` where noted).
   not reach Keycloak [UNVERIFIED: Keycloak's default import strategy is skip-if-exists]; rotate through the admin API
   or reset the Keycloak database.
 
+**Local demo users** (compose only)
+- The realm import (`--import-realm`) carries no users. The one-shot `keycloak-users` service runs
+  `deploy/keycloak/seed-users.sh` on every `docker compose up`: a Keycloak partial import of
+  `deploy/keycloak/demo-users.json` with `ifResourceExists=SKIP`. It adds a missing user and leaves an existing one
+  untouched (password, roles and attributes are not rewritten), so it works on a new stack and on one that already
+  has data. `docker compose logs keycloak-users` lists each user as `ADDED` or `SKIPPED`.
+- To change a demo user's password or roles on an existing stack, change it in Keycloak (or delete the user and run
+  `docker compose up -d`); editing the JSON alone changes nothing for a user that already exists.
+- The seed signs in as the bootstrap `admin` with the password in the secrets volume, and `web` waits for it. If that
+  admin's password is changed or the account is removed in Keycloak, the seed retries for about a minute and fails, so
+  `web` does not start: restore the password, or reset the Keycloak database.
+- Local only. The cluster realm seeds no users: create cluster accounts by hand, as in homelab-infra
+  `apps/dispute-portal/README.md` ("Create users").
+
 **DataProtection keys**
 - Stored in Postgres (`PersistKeysToDbContext`, application name fixed in
   `Shared/Persistence/PersistenceRegistration.cs`). `--migrate` creates the first key.
