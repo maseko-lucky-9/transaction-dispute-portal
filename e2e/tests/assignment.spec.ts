@@ -3,6 +3,9 @@ import { expect, test, type Browser, type Page, type Request } from '@playwright
 
 import { api, DEMO, pickDisputable, signIn, submitViaApi, trackCspViolations, withdrawIfOpen } from './support';
 
+// These tests submit disputes as the second demo customer: submits are limited to 10 a minute per customer, and the
+// first one (also used by agent.spec and disputes.spec within the same minute) would run out.
+
 /**
  * Dispute assignment (ADR-019), at the API level against the real stack: take next hands concurrent agents different
  * disputes, only the reviewing agent may decide or release, an agent can still claim one dispute directly, and the
@@ -40,7 +43,7 @@ test('two agents taking next at the same moment get different disputes', async (
   const held: { page: Page; id: string }[] = [];
 
   try {
-    await signIn(customer, DEMO.customer);
+    await signIn(customer, DEMO.customer2);
     for (let i = 0; i < 2; i++) submitted.push(await submitViaApi(customer, (await pickDisputable(customer)).id));
     await signIn(first, DEMO.agent);
     await signIn(second, DEMO.agent2);
@@ -84,7 +87,7 @@ test('only the reviewing agent may decide or release, and the customer never see
   let id = '';
 
   try {
-    await signIn(customer, DEMO.customer);
+    await signIn(customer, DEMO.customer2);
     id = await submitViaApi(customer, (await pickDisputable(customer)).id);
     await signIn(reviewer, DEMO.agent3);
     await signIn(colleague, DEMO.agent2);
@@ -188,7 +191,7 @@ test('the workbench: take next lands under "In review by you", a colleague can o
   let taken = '';
 
   try {
-    await signIn(customer, DEMO.customer);
+    await signIn(customer, DEMO.customer2);
     const submitted = await submitViaApi(customer, (await pickDisputable(customer)).id);
     id = submitted; // set at once: a skip below still withdraws it
     await signIn(agent, DEMO.agent);
