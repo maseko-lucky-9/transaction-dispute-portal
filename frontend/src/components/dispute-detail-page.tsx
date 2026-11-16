@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { WithdrawDispute } from "@/components/withdraw-dispute";
 import { formatDateTime } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
-import { BACK_LINK, PAGE_TITLE } from "@/lib/table-styles";
+import { BACK_LINK, LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/disputes/$disputeId");
@@ -135,7 +135,7 @@ function NotFoundDispute() {
       <p className="text-muted-foreground">
         We could not find that dispute. It may belong to someone else or no longer exist.
       </p>
-      <Link to="/disputes" className="underline underline-offset-4">
+      <Link to="/disputes" className={LINK}>
         Back to my disputes
       </Link>
     </div>

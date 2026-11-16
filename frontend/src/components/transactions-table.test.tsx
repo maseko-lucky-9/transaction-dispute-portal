@@ -222,6 +222,23 @@ describe("TransactionsTable dispute action", () => {
     );
   });
 
+  it("draws an inline link in the Blue Gem link colour, not plain text", async () => {
+    await renderTable([
+      makeTransaction({
+        reference: "AD",
+        merchantName: "Takealot",
+        isDisputable: false,
+        disputeBlockReasons: ["already_disputed"],
+        dispute: { id: "dddddddd-0000-4000-8000-000000000001", status: "UnderReview" },
+      }),
+    ]);
+
+    const link = within(rowFor("AD")).getByRole("link", { name: /^View dispute for Takealot/ });
+    expect(link).toHaveClass("text-brand-gem");
+    // Blue Gem is close to the body text's luminance, so the underline is the cue that this is a link.
+    expect(link).toHaveClass("underline");
+  });
+
   it("offers no link when it has no dispute to point at", async () => {
     await renderTable([
       makeTransaction({

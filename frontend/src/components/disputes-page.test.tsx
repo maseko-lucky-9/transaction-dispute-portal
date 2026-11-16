@@ -208,10 +208,9 @@ describe("disputes history: empty and error states", () => {
     server.use(signedIn(), ...fakeDisputesApi().handlers);
     renderApp("/disputes");
     expect(await screen.findByText("You have not raised any disputes yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "your transactions" })).toHaveAttribute(
-      "href",
-      "/transactions",
-    );
+    const link = screen.getByRole("link", { name: "your transactions" });
+    expect(link).toHaveAttribute("href", "/transactions");
+    expect(link).toHaveClass("text-brand-gem", "underline");
     expect(screen.getByRole("status", { name: "Result count" })).toHaveTextContent(
       "Showing 0 disputes",
     );

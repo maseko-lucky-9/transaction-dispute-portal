@@ -31,7 +31,7 @@ import {
   type TransitionOption,
   type TransitionTarget,
 } from "@/lib/transitions";
-import { BACK_LINK, CARD, PAGE_TITLE } from "@/lib/table-styles";
+import { BACK_LINK, CARD, LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/agent/disputes/$disputeId");
@@ -51,7 +51,7 @@ export function AgentDisputePage() {
       <div className="flex flex-col items-start gap-3">
         <h1 className={PAGE_TITLE}>Dispute not found</h1>
         <p className="text-muted-foreground">We could not find that dispute.</p>
-        <Link to="/agent" className="underline underline-offset-4">
+        <Link to="/agent" className={LINK}>
           Back to the review queue
         </Link>
       </div>
@@ -278,12 +278,13 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
             <div className="flex gap-2">
               <Button
                 type="button"
+                variant={pending.option.variant}
                 aria-disabled={mutation.isPending ? true : undefined}
                 onClick={() => send(pending.option, pending.etag)}
               >
                 {mutation.isPending ? "Saving..." : `Yes, ${pending.option.label.toLowerCase()}`}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setPending(null)}>
+              <Button type="button" variant="ghost" onClick={() => setPending(null)}>
                 Cancel
               </Button>
             </div>
@@ -294,6 +295,7 @@ function TransitionForm({ id, current, message, setMessage, note, setNote }: Tra
               <Button
                 key={option.to}
                 type="button"
+                variant={option.variant}
                 aria-disabled={mutation.isPending ? true : undefined}
                 onClick={() => choose(option)}
               >
