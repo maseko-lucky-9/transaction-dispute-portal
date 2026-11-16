@@ -819,7 +819,7 @@
         "tags": [
           "Agent"
         ],
-        "summary": "The work queue across customers, oldest first. No status means the open queue (Submitted and UnderReview).",
+        "summary": "The work queue across customers, oldest first. No status or assignment means the open queue (Submitted and UnderReview). assignment (unclaimed, mine or others, relative to the caller) cannot be combined with status.",
         "operationId": "ListAgentQueue",
         "parameters": [
           {
@@ -852,6 +852,18 @@
             "in": "query",
             "schema": {
               "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignment",
+            "in": "query",
+            "schema": {
+              "enum": [
+                "unclaimed",
+                "mine",
+                "others"
+              ],
               "type": "string"
             }
           }
@@ -1077,12 +1089,70 @@
         ]
       }
     },
+    "/api/v1/agent/disputes/take-next": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Claim the oldest unclaimed (Submitted) dispute nobody else is taking at this moment and start its review. 200 with the dispute and its ETag; 204 when there is none to take.",
+        "operationId": "TakeNextDispute",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "The dispute's version (strong, quoted). Send it back as If-Match to change the dispute.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDisputeDetail"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent/disputes/{id}/transitions": {
       "post": {
         "tags": [
           "Agent"
         ],
-        "summary": "Move a dispute: Submitted to UnderReview, UnderReview to Accepted or Rejected (with a note). Requires If-Match.",
+        "summary": "Move a dispute: Submitted to UnderReview (claim it), UnderReview to Accepted or Rejected (with a note) or back to Submitted (release it, no note). Only the reviewing agent may accept, reject or release (otherwise 409 not_assignee). Requires If-Match.",
         "operationId": "TransitionDispute",
         "parameters": [
           {
@@ -1229,6 +1299,14 @@
           "Agent"
         ]
       },
+      "AgentAssignment": {
+        "enum": [
+          "Unclaimed",
+          "You",
+          "AnotherAgent",
+          null
+        ]
+      },
       "AgentCustomerTransaction": {
         "required": [
           "id",
@@ -1339,7 +1417,10 @@
           "customerDisplayName",
           "maskedAccountNumber",
           "timeline",
-          "transaction"
+          "transaction",
+          "assignment",
+          "assigneeId",
+          "claimedAt"
         ],
         "type": "object",
         "properties": {
@@ -1401,6 +1482,29 @@
           },
           "transaction": {
             "$ref": "#/components/schemas/TransactionSummary"
+          },
+          "assignment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAssignment"
+              }
+            ]
+          },
+          "assigneeId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "claimedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -1414,7 +1518,10 @@
           "currency",
           "reasonCode",
           "customerDisplayName",
-          "maskedAccountNumber"
+          "maskedAccountNumber",
+          "assignment",
+          "assigneeId",
+          "claimedAt"
         ],
         "type": "object",
         "properties": {
@@ -1446,6 +1553,29 @@
           },
           "maskedAccountNumber": {
             "type": "string"
+          },
+          "assignment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentAssignment"
+              }
+            ]
+          },
+          "assigneeId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "claimedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -2234,14 +2364,15 @@
             "enum": [
               "UnderReview",
               "Accepted",
-              "Rejected"
+              "Rejected",
+              "Submitted"
             ],
             "type": "string"
           },
           "note": {
             "maxLength": 2000,
             "type": "string",
-            "description": "Required to accept or reject; the customer sees it."
+            "description": "Required to accept or reject; not allowed when releasing (Submitted); the customer sees it."
           }
         },
         "additionalProperties": false

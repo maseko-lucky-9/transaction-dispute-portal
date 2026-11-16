@@ -15,6 +15,9 @@ public static class AgentRequests
 
     public static string Detail(Guid id) => $"{Queue}/{id}";
 
+    /// <summary>Take next (ADR-019): no body, no If-Match.</summary>
+    public static HttpRequestMessage TakeNext(BrowserSession session) => session.Request(HttpMethod.Post, $"{Queue}/take-next");
+
     /// <param name="query">The query string with its leading "?", or nothing.</param>
     public static string CustomerTransactions(Guid id, string query = "") => $"{Queue}/{id}/customer-transactions{query}";
 

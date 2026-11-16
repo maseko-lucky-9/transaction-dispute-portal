@@ -35,16 +35,18 @@ public sealed class AgentApi(ApiFactory api)
     }
 
     /// <summary>A dispute of a new customer, inserted directly in <paramref name="status"/>.</summary>
-    public async Task<(TestCustomer Customer, Guid DisputeId)> SeedDisputeAsync(DisputeStatus status = DisputeStatus.Submitted, DateTimeOffset? createdAt = null)
+    /// <param name="assignee">The reviewing agent's subject when UnderReview; by default one nobody signs in as.</param>
+    public async Task<(TestCustomer Customer, Guid DisputeId)> SeedDisputeAsync(
+        DisputeStatus status = DisputeStatus.Submitted, DateTimeOffset? createdAt = null, string? assignee = null)
     {
         TestCustomer customer = await TestCustomer.CreateAsync(Factory);
         Guid transactionId = await customer.AddEligibleTransactionAsync(Factory);
-        return (customer, await customer.AddDisputeAsync(Factory, transactionId, status, createdAt));
+        return (customer, await customer.AddDisputeAsync(Factory, transactionId, status, createdAt, assignee: assignee));
     }
 
     /// <summary>Another dispute of an existing customer, on a new transaction of theirs.</summary>
-    public async Task<Guid> SeedAnotherAsync(TestCustomer customer, DisputeStatus status, DateTimeOffset? createdAt = null) =>
-        await customer.AddDisputeAsync(Factory, await customer.AddEligibleTransactionAsync(Factory), status, createdAt);
+    public async Task<Guid> SeedAnotherAsync(TestCustomer customer, DisputeStatus status, DateTimeOffset? createdAt = null, string? assignee = null) =>
+        await customer.AddDisputeAsync(Factory, await customer.AddEligibleTransactionAsync(Factory), status, createdAt, assignee: assignee);
 
     public async Task<string> ETagAsync(BrowserSession agent, Guid id)
     {

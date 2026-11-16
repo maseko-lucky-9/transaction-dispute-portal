@@ -36,6 +36,19 @@ public sealed class TransitionRequestValidatorTests
     public void AResolutionNeedsANote(string toStatus, string? note) =>
         Assert.Contains("Note", FailingFields(new TransitionRequest(toStatus, note)));
 
+    // ADR-019: a release goes back to the queue with nothing the customer would read; blank counts as no note, as in the Domain.
+    [Theory]
+    [InlineData("Submitted", "Going on leave.")]
+    [InlineData("submitted", "x")]
+    public void AReleaseWithANoteIsAFieldErrorOnNote(string toStatus, string note) =>
+        Assert.Equal(["Note"], FailingFields(new TransitionRequest(toStatus, note)));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AReleaseWithoutANoteIsValid(string? note) => Assert.True(validator.Validate(new TransitionRequest("Submitted", note)).IsValid);
+
     [Fact]
     public void StartingAReviewNeedsNoNote() => Assert.True(validator.Validate(new TransitionRequest("UnderReview", null)).IsValid);
 

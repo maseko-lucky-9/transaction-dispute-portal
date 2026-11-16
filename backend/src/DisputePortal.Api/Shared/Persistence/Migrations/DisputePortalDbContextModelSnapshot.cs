@@ -18,7 +18,7 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.14")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -265,6 +265,11 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("AssigneeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("assignee_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -345,6 +350,10 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("ix_disputes_open_queue")
                         .HasFilter("status IN ('Submitted', 'UnderReview')");
+
+                    b.HasIndex("AssigneeId", "CreatedAt", "Id")
+                        .HasDatabaseName("ix_disputes_assignee_queue")
+                        .HasFilter("status = 'UnderReview'");
 
                     b.HasIndex("CustomerId", "CreatedAt", "Id")
                         .IsDescending(false, true, true)

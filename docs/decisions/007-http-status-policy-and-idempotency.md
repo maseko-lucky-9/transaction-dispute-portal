@@ -56,3 +56,5 @@ Status: accepted (2026-11-04). The submit paragraph on retries (no explicit exec
 ## Consequences
 Double submits, network retries and stale agent screens are all safe. Tests force the interleaving rather than
 relying on timing.
+
+Amended by [ADR-019](019-dispute-assignment-claim-take-next-release.md): agent transitions add 409 `not_assignee` after 409 `invalid_transition` in the check order, and take next answers 204 when nothing is unclaimed.

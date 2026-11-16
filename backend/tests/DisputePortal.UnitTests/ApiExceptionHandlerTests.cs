@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DisputePortal.Api.Shared.Errors;
+using DisputePortal.Domain.Disputes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -34,6 +35,19 @@ public sealed class ApiExceptionHandlerTests
 
         Assert.Equal(400, status);
         AssertLoggedSafely(logger, "22001", nameof(InvalidValueException));
+    }
+
+    // ADR-019: another agent is reviewing the dispute. A conflict with its state (409), not a rule violation (422), and
+    // the body names nobody.
+    [Fact]
+    public async Task AnAgentWhoIsNotTheAssigneeIs409NotAssignee()
+    {
+        (int status, JsonElement body, RecordingLogger<ApiExceptionHandler> logger) = await HandleAsync(new NotAssigneeException());
+
+        Assert.Equal(409, status);
+        Assert.Equal("not_assignee", body.GetProperty("code").GetString());
+        Assert.Equal("Another agent is reviewing this dispute.", body.GetProperty("detail").GetString());
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]

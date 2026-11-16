@@ -1020,7 +1020,8 @@ $ dotnet test tests/DisputePortal.IntegrationTests
 Failed!  - Failed:     3, Passed:   304, Skipped:     0, Total:   307, Duration: 13 s - DisputePortal.IntegrationTests.dll (net10.0)
 ```
 
-Red tests (verbatim):
+Red tests (verbatim; `ResolutionDurationMetricTests.TwoAgentsDecidingAtOnce...` has since been renamed
+`TwoDecisionsAtOnceRecordOneMeasurementForTheDecisionThatWasStored`):
 
 ```
 unit:
@@ -1173,7 +1174,8 @@ thing keeping history private. None of the M-series mutations survived.
    good, since each layer is tested on its own, but it also means the "stale writer wins" mutation was caught by
    exactly three tests (`DisputeConcurrencyTests.TwoWithdrawalsWithTheSameETagGiveOne200AndOne412WithTheNewETag`,
    `AgentTransitionTests.TwoAgentsWithTheSameETagGiveOne200AndOne412WithTheNewETag`,
-   `ResolutionDurationMetricTests.TwoAgentsDecidingAtOnceRecordOneMeasurementForTheDecisionThatWasStored`).
+   `ResolutionDurationMetricTests.TwoDecisionsAtOnceRecordOneMeasurementForTheDecisionThatWasStored`, named
+   `TwoAgentsDecidingAtOnce...` in the verbatim output above; renamed on `feat/agent-assignment`).
 5. *The model-level removal of the `xmin` token is caught by the model-drift guard, not by behaviour tests.* Fine in
    practice (a real change would need a migration), but it means that mutation could not be used to measure the
    concurrency tests (Run notes, item 3).
@@ -1284,3 +1286,36 @@ Notes:
   deletes with UNLINK, so the release still worked. The test now denies both; the rerun above is red.
 - R1 to R2 use the real Redis: the ACL user loses `eval`/`evalsha` (and `del`/`unlink` for R2) for one request, so the
   deletion fails while the claim and its release still reach Redis; the commands are given back in a `finally` block.
+
+## Dispute assignment (ADR-019) review fixes, branch `feat/agent-assignment`
+
+Same method as the back-channel runs: an exact-once text replacement, a filtered `dotnet test` run, the file restored
+from a copy (not git: the change was uncommitted) and compared byte for byte. Date 2026-11-16. U rows: `DisputePortal.UnitTests`
+filtered to `AgentCommandsTests` and `SecurityMetricsAuditTests`; A and I rows: `DisputePortal.IntegrationTests`
+filtered to the named tests.
+
+| Id | Mutation | File | Verdict | Red |
+|---|---|---|---|---|
+| U1 | take next reads the detail after the commit | `AgentCommands.cs` | CAUGHT | `TakeNextClaimsTheLockedDisputeAndReadsItBackInsideTheTransaction` |
+| U2 | a `not_assignee` refusal not counted | `AgentCommands.cs` | CAUGHT | `AMoveOnSomeoneElsesReviewIsCountedAsDeniedAndNothingIsSaved` (3 cases) |
+| U3 | every move counted as denied | `AgentCommands.cs` | CAUGHT | the above, `TheAssigneesOwnMoveIsNotCountedAsDenied`, `ADecisionWhoseDisputeCannotBeReadBack...` |
+| U4 | `agent_dispute_denied` not a known audit action | `SecurityMetrics.cs` | CAUGHT | `SecurityMetricsAuditTests` case, the U2 tests |
+| U5 | an unreadable claim returns null (no rollback) | `AgentCommands.cs` | CAUGHT | `AClaimThatCannotBeReadBackIsANotFoundAndRecordsNothing` |
+| A1 | no `lock_timeout` in the migration | `20261116111226_AgentAssignment.cs` | CAUGHT | both `AgentAssignmentMigrationTests` (the first hung on the lock until the test gave up after 60 s) |
+| A2 | plain `SET` instead of `SET LOCAL` | `20261116111226_AgentAssignment.cs` | CAUGHT | both `AgentAssignmentMigrationTests` (the setting stayed on the session) |
+| I1 | take next open to anonymous callers | `AgentEndpoints.cs` | CAUGHT | `ACustomerADualRoleSessionAndAnAnonymousCallerCannotTakeNextAndNothingChanges` |
+| I2 | queue open to anonymous callers | `AgentEndpoints.cs` | CAUGHT | `ACustomerADualRoleSessionAndAnAnonymousCallerCannotListMineAndNothingIsAudited` |
+| I3 | customer timeline carries the actor id as the note | `DisputeRepository.cs` | CAUGHT | `AfterAReleaseTheCustomerSeesAMoveBackToSubmittedWithNoAgentNoNoteAndNoAssignee` |
+| I4 | "mine" ignores the assignee | `AgentDisputeRepository.cs` | CAUGHT | `MineIsEmptyForAnAgentWithNoClaimsWhileOthersAndUnclaimedListTheirOwn` |
+| I5 | take next without `SKIP LOCKED` | `AgentDisputeRepository.cs` | CAUGHT | `TwoAppSessionsTakingNextSkipEachOthersLockedRow` (55P03 after 2 s) |
+| I6 | app role granted UPDATE on `customer_id` | `20261116111226_AgentAssignment.cs` | CAUGHT | `TheAppRoleMayUpdateOnlyTheLifecycleColumnsOfADispute(customer_id)` |
+| I7 | xmin conflict swallowed on an agent move | `AgentCommands.cs` | CAUGHT | `AReleaseRacingTheAssigneesOwnDecisionHasOneWinnerAndLeavesNoAssignee` |
+| I8 | take next reads the detail after the commit | `AgentCommands.cs` | CAUGHT | `ACustomerWithdrawalRacingTakeNextIs412AndTheAnswerIsTheClaim` |
+| I9 | withdrawal keeps the assignee | `Dispute.cs` | CAUGHT | `ACustomerWithdrawalRacingTakeNextIs412AndTheAnswerIsTheClaim` |
+| I10 | runbook break-glass SQL loses `AND status = 'UnderReview'` | `docs/runbook.md` | CAUGHT | `TheRunbookBreakGlassReleaseReturnsAStaleClaimToTheQueueOnce` |
+| I11 | denial log names the reviewing agent | `AgentCommands.cs` | CAUGHT | `ARefusedMoveIsLoggedAndCountedWithTheDisputeAndTheRefusedAgentOnly` (2 cases) |
+| I12 | denial not counted | `AgentCommands.cs` | CAUGHT | the same 2 cases |
+| I13 | every move counted as denied | `AgentCommands.cs` | CAUGHT | `TheAssigneesOwnMoveIsNotLoggedOrCountedAsDenied` and the 2 cases |
+
+Note: A1 first left the test hanging after its failure (the context was torn down while the blocked migration still
+ran). The test now frees the lock and lets the migration finish before failing; the rerun above is red in about a minute.

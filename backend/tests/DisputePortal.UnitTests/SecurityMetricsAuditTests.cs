@@ -13,6 +13,7 @@ public sealed class SecurityMetricsAuditTests : IDisposable
     [InlineData("agent_dispute_viewed")]
     [InlineData("agent_customer_transactions_viewed")]
     [InlineData("agent_dispute_transitioned")]
+    [InlineData("agent_dispute_denied")]
     public void AKnownActionIsCountedOnceWithTheActionAsTheOnlyTag(string action)
     {
         meters.Security.Audit(action);

@@ -1,3 +1,4 @@
+using DisputePortal.Api.Features.Customers;
 using DisputePortal.Api.Features.Transactions;
 using DisputePortal.Domain.Disputes;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,9 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
     /// <summary>The agent's default queue, Submitted and UnderReview together, oldest first, with no sort.</summary>
     public const string OpenQueueIndexName = "ix_disputes_open_queue";
 
+    /// <summary>The disputes under review per assignee, oldest first: an agent's own claims and everyone else's (ADR-019).</summary>
+    public const string AssigneeQueueIndexName = "ix_disputes_assignee_queue";
+
     private const int EnumMaxLength = 16;
 
     public void Configure(EntityTypeBuilder<Dispute> builder)
@@ -43,6 +47,9 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
         });
         builder.Property(dispute => dispute.Status).HasConversion<string>().HasMaxLength(EnumMaxLength);
         builder.Property(dispute => dispute.ResolutionNote).HasMaxLength(Dispute.NoteMaxLength);
+        // An agent's subject, like dispute_status_changes.actor_id. No CHECK yet: rows moved by pods older than the
+        // column have none (ADR-019, expand step).
+        builder.Property(dispute => dispute.AssigneeId).HasMaxLength(Customer.SubjectMaxLength);
         // xmin: Postgres bumps it on every update, so it is the optimistic-concurrency token and the ETag.
         builder.Property(dispute => dispute.Version).IsRowVersion();
         builder.HasMany(dispute => dispute.StatusChanges).WithOne().HasForeignKey(change => change.DisputeId).OnDelete(DeleteBehavior.Restrict);
@@ -64,6 +71,9 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
         builder.HasIndex(dispute => new { dispute.CreatedAt, dispute.Id })
             .HasFilter("status IN ('Submitted', 'UnderReview')")
             .HasDatabaseName(OpenQueueIndexName);
+        builder.HasIndex(dispute => new { dispute.AssigneeId, dispute.CreatedAt, dispute.Id })
+            .HasFilter("status = 'UnderReview'")
+            .HasDatabaseName(AssigneeQueueIndexName);
         // Per-transaction reads (the latest dispute, the count) in index order; it also covers the composite foreign key.
         builder.HasIndex(dispute => new { dispute.TransactionId, dispute.CustomerId, dispute.CreatedAt, dispute.Id })
             .IsDescending(false, false, true, true);

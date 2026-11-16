@@ -5,7 +5,8 @@ namespace DisputePortal.Api.Shared.Observability;
 /// <summary>
 /// <c>security.events{type}</c>: the counter the runbook alerts on when refusals spike; <c>type</c> is always one of the
 /// constants below, so the series stay bounded. <c>audit.events{action}</c>:
-/// privileged access (an agent viewing the queue, a dispute or a disputed customer's transactions, or moving a dispute), with a small fixed set of action values.
+/// privileged access (an agent viewing the queue, a dispute or a disputed customer's transactions, moving a dispute, or
+/// being refused a move on a dispute another agent is reviewing), with a small fixed set of action values.
 /// </summary>
 public sealed class SecurityMetrics
 {
@@ -45,12 +46,19 @@ public sealed class SecurityMetrics
 
     public const string AgentDisputeTransitioned = "agent_dispute_transitioned";
 
+    /// <summary>
+    /// An agent tried to accept, reject or release a dispute another agent is reviewing (409 not_assignee, ADR-019): one
+    /// event per refusal, so a colleague repeatedly acting on someone else's claims shows up.
+    /// </summary>
+    public const string AgentDisputeDenied = "agent_dispute_denied";
+
     private static readonly HashSet<string> AuditActions = new(StringComparer.Ordinal)
     {
         AgentQueueViewed,
         AgentDisputeViewed,
         AgentCustomerTransactionsViewed,
         AgentDisputeTransitioned,
+        AgentDisputeDenied,
     };
 
     private readonly Counter<long> events;

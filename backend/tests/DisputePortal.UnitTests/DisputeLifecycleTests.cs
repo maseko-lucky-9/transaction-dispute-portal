@@ -12,6 +12,7 @@ public sealed class DisputeLifecycleTests
         (DisputeStatus.Submitted, DisputeStatus.UnderReview, ActorType.Agent),
         (DisputeStatus.UnderReview, DisputeStatus.Accepted, ActorType.Agent),
         (DisputeStatus.UnderReview, DisputeStatus.Rejected, ActorType.Agent),
+        (DisputeStatus.UnderReview, DisputeStatus.Submitted, ActorType.Agent),
         (DisputeStatus.Submitted, DisputeStatus.Withdrawn, ActorType.Customer),
         (DisputeStatus.UnderReview, DisputeStatus.Withdrawn, ActorType.Customer),
     ];
@@ -43,7 +44,8 @@ public sealed class DisputeLifecycleTests
 
         if (Legal.Contains((from, to, actor)))
         {
-            dispute.Transition(to, DisputeTestData.ActorOf(actor), "Checked with the merchant.", at);
+            // A release (back to Submitted) takes no note; every other legal move accepts one.
+            dispute.Transition(to, DisputeTestData.ActorOf(actor), to == DisputeStatus.Submitted ? null : "Checked with the merchant.", at);
 
             Assert.Equal(to, dispute.Status);
             Assert.Equal(history + 1, dispute.StatusChanges.Count);
@@ -53,6 +55,8 @@ public sealed class DisputeLifecycleTests
             Assert.Equal(to is DisputeStatus.Accepted or DisputeStatus.Rejected or DisputeStatus.Withdrawn, dispute.ResolvedAt == at);
             // As ck_disputes_resolution_note: a resolution note exactly for Accepted and Rejected, never for a withdrawal.
             Assert.Equal(to is DisputeStatus.Accepted or DisputeStatus.Rejected, dispute.ResolutionNote is not null);
+            // ADR-019: entering UnderReview assigns the acting agent; every way out (decision, release, withdrawal) clears it.
+            Assert.Equal(to == DisputeStatus.UnderReview ? DisputeTestData.ActorOf(actor).Id : null, dispute.AssigneeId);
         }
         else
         {
@@ -117,7 +121,7 @@ public sealed class DisputeLifecycleTests
     {
         Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
 
-        DomainException refused = Assert.Throws<DomainException>(() => dispute.Transition(DisputeStatus.Accepted, Actor.Agent("a"), note, DisputeTestData.Now));
+        DomainException refused = Assert.Throws<DomainException>(() => dispute.Transition(DisputeStatus.Accepted, Actor.Agent(DisputeTestData.AgentSubject), note, DisputeTestData.Now));
 
         Assert.Equal("resolution_note_required", refused.Code);
         Assert.Equal(DisputeStatus.UnderReview, dispute.Status);
@@ -127,12 +131,12 @@ public sealed class DisputeLifecycleTests
     public void ANoteIsTrimmedAndAtMost2000Characters()
     {
         Dispute accepted = DisputeTestData.In(DisputeStatus.UnderReview);
-        accepted.Transition(DisputeStatus.Accepted, Actor.Agent("a"), "  " + new string('n', Dispute.NoteMaxLength) + "  ", DisputeTestData.Now);
+        accepted.Transition(DisputeStatus.Accepted, Actor.Agent(DisputeTestData.AgentSubject), "  " + new string('n', Dispute.NoteMaxLength) + "  ", DisputeTestData.Now);
         Dispute tooLong = DisputeTestData.In(DisputeStatus.UnderReview);
 
         Assert.Equal(new string('n', Dispute.NoteMaxLength), accepted.ResolutionNote);
         Assert.Equal("note_too_long", Assert.Throws<DomainException>(() =>
-            tooLong.Transition(DisputeStatus.Rejected, Actor.Agent("a"), new string('n', Dispute.NoteMaxLength + 1), DisputeTestData.Now)).Code);
+            tooLong.Transition(DisputeStatus.Rejected, Actor.Agent(DisputeTestData.AgentSubject), new string('n', Dispute.NoteMaxLength + 1), DisputeTestData.Now)).Code);
     }
 
     [Fact]
@@ -140,10 +144,78 @@ public sealed class DisputeLifecycleTests
     {
         Dispute dispute = DisputeTestData.Submitted();
 
-        dispute.Transition(DisputeStatus.UnderReview, Actor.Agent("a"), null, DisputeTestData.Now);
+        dispute.Transition(DisputeStatus.UnderReview, Actor.Agent(DisputeTestData.AgentSubject), null, DisputeTestData.Now);
 
         Assert.Equal(DisputeStatus.UnderReview, dispute.Status);
         Assert.Null(dispute.ResolvedAt);
+    }
+
+    [Theory]
+    [InlineData(DisputeStatus.Accepted, "Checked with the merchant.")]
+    [InlineData(DisputeStatus.Rejected, "Checked with the merchant.")]
+    [InlineData(DisputeStatus.Submitted, null)]
+    public void AnotherAgentCannotDecideOrReleaseAndNothingChanges(DisputeStatus to, string? note)
+    {
+        Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
+        DateTimeOffset updatedAt = dispute.UpdatedAt;
+
+        NotAssigneeException refused = Assert.Throws<NotAssigneeException>(() => dispute.Transition(to, Actor.Agent("another-agent"), note, DisputeTestData.Now.AddDays(1)));
+
+        Assert.Equal("not_assignee", refused.Code);
+        Assert.DoesNotContain(DisputeTestData.AgentSubject, refused.Message, StringComparison.Ordinal);
+        Assert.Equal(DisputeStatus.UnderReview, dispute.Status);
+        Assert.Equal(DisputeTestData.AgentSubject, dispute.AssigneeId);
+        Assert.Equal(2, dispute.StatusChanges.Count);
+        Assert.Equal(updatedAt, dispute.UpdatedAt);
+        Assert.Null(dispute.ResolutionNote);
+    }
+
+    // The lifecycle table answers first: a move it does not hold is invalid_transition whoever asks.
+    [Fact]
+    public void AnIllegalMoveByAnotherAgentIsStillAnInvalidTransition() =>
+        Assert.Throws<InvalidTransitionException>(() =>
+            DisputeTestData.In(DisputeStatus.UnderReview).Transition(DisputeStatus.UnderReview, Actor.Agent("another-agent"), null, DisputeTestData.Now));
+
+    // TEMPORARY (ADR-019, removed with the contract step): a row an older pod put UnderReview has no assignee.
+    [Fact]
+    public void AnUnderReviewDisputeWithNoAssigneeCanBeDecidedByAnyAgentForNow()
+    {
+        Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
+        typeof(Dispute).GetProperty(nameof(Dispute.AssigneeId))!.SetValue(dispute, null);
+
+        dispute.Transition(DisputeStatus.Accepted, Actor.Agent("another-agent"), "Checked with the merchant.", DisputeTestData.Now.AddDays(1));
+
+        Assert.Equal(DisputeStatus.Accepted, dispute.Status);
+        Assert.Null(dispute.AssigneeId);
+    }
+
+    [Fact]
+    public void AReleaseWithANoteIsRefusedAndNothingChanges()
+    {
+        Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
+
+        DomainException refused = Assert.Throws<DomainException>(() =>
+            dispute.Transition(DisputeStatus.Submitted, Actor.Agent(DisputeTestData.AgentSubject), "Going on leave.", DisputeTestData.Now.AddDays(1)));
+
+        Assert.Equal("note_not_allowed", refused.Code);
+        Assert.Equal((DisputeStatus.UnderReview, DisputeTestData.AgentSubject, 2), (dispute.Status, dispute.AssigneeId, dispute.StatusChanges.Count));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AReleaseWithoutANoteReturnsTheDisputeUnclaimed(string? note)
+    {
+        Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
+
+        dispute.Transition(DisputeStatus.Submitted, Actor.Agent(DisputeTestData.AgentSubject), note, DisputeTestData.Now.AddDays(1));
+
+        Assert.Equal(DisputeStatus.Submitted, dispute.Status);
+        Assert.Null(dispute.AssigneeId);
+        Assert.Null(dispute.ResolvedAt);
+        DisputeStatusChange last = dispute.StatusChanges[^1];
+        Assert.Equal((DisputeStatus.UnderReview, DisputeStatus.Submitted, ActorType.Agent, (string?)null), (last.From!.Value, last.To, last.ActorType, last.Note));
     }
 
     [Theory]

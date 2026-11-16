@@ -28,9 +28,9 @@ public sealed class ResolutionDurationMetricTests(ApiFactory api)
     public async Task ADecisionRecordsOneMeasurementOfTheSecondsSinceSubmissionTaggedWithTheOutcome(string outcome)
     {
         DateTimeOffset createdAt = WholeSecondsAgo(TimeSpan.FromDays(1));
-        (_, Guid id) = await agents.SeedDisputeAsync(DisputeStatus.UnderReview, createdAt);
+        (IdpUser user, BrowserSession agent) = await agents.NewAgentAsync();
+        (_, Guid id) = await agents.SeedDisputeAsync(DisputeStatus.UnderReview, createdAt, assignee: user.Subject);
         await MoveUpdatedAtAsync(id, createdAt + TimeSpan.FromMinutes(30));
-        (_, BrowserSession agent) = await agents.NewAgentAsync();
         string etag = await agents.ETagAsync(agent, id);
         await using WebApplicationFactory<Program> clocked = ClockedHost(createdAt + Elapsed);
         using MeasurementProbe<double> probe = MeasurementProbe<double>.On(clocked, DisputeMetrics.MeterName, ResolutionDuration);
@@ -66,14 +66,15 @@ public sealed class ResolutionDurationMetricTests(ApiFactory api)
         Assert.Empty(probe.Samples);
     }
 
-    // Both agents load the dispute and pass If-Match; the second UPDATE ... WHERE xmin = N finds nothing, so one decision lands.
+    // The reviewing agent decides twice at once (two tabs; only the assignee may decide, ADR-019). Both requests load the
+    // dispute and pass If-Match; the second UPDATE ... WHERE xmin = N finds nothing, so one decision lands.
     [Fact]
-    public async Task TwoAgentsDecidingAtOnceRecordOneMeasurementForTheDecisionThatWasStored()
+    public async Task TwoDecisionsAtOnceRecordOneMeasurementForTheDecisionThatWasStored()
     {
         DateTimeOffset createdAt = WholeSecondsAgo(TimeSpan.FromDays(1));
-        (_, Guid id) = await agents.SeedDisputeAsync(DisputeStatus.UnderReview, createdAt);
-        (_, BrowserSession first) = await agents.NewAgentAsync();
-        (_, BrowserSession second) = await agents.NewAgentAsync();
+        (IdpUser user, BrowserSession first) = await agents.NewAgentAsync();
+        BrowserSession second = await BrowserSession.SignInAsync(api, user);
+        (_, Guid id) = await agents.SeedDisputeAsync(DisputeStatus.UnderReview, createdAt, assignee: user.Subject);
         string etag = await agents.ETagAsync(first, id);
         await using WebApplicationFactory<Program> gated = api.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {

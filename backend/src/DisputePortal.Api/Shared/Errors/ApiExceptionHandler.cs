@@ -45,6 +45,8 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
         PostgresException postgres when DbErrorTranslator.Translate(postgres) is { } refusal => refusal.ToProblem(),
         // An illegal move conflicts with the dispute's current state (ADR-007): 409, not a rule violation.
         InvalidTransitionException transition => Problem(StatusCodes.Status409Conflict, transition.Code, transition.Message),
+        // Another agent is reviewing the dispute (ADR-019): also a conflict with its current state, not a rule violation.
+        NotAssigneeException notAssignee => Problem(StatusCodes.Status409Conflict, notAssignee.Code, notAssignee.Message),
         DomainException domain => Problem(StatusCodes.Status422UnprocessableEntity, domain.Code, domain.Message),
         RetryLimitExceededException or NpgsqlException { IsTransient: true } =>
             Problem(StatusCodes.Status503ServiceUnavailable, "database_unavailable", ErrorCodes.DetailForStatus(StatusCodes.Status503ServiceUnavailable)),

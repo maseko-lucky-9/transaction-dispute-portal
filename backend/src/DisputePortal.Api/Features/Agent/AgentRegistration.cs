@@ -32,7 +32,7 @@ public static class AgentRegistration
             return Task.CompletedTask;
         }
 
-        DisputeStatus[] agentMoves = [DisputeStatus.UnderReview, DisputeStatus.Accepted, DisputeStatus.Rejected];
+        DisputeStatus[] agentMoves = [DisputeStatus.UnderReview, DisputeStatus.Accepted, DisputeStatus.Rejected, DisputeStatus.Submitted];
         schema.Properties["toStatus"] = new OpenApiSchema
         {
             Type = JsonSchemaType.String,
@@ -42,7 +42,7 @@ public static class AgentRegistration
         {
             Type = JsonSchemaType.String,
             MaxLength = Dispute.NoteMaxLength,
-            Description = "Required to accept or reject; the customer sees it.",
+            Description = "Required to accept or reject; not allowed when releasing (Submitted); the customer sees it.",
         };
         schema.Required = new HashSet<string>(StringComparer.Ordinal) { "toStatus" };
         return Task.CompletedTask;

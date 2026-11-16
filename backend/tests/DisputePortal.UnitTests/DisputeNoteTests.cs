@@ -22,12 +22,12 @@ public sealed class DisputeNoteTests
         string note = input;
         if (valid)
         {
-            dispute.Transition(DisputeStatus.Accepted, Actor.Agent("a"), note, DisputeTestData.Now);
+            dispute.Transition(DisputeStatus.Accepted, Actor.Agent(DisputeTestData.AgentSubject), note, DisputeTestData.Now);
             Assert.Equal(note.Trim(), dispute.ResolutionNote);
         }
         else
         {
-            Assert.Equal(code, Assert.Throws<DomainException>(() => dispute.Transition(DisputeStatus.Accepted, Actor.Agent("a"), note, DisputeTestData.Now)).Code);
+            Assert.Equal(code, Assert.Throws<DomainException>(() => dispute.Transition(DisputeStatus.Accepted, Actor.Agent(DisputeTestData.AgentSubject), note, DisputeTestData.Now)).Code);
             Assert.Equal(DisputeStatus.UnderReview, dispute.Status);
         }
 
@@ -41,7 +41,7 @@ public sealed class DisputeNoteTests
         string padded = new string(' ', SensitiveNumberDetector.MaxScanLength + 1) + "4111111111111111";
 
         Assert.Equal("sensitive_data", Assert.Throws<DomainException>(() =>
-            dispute.Transition(DisputeStatus.Rejected, Actor.Agent("a"), padded, DisputeTestData.Now)).Code);
+            dispute.Transition(DisputeStatus.Rejected, Actor.Agent(DisputeTestData.AgentSubject), padded, DisputeTestData.Now)).Code);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class DisputeNoteTests
         Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
 
         Assert.Equal("invalid_characters", Assert.Throws<DomainException>(() =>
-            dispute.Transition(DisputeStatus.Accepted, Actor.Agent("a"), "4111111111111111\0", DisputeTestData.Now)).Code);
+            dispute.Transition(DisputeStatus.Accepted, Actor.Agent(DisputeTestData.AgentSubject), "4111111111111111\0", DisputeTestData.Now)).Code);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class DisputeNoteTests
         Dispute dispute = DisputeTestData.Submitted();
 
         Assert.Equal("sensitive_data", Assert.Throws<DomainException>(() =>
-            dispute.Transition(DisputeStatus.UnderReview, Actor.Agent("a"), "card 4111 1111 1111 1111", DisputeTestData.Now)).Code);
+            dispute.Transition(DisputeStatus.UnderReview, Actor.Agent(DisputeTestData.AgentSubject), "card 4111 1111 1111 1111", DisputeTestData.Now)).Code);
     }
 
     [Fact]
@@ -68,6 +68,6 @@ public sealed class DisputeNoteTests
         Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
 
         Assert.Equal("note_too_long", Assert.Throws<DomainException>(() =>
-            dispute.Transition(DisputeStatus.Rejected, Actor.Agent("a"), new string('n', SensitiveNumberDetector.MaxScanLength + 5), DisputeTestData.Now)).Code);
+            dispute.Transition(DisputeStatus.Rejected, Actor.Agent(DisputeTestData.AgentSubject), new string('n', SensitiveNumberDetector.MaxScanLength + 5), DisputeTestData.Now)).Code);
     }
 }

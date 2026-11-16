@@ -321,7 +321,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The work queue across customers, oldest first. No status means the open queue (Submitted and UnderReview). */
+        /** The work queue across customers, oldest first. No status or assignment means the open queue (Submitted and UnderReview). assignment (unclaimed, mine or others, relative to the caller) cannot be combined with status. */
         get: operations["ListAgentQueue"];
         put?: never;
         post?: never;
@@ -365,6 +365,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/disputes/take-next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim the oldest unclaimed (Submitted) dispute nobody else is taking at this moment and start its review. 200 with the dispute and its ETag; 204 when there is none to take. */
+        post: operations["TakeNextDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/disputes/{id}/transitions": {
         parameters: {
             query?: never;
@@ -374,7 +391,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Move a dispute: Submitted to UnderReview, UnderReview to Accepted or Rejected (with a note). Requires If-Match. */
+        /** Move a dispute: Submitted to UnderReview (claim it), UnderReview to Accepted or Rejected (with a note) or back to Submitted (release it, no note). Only the reviewing agent may accept, reject or release (otherwise 409 not_assignee). Requires If-Match. */
         post: operations["TransitionDispute"];
         delete?: never;
         options?: never;
@@ -388,6 +405,8 @@ export interface components {
     schemas: {
         /** @enum {unknown} */
         ActorType: "Customer" | "Agent";
+        /** @enum {unknown} */
+        AgentAssignment: "Unclaimed" | "You" | "AnotherAgent" | null;
         AgentCustomerTransaction: {
             /** Format: uuid */
             id: string;
@@ -432,6 +451,10 @@ export interface components {
             maskedAccountNumber: string;
             timeline: components["schemas"]["AgentTimelineEntry"][];
             transaction: components["schemas"]["TransactionSummary"];
+            assignment: null | components["schemas"]["AgentAssignment"];
+            assigneeId: null | string;
+            /** Format: date-time */
+            claimedAt: null | string;
         };
         AgentQueueItem: {
             /** Format: uuid */
@@ -445,6 +468,10 @@ export interface components {
             reasonCode: string;
             customerDisplayName: string;
             maskedAccountNumber: string;
+            assignment: null | components["schemas"]["AgentAssignment"];
+            assigneeId: null | string;
+            /** Format: date-time */
+            claimedAt: null | string;
         };
         AgentQueueResponse: {
             items: components["schemas"]["AgentQueueItem"][];
@@ -641,8 +668,8 @@ export interface components {
         };
         TransitionRequest: {
             /** @enum {string} */
-            toStatus: "UnderReview" | "Accepted" | "Rejected";
-            /** @description Required to accept or reject; the customer sees it. */
+            toStatus: "UnderReview" | "Accepted" | "Rejected" | "Submitted";
+            /** @description Required to accept or reject; not allowed when releasing (Submitted); the customer sees it. */
             note?: string;
         };
     };
@@ -1087,6 +1114,7 @@ export interface operations {
                 status?: "Submitted" | "UnderReview" | "Accepted" | "Rejected" | "Withdrawn";
                 limit?: number;
                 cursor?: string;
+                assignment?: "unclaimed" | "mine" | "others";
             };
             header?: never;
             path?: never;
@@ -1235,6 +1263,53 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    TakeNextDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description The dispute's version (strong, quoted). Send it back as If-Match to change the dispute. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDisputeDetail"];
+                };
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
