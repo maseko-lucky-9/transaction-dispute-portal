@@ -13,6 +13,8 @@ export interface TransitionOption {
   noteRequired: boolean;
   /** A decision cannot be undone, so it is confirmed first. */
   confirm: boolean;
+  /** Button look. Only one option on a page may be crimson ("default"); the other reads as "outline". */
+  variant: "default" | "outline";
 }
 
 const START_REVIEW: TransitionOption = {
@@ -21,6 +23,7 @@ const START_REVIEW: TransitionOption = {
   verb: "start the review of",
   noteRequired: false,
   confirm: false,
+  variant: "default",
 };
 const ACCEPT: TransitionOption = {
   to: "Accepted",
@@ -28,6 +31,7 @@ const ACCEPT: TransitionOption = {
   verb: "accept",
   noteRequired: true,
   confirm: true,
+  variant: "default",
 };
 const REJECT: TransitionOption = {
   to: "Rejected",
@@ -35,6 +39,8 @@ const REJECT: TransitionOption = {
   verb: "reject",
   noteRequired: true,
   confirm: true,
+  // Not destructive: #b4121a sits beside crimson #e51718 and reads as a second red button.
+  variant: "outline",
 };
 
 /**

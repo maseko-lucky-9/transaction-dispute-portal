@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { describeBlockReasons } from "@/lib/dispute-reasons";
 import { formatDate, formatMoney } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
-import { BACK_LINK, CARD, PAGE_TITLE } from "@/lib/table-styles";
+import { BACK_LINK, CARD, LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/transactions/$transactionId/dispute");
@@ -107,7 +107,7 @@ function NotDisputable({ item }: { item: TransactionItem }) {
         <Link
           to="/disputes/$disputeId"
           params={{ disputeId: item.dispute.id }}
-          className="text-sm underline underline-offset-4"
+          className={`${LINK} text-sm`}
         >
           View the dispute
         </Link>
@@ -123,7 +123,7 @@ function NotFoundTransaction() {
       <p className="text-muted-foreground">
         We could not find that transaction. It may belong to someone else or no longer exist.
       </p>
-      <Link to="/transactions" className="underline underline-offset-4">
+      <Link to="/transactions" className={LINK}>
         Back to my transactions
       </Link>
     </div>

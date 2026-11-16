@@ -41,6 +41,17 @@ describe("NEXT_TRANSITIONS (mirrors the Domain's agent transitions)", () => {
     expect(NEXT_TRANSITIONS.UnderReview.map((o) => o.label)).toEqual(["Accept", "Reject"]);
   });
 
+  it("gives each status at most one crimson option, and Reject is the outlined one", () => {
+    for (const status of DISPUTE_STATUSES) {
+      const crimson = NEXT_TRANSITIONS[status].filter((o) => o.variant === "default");
+      expect(crimson.length).toBeLessThanOrEqual(1);
+    }
+    expect(NEXT_TRANSITIONS.UnderReview.map((o) => [o.label, o.variant])).toEqual([
+      ["Accept", "default"],
+      ["Reject", "outline"],
+    ]);
+  });
+
   it("noteIsRequired follows the status", () => {
     expect(noteIsRequired("Submitted")).toBe(false);
     expect(noteIsRequired("UnderReview")).toBe(true);

@@ -26,7 +26,7 @@ import { classifyCreateError, type CreateFailure, type DisputeField } from "@/li
 import { formatMoney } from "@/lib/format";
 import { isGuid } from "@/lib/guid";
 import { newUuid } from "@/lib/uuid";
-import { CARD } from "@/lib/table-styles";
+import { CARD, LINK } from "@/lib/table-styles";
 
 interface DisputeFormProps {
   transaction: TransactionItem;
@@ -40,7 +40,6 @@ interface Failed {
 
 const CREATE_KEY = ["disputes", "create"] as const;
 const FIELD_ORDER: readonly DisputeField[] = ["reasonCode", "description", "amount"];
-const LINK = "underline underline-offset-4";
 
 function focusOnMount(element: HTMLElement | null) {
   element?.focus();
