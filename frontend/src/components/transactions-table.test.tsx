@@ -134,6 +134,20 @@ describe("TransactionsTable dispute action", () => {
     expect(within(rowFor("P")).getByText("Pending")).toBeInTheDocument();
   });
 
+  it("explains a reversed transaction as reversed, not as pending", async () => {
+    await renderTable([
+      makeTransaction({
+        reference: "R",
+        merchantName: "Uber Eats",
+        status: "Reversed",
+        isDisputable: false,
+        disputeBlockReasons: ["not_posted"],
+      }),
+    ]);
+    const button = within(rowFor("R")).getByRole("button", { name: /^Dispute Uber Eats/ });
+    expect(button).toHaveAccessibleDescription("Reversed transactions can't be disputed");
+  });
+
   it("explains a credit and an expired window, each with its own sentence", async () => {
     await renderTable([
       makeTransaction(
@@ -162,6 +176,8 @@ describe("TransactionsTable dispute action", () => {
     await renderTable([
       makeTransaction({
         reference: "M",
+        status: "Pending",
+        postedAt: null,
         isDisputable: false,
         disputeBlockReasons: ["not_posted", "not_debit"],
       }),

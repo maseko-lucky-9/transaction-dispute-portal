@@ -99,7 +99,7 @@ function NotDisputable({ item }: { item: TransactionItem }) {
         This transaction can&apos;t be disputed
       </h2>
       <ul className="list-disc pl-5 text-sm">
-        {describeBlockReasons(item.disputeBlockReasons).map((reason) => (
+        {describeBlockReasons(item.disputeBlockReasons, item.status).map((reason) => (
           <li key={reason}>{reason}</li>
         ))}
       </ul>

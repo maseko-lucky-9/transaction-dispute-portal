@@ -1016,7 +1016,7 @@ describe("dispute form page: server errors", () => {
   });
 
   it.each([
-    ["not_posted", "Pending transactions can't be disputed yet"],
+    ["not_posted", "Only posted transactions can be disputed"],
     ["not_debit", "Only debits can be disputed"],
     ["window_expired", "The 120-day dispute window has closed"],
     ["amount_exceeds_transaction", "The amount is more than the transaction"],
@@ -1065,7 +1065,7 @@ describe("dispute form page: server errors", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual([
-      "Pending transactions can't be disputed yet",
+      "Only posted transactions can be disputed",
       "The 120-day dispute window has closed",
       "A rule from the future.",
     ]);
