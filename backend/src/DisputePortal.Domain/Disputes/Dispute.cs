@@ -44,7 +44,8 @@ public sealed class Dispute
 
     /// <summary>
     /// The subject of the agent reviewing the dispute: set when it enters UnderReview, cleared on every way out
-    /// (decision, release, withdrawal). Null in every other status.
+    /// (decision, release, withdrawal). Never null while UnderReview and null in every other status; the database holds
+    /// the same rule (ck_disputes_assignee, ADR-019).
     /// </summary>
     public string? AssigneeId { get; private set; }
 
@@ -92,7 +93,7 @@ public sealed class Dispute
     public void Withdraw(Actor actor, DateTimeOffset now) => Transition(DisputeStatus.Withdrawn, actor, note: null, now);
 
     /// <exception cref="InvalidTransitionException">(current, <paramref name="to"/>, actor) is not in the lifecycle table.</exception>
-    /// <exception cref="NotAssigneeException">An agent other than the reviewing one accepts, rejects or releases it.</exception>
+    /// <exception cref="NotAssigneeException">An agent other than the assignee accepts, rejects or releases it.</exception>
     /// <exception cref="DomainException">A resolution without a note, a note on a release, a note over 2000 characters, or a note with control characters or a card or ID number.</exception>
     public void Transition(DisputeStatus to, Actor actor, string? note, DateTimeOffset now)
     {
@@ -101,10 +102,7 @@ public sealed class Dispute
             throw new InvalidTransitionException(Status, to, actor.Type);
         }
 
-        // TEMPORARY expand-phase tolerance (ADR-019): a dispute put UnderReview by a pod older than the assignee column
-        // has no assignee, and any agent may move it. The contract step adds a CHECK that UnderReview has an assignee
-        // and removes the `is not null` clause.
-        if (DisputeLifecycle.IsAssigneeOnly(Status, actor.Type) && AssigneeId is not null && AssigneeId != actor.Id)
+        if (DisputeLifecycle.IsAssigneeOnly(Status, actor.Type) && AssigneeId != actor.Id)
         {
             throw new NotAssigneeException();
         }

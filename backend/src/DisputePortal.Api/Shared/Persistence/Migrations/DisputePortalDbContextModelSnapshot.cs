@@ -370,6 +370,8 @@ namespace DisputePortal.Api.Shared.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_disputes_amount_positive", "disputed_amount > 0");
 
+                            t.HasCheckConstraint("ck_disputes_assignee", "(status = 'UnderReview') = (assignee_id IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_disputes_resolution_note", "(status IN ('Accepted', 'Rejected')) = (resolution_note IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_disputes_resolved_at", "(status IN ('Accepted', 'Rejected', 'Withdrawn')) = (resolved_at IS NOT NULL)");

@@ -42,9 +42,10 @@ public sealed class ReadModelConstraintTests(ApiFactory api)
     }
 
     private const string InsertDisputeSql = """
-        INSERT INTO disputes (id, transaction_id, customer_id, reason_code, description, disputed_amount, currency, status, created_at, updated_at, resolved_at)
+        INSERT INTO disputes (id, transaction_id, customer_id, reason_code, description, disputed_amount, currency, status, created_at, updated_at, resolved_at, assignee_id)
         VALUES (gen_random_uuid(), @transaction, @customer, 'other', 'Probe dispute.', 1, 'ZAR', @status, now(), now(),
-                CASE WHEN @status IN ('Accepted', 'Rejected', 'Withdrawn') THEN now() END)
+                CASE WHEN @status IN ('Accepted', 'Rejected', 'Withdrawn') THEN now() END,
+                CASE WHEN @status = 'UnderReview' THEN 'probe-agent' END)
         """;
 
     // The backstop behind the application's check: even the owner cannot make a second active dispute on a transaction.
@@ -102,6 +103,53 @@ public sealed class ReadModelConstraintTests(ApiFactory api)
         PostgresException refused = await Assert.ThrowsAsync<PostgresException>(() => update.ExecuteNonQueryAsync());
 
         Assert.Equal(CheckViolation, refused.SqlState);
+    }
+
+    // ADR-019: an assignee exactly while UnderReview, whoever writes. Each statement breaks it one way.
+    [Theory]
+    [InlineData(DisputeStatus.Submitted, "UPDATE disputes SET status = 'UnderReview' WHERE id = @id")]
+    [InlineData(DisputeStatus.UnderReview, "UPDATE disputes SET assignee_id = NULL WHERE id = @id")]
+    [InlineData(DisputeStatus.Submitted, "UPDATE disputes SET assignee_id = 'probe-agent' WHERE id = @id")]
+    [InlineData(DisputeStatus.UnderReview, "UPDATE disputes SET status = 'Submitted' WHERE id = @id")]
+    [InlineData(DisputeStatus.UnderReview, "UPDATE disputes SET status = 'Withdrawn', resolved_at = now() WHERE id = @id")]
+    public async Task TheAssigneeCheckRefusesAnUnderReviewDisputeWithoutOneAndAnyOtherWithOne(DisputeStatus seeded, string sql)
+    {
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        Guid disputeId = await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), seeded);
+        await using NpgsqlConnection connection = new(api.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlCommand update = new(sql, connection);
+        update.Parameters.AddWithValue("id", disputeId);
+
+        PostgresException refused = await Assert.ThrowsAsync<PostgresException>(() => update.ExecuteNonQueryAsync());
+
+        Assert.Equal(CheckViolation, refused.SqlState);
+        Assert.Equal(DisputeConfiguration.AssigneeCheckName, refused.ConstraintName);
+    }
+
+    // The control for the test above: every legal pairing of status and assignee is accepted, through a claim, a
+    // release, a second claim and a withdrawal. Rolled back.
+    [Fact]
+    public async Task TheAssigneeCheckAcceptsEveryLegalPairing()
+    {
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        Guid disputeId = await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), DisputeStatus.Submitted);
+        await using NpgsqlConnection connection = new(api.OwnerConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+        await using NpgsqlCommand moves = new("""
+            UPDATE disputes SET status = 'UnderReview', assignee_id = 'probe-agent' WHERE id = @id;
+            UPDATE disputes SET status = 'Submitted', assignee_id = NULL WHERE id = @id;
+            UPDATE disputes SET status = 'UnderReview', assignee_id = 'probe-agent-2' WHERE id = @id;
+            UPDATE disputes SET status = 'Withdrawn', assignee_id = NULL, resolved_at = now() WHERE id = @id;
+            SELECT count(*) FROM disputes WHERE id = @id AND status = 'Withdrawn' AND assignee_id IS NULL;
+            """, connection, transaction);
+        moves.Parameters.AddWithValue("id", disputeId);
+
+        object? withdrawn = await moves.ExecuteScalarAsync();
+        await transaction.RollbackAsync();
+
+        Assert.Equal(1L, withdrawn);
     }
 
     private static async Task<int> InsertDisputeAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid transactionId, Guid customerId, string status)

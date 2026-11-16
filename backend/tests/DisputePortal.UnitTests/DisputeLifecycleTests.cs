@@ -176,17 +176,18 @@ public sealed class DisputeLifecycleTests
         Assert.Throws<InvalidTransitionException>(() =>
             DisputeTestData.In(DisputeStatus.UnderReview).Transition(DisputeStatus.UnderReview, Actor.Agent("another-agent"), null, DisputeTestData.Now));
 
-    // TEMPORARY (ADR-019, removed with the contract step): a row an older pod put UnderReview has no assignee.
+    // The database makes an UnderReview dispute with no assignee impossible (ck_disputes_assignee, ADR-019). Were one
+    // loaded anyway, nobody is its assignee, so no agent may decide or release it: the guard fails closed.
     [Fact]
-    public void AnUnderReviewDisputeWithNoAssigneeCanBeDecidedByAnyAgentForNow()
+    public void AnUnderReviewDisputeWithNoAssigneeCannotBeDecidedByAnyAgent()
     {
         Dispute dispute = DisputeTestData.In(DisputeStatus.UnderReview);
         typeof(Dispute).GetProperty(nameof(Dispute.AssigneeId))!.SetValue(dispute, null);
 
-        dispute.Transition(DisputeStatus.Accepted, Actor.Agent("another-agent"), "Checked with the merchant.", DisputeTestData.Now.AddDays(1));
+        Assert.Throws<NotAssigneeException>(() =>
+            dispute.Transition(DisputeStatus.Accepted, Actor.Agent("another-agent"), "Checked with the merchant.", DisputeTestData.Now.AddDays(1)));
 
-        Assert.Equal(DisputeStatus.Accepted, dispute.Status);
-        Assert.Null(dispute.AssigneeId);
+        Assert.Equal((DisputeStatus.UnderReview, 2), (dispute.Status, dispute.StatusChanges.Count));
     }
 
     [Fact]

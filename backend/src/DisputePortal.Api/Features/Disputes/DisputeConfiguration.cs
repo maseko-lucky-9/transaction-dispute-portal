@@ -25,6 +25,9 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
     /// <summary>The disputes under review per assignee, oldest first: an agent's own claims and everyone else's (ADR-019).</summary>
     public const string AssigneeQueueIndexName = "ix_disputes_assignee_queue";
 
+    /// <summary>A dispute has an assignee exactly while it is UnderReview (ADR-019, the contract step).</summary>
+    public const string AssigneeCheckName = "ck_disputes_assignee";
+
     private const int EnumMaxLength = 16;
 
     public void Configure(EntityTypeBuilder<Dispute> builder)
@@ -35,6 +38,7 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
             table.HasCheckConstraint("ck_disputes_amount_positive", "disputed_amount > 0");
             table.HasCheckConstraint("ck_disputes_resolved_at", "(status IN ('Accepted', 'Rejected', 'Withdrawn')) = (resolved_at IS NOT NULL)");
             table.HasCheckConstraint("ck_disputes_resolution_note", "(status IN ('Accepted', 'Rejected')) = (resolution_note IS NOT NULL)");
+            table.HasCheckConstraint(AssigneeCheckName, "(status = 'UnderReview') = (assignee_id IS NOT NULL)");
         });
         builder.HasKey(dispute => dispute.Id).HasName(PrimaryKeyName);
         builder.Property(dispute => dispute.Id).ValueGeneratedNever();
@@ -47,8 +51,7 @@ public sealed class DisputeConfiguration : IEntityTypeConfiguration<Dispute>
         });
         builder.Property(dispute => dispute.Status).HasConversion<string>().HasMaxLength(EnumMaxLength);
         builder.Property(dispute => dispute.ResolutionNote).HasMaxLength(Dispute.NoteMaxLength);
-        // An agent's subject, like dispute_status_changes.actor_id. No CHECK yet: rows moved by pods older than the
-        // column have none (ADR-019, expand step).
+        // An agent's subject, like dispute_status_changes.actor_id; ck_disputes_assignee ties it to UnderReview.
         builder.Property(dispute => dispute.AssigneeId).HasMaxLength(Customer.SubjectMaxLength);
         // xmin: Postgres bumps it on every update, so it is the optimistic-concurrency token and the ETag.
         builder.Property(dispute => dispute.Version).IsRowVersion();

@@ -1319,3 +1319,32 @@ filtered to the named tests.
 
 Note: A1 first left the test hanging after its failure (the context was torn down while the blocked migration still
 ran). The test now frees the lock and lets the migration finish before failing; the rerun above is red in about a minute.
+
+## Assignment invariant (ADR-019, the contract step), branch `feat/assignment-invariant`
+
+Same method: an exact-once text replacement, `dotnet build --no-incremental -warnaserror` (so no stale binary is
+tested), a filtered `dotnet test` run, the file restored from a copy and compared byte for byte. Date 2026-11-16. C1:
+`DisputePortal.UnitTests` filtered to `DisputeLifecycleTests`; the rest: `DisputePortal.IntegrationTests` filtered to
+`ReadModelConstraintTests` (C2 to C4), `AgentAssignmentInvariantMigrationTests` (C5 to C14 and C17, sometimes one test of it), or
+the named test (C15, C16). The migration is `20261116140513_AgentAssignmentInvariant.cs`.
+
+| Id | Mutation | File | Verdict | Red |
+|---|---|---|---|---|
+| C1 | the null-assignee tolerance put back (`AssigneeId is not null &&`) | `Dispute.cs` | CAUGHT | `AnUnderReviewDisputeWithNoAssigneeCannotBeDecidedByAnyAgent` |
+| C2 | CHECK only "UnderReview has an assignee" | the migration | CAUGHT | `TheAssigneeCheckRefusesAnUnderReviewDisputeWithoutOneAndAnyOtherWithOne` (the 3 stray-assignee cases) |
+| C3 | CHECK only "not UnderReview has none" | the migration | CAUGHT | the same theory (the 2 missing-assignee cases) |
+| C4 | CHECK inverted (except Submitted) | the migration | CAUGHT | `TheAssigneeCheckAcceptsEveryLegalPairing` |
+| C5 | backfill overwrites existing assignees (no `assignee_id IS NULL`) | the migration | CAUGHT | `ItAssignsFromTheHistory...` (clean row overwritten), `DownDropsTheConstraintAndNothingElse` (aborted), the script-order test |
+| C6 | backfill takes the oldest move (`occurred_at ASC`) | the migration | CAUGHT | `ItAssignsFromTheHistoryClearsStraysLeavesCleanRowsAndEndsValidated` |
+| C7 | backfill tie-break on the lower id | the migration | CAUGHT | the same |
+| C8 | stray clean-up only on Submitted rows | the migration | CAUGHT | the same (the CHECK fails on the Withdrawn stray), the script-order test |
+| C9 | the abort never fires (`> 1000`) | the migration | CAUGHT | `AnUnderReviewRowWithNoHistoryAbortsItWithTheCountAndChangesNothing` (23514 from the ADD instead of P0001) |
+| C10 | the abort message lists the dispute ids | the migration | CAUGHT | the same (`DoesNotContain` on the id) |
+| C11 | backfill run outside the transaction (`suppressTransaction: true`) | the migration | CAUGHT | the same (the backfill survived the abort: `agent-a` instead of null) |
+| C12 | CHECK added `NOT VALID` and never validated | the migration | CAUGHT | `ItAssignsFromTheHistoryClearsStraysLeavesCleanRowsAndEndsValidated` (`convalidated` false) |
+| C13 | `Down()` also drops `ix_disputes_assignee_queue` | the migration | CAUGHT | `DownDropsTheConstraintAndNothingElse` |
+| C14 | no `LOCK TABLE` before the clean-up | the migration | CAUGHT | `TheScriptLocksBackfillsClearsChecksAndAddsTheConstraintInOneTransaction` |
+| C17 | `Down()` empty | the migration | CAUGHT | `DownDropsTheConstraintAndNothingElse` (the constraint still there) |
+| C18 | P0001 made transient (`EnableRetryOnFailure(..., ["P0001"])`), so the abort is retried and wrapped | `PersistenceRegistration.cs` | CAUGHT | `AnUnderReviewRowWithNoHistoryAbortsItWithTheCountAndChangesNothing` (`RetryLimitExceededException`, not the `PostgresException`) |
+| C15 | "others" ignores the assignee | `AgentDisputeRepository.cs` | CAUGHT | `TheQueueFiltersByAssignmentRelativeToTheAgentAsking` |
+| C16 | the probe UnderReview insert loses its assignee | `ReadModelConstraintTests.cs` | CAUGHT | `ASecondActiveDisputeOnOneTransactionIsRefusedByThePartialUniqueIndex` (23514 before 23505: the CHECK fires before the unique index, which is why the probe now names an assignee) |

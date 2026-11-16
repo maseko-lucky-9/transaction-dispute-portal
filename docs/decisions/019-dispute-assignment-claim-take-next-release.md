@@ -1,6 +1,8 @@
 # 019. Dispute assignment: claim, take next, release
 
-Status: accepted (2026-11-16). Amends [ADR-003](003-dispute-state-machine.md) (a new lifecycle row and an
+Status: accepted (2026-11-16); contract step landed (2026-11-16): migration `AgentAssignmentInvariant` adds
+`ck_disputes_assignee CHECK ((status = 'UnderReview') = (assignee_id IS NOT NULL))`, validated, and `Dispute.Transition`
+no longer tolerates an UnderReview dispute with no assignee (see Rollout). Amends [ADR-003](003-dispute-state-machine.md) (a new lifecycle row and an
 assignee-only guard), [ADR-007](007-http-status-policy-and-idempotency.md) (409 `not_assignee` in the check order, 204
 from take next) and [ADR-014](014-advisory-lock-on-dispute-caps.md) (take next takes a row lock; other agent moves still
 take none).
@@ -14,7 +16,7 @@ would open the same oldest dispute and all but one would get 412.
 ## Decision
 1. **The assignee is a column**, `disputes.assignee_id varchar(64) NULL` (the length of `actor_id`). Rejected: deriving
    it from `dispute_status_changes`. A per-row lookup would defeat the keyset index on the queue, the aggregate should
-   guard on its own field, and a column can carry a database backstop later.
+   guard on its own field, and a column carries a database backstop (`ck_disputes_assignee`, the contract step).
 2. **The aggregate owns it.** `Dispute.Transition` sets `AssigneeId` to the acting agent when the dispute enters
    UnderReview and clears it on every way out: accept, reject, release, and the customer's withdrawal, which goes
    through the same method.
@@ -27,12 +29,12 @@ would open the same oldest dispute and all but one would get 412.
    throws `NotAssigneeException` (`not_assignee`, "Another agent is reviewing this dispute.", no identity) when the
    assignee is someone else. It maps to **409**: the request conflicts with the dispute's current state. The check order
    on `POST /agent/disputes/{id}/transitions` is 404, 428 (no If-Match), 412 (stale), 409 `invalid_transition`, 409
-   `not_assignee`, then the write (an xmin conflict there is still 412). A null assignee is tolerated for now (see
-   Rollout). Each `not_assignee` refusal is logged (`agent.dispute.denied`, event 5105, with the dispute id and the
+   `not_assignee`, then the write (an xmin conflict there is still 412). An UnderReview dispute always has an assignee (the database
+   CHECK, see Rollout); were one loaded without, nobody would be its assignee and every agent's move out would be refused. Each `not_assignee` refusal is logged (`agent.dispute.denied`, event 5105, with the dispute id and the
    refused agent's subject only, never the reviewing agent) and counted (`audit.events{action=agent_dispute_denied}`).
 5. **Migration `AgentAssignment`** adds the column, assigns each UnderReview dispute to the agent of its latest move to
    UnderReview, adds the partial index `ix_disputes_assignee_queue (assignee_id, created_at, id) WHERE status =
-   'UnderReview'`, and grants `UPDATE (assignee_id) ON disputes` to `dispute_app`. No CHECK constraint yet. The backfill
+   'UnderReview'`, and grants `UPDATE (assignee_id) ON disputes` to `dispute_app`. No CHECK constraint in this step (the contract step adds it, see Rollout). The backfill
    rewrites those rows, so their xmin (ETag) changes: an agent holding an old ETag gets 412 and reloads. It first runs
    `SET LOCAL lock_timeout = '5s'` inside its own transaction (EF wraps each migration in one; a plain `SET` would stay
    on the session), so its ACCESS EXCLUSIVE lock gives up with 55P03 behind a long-open transaction instead of queueing
@@ -53,7 +55,7 @@ would open the same oldest dispute and all but one would get 412.
    - Rejected: one SQL `UPDATE ... RETURNING`. It bypasses the aggregate (ADR-003) and duplicates the lifecycle in SQL.
 7. **Picking one** stays `POST /{id}/transitions` with `UnderReview`, which also assigns.
 8. **Queue filter** `?assignment=unclaimed|mine|others` (any case). Unclaimed is Submitted; mine is UnderReview with the
-   caller as assignee; others is UnderReview with any other assignee or none (`IS DISTINCT FROM`). Combined with
+   caller as assignee; others is UnderReview with any other assignee (there is always one). Combined with
    `status` it is 400 on `assignment`. The order stays `(created_at, id)`, so the cursor format is unchanged. The cursor
    fingerprint without an assignment is byte-identical to before (`agent-queue;status=...`), so cursors issued before
    the deploy stay valid; with one it is `agent-queue;assignment=<value>`. "mine" is per agent through the cursor's
@@ -86,13 +88,13 @@ would open the same oldest dispute and all but one would get 412.
 
 ## Proof
 `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable` (assignee set on entry, cleared on every exit),
-`AnotherAgentCannotDecideOrReleaseAndNothingChanges`, `AnUnderReviewDisputeWithNoAssigneeCanBeDecidedByAnyAgentForNow`,
+`AnotherAgentCannotDecideOrReleaseAndNothingChanges`, `AnUnderReviewDisputeWithNoAssigneeCannotBeDecidedByAnyAgent`,
 `AReleaseWithANoteIsRefusedAndNothingChanges`; `ApiExceptionHandlerTests.AnAgentWhoIsNotTheAssigneeIs409NotAssignee`;
 `AgentCursorProtectorTests.WithoutAnAssignmentTheFingerprintIsTheOneOlderVersionsIssued`;
 `AgentCommandsTests.TakeNextAnswers204WhenThereIsNothingToTake`, `TakeNextClaimsTheLockedDisputeAndReadsItBackInsideTheTransaction`,
 `AClaimThatCannotBeReadBackIsANotFoundAndRecordsNothing`, `AMoveOnSomeoneElsesReviewIsCountedAsDeniedAndNothingIsSaved`;
 `AgentAssignmentTests` (409 on accept, reject and release by another agent with nothing changed, release, withdrawal
-clears the assignee, the three filters including a legacy row with no assignee under others, an empty "mine", cursors
+clears the assignee, the three filters, an empty "mine", cursors
 per filter, refused callers on `assignment=mine`, the customer's timeline after a release, a release racing the
 assignee's own decision, the runbook's break-glass statement read from the runbook);
 `AgentDeniedAuditTests` (a refusal is logged and counted with ids only, a success is not);
@@ -104,7 +106,12 @@ assignee's own decision, the runbook's break-glass statement read from the runbo
 fails with 55P03, rolls back, leaves no session setting and succeeds on the retry);
 `DatabasePrivilegeTests.TheAppRoleCanClaimAndReleaseADispute`, `TwoAppSessionsTakingNextSkipEachOthersLockedRow`
 (the repository's own SQL, two sessions, the second gets the next row without waiting; column grants);
-`DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; e2e `work-assignment.spec.ts`.
+`DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; e2e `work-assignment.spec.ts`. The contract step:
+`ReadModelConstraintTests.TheAssigneeCheckRefusesAnUnderReviewDisputeWithoutOneAndAnyOtherWithOne` (5 ways, as the
+schema owner) and `TheAssigneeCheckAcceptsEveryLegalPairing`; `AgentAssignmentInvariantMigrationTests` (from the previous
+migration: the backfill from the latest move with its tie-break, strays cleared, a clean row untouched, the constraint
+validated; an UnderReview row with no history aborts with the count and rolls back whole; `Down()` drops only the
+constraint; the script's order inside one transaction).
 
 ## Rollout (expand, then contract)
 - **Deploy order: web first, then api.** Until the Phase 5 web ships, a claim made with Start review cannot be released
@@ -112,15 +119,40 @@ fails with 55P03, rolls back, leaves no session setting and succeeds on the retr
   Accept and Reject and get 409 `not_assignee`. The api bump for this change is therefore held until the Phase 5 web
   has rolled out; that web tolerates an older api (the new fields are additive and it copes without them). This is an
   exception to the runbook's "api first when the OpenAPI document changed", which assumes the web needs the new api.
-- **Now (expand).** The column is nullable with no CHECK. Pods from before this change keep working during a rolling
-  deploy, but they ignore the column: a dispute one of them puts under review has no assignee (any agent may decide
-  it, which is why the guard tolerates null), and an accept, reject or customer withdrawal of a claimed dispute served
-  by one of them leaves a stale non-null assignee on a row that is no longer UnderReview. The projections show an
-  assignee only while UnderReview, so neither shows, but both violate `(status = 'UnderReview') = (assignee_id IS NOT
-  NULL)`. Old web clients ignore the new fields.
-- **Contract (a later change), only after the Phase 4 api has fully rolled out** (no old pod serving, including after a
-  rollback). In order: backfill the assignee of UnderReview rows that have none; clear `assignee_id` on rows that are
-  not UnderReview; `ADD CONSTRAINT ck_disputes_assignee CHECK ((status = 'UnderReview') = (assignee_id IS NOT NULL))
-  NOT VALID`; `VALIDATE CONSTRAINT ck_disputes_assignee`; drop the null tolerance in `Dispute.Transition`. With an old
-  pod still serving after the CHECK, every accept, reject or withdrawal of a claimed dispute and every start review it
-  served would fail. After that step, rolling the api back past this change needs a forward fix, for the same reason.
+- **Expand (PR 59).** The column was nullable with no CHECK. Pods from before that change kept working during its
+  rolling deploy, but they ignore the column: a dispute one of them put under review had no assignee (so the guard then
+  let any agent decide it), and an accept, reject or customer withdrawal of a claimed dispute served by one of them
+  left a stale non-null assignee on a row that was no longer UnderReview. Neither showed (the projections send an
+  assignee only while UnderReview), but both violate `(status = 'UnderReview') = (assignee_id IS NOT NULL)`.
+- **Contract (landed 2026-11-16), applied only once no pod older than PR 59 serves** (including after a rollback).
+  Migration `20261116140513_AgentAssignmentInvariant`, in one transaction (EF runs each migration in its own: observed with a
+  throwaway probe, an abort left `AgentAssignment`, applied earlier in the same run, committed; not pinned by a test.
+  That this migration leaves nothing behind when it aborts is tested): `SET LOCAL lock_timeout
+  = '5s'`; `LOCK TABLE disputes IN ACCESS EXCLUSIVE MODE`; assign each UnderReview row that has no assignee to the actor
+  of its latest move to UnderReview (the same rule and tie-break as `AgentAssignment`); clear `assignee_id` on every row
+  that is not UnderReview; if any UnderReview row still has none (no such move in its history), abort with `RAISE
+  EXCEPTION` naming the count and the runbook step, inventing nobody; then add `ck_disputes_assignee`, validated.
+  `Dispute.Transition` lost its null tolerance in the same change. The "others" filter's C# lost its explicit null
+  case, but the SQL is unchanged (EF's null semantics still emit `assignee_id <> @me OR assignee_id IS NULL`); the IS
+  NULL arm now matches nothing.
+  - Rejected: `ADD CONSTRAINT ... NOT VALID` then `VALIDATE CONSTRAINT`. Both statements would run in the migration's
+    one transaction, and ADD CONSTRAINT takes ACCESS EXCLUSIVE until that transaction ends, so the VALIDATE scan would
+    run under the same lock: no gain. Splitting the VALIDATE out with `suppressTransaction` would run it with no
+    `lock_timeout` (`SET LOCAL` needs a transaction) and could leave a NOT VALID constraint with no history row, which
+    the rerun would trip over. Rejected too: the CHECK added `NOT VALID` in this migration and validated in a second
+    one, which runs `VALIDATE` in its own transaction (own `SET LOCAL`) under SHARE UPDATE EXCLUSIVE, so the scan does
+    not block reads or writes. It buys nothing at this table's size (the scan is short) for a second migration, a window
+    in which the constraint exists unvalidated, and a second ordered deploy step.
+  - The cost of the choice. While `LOCK TABLE` waits for the lock, every new query on disputes from the live pods
+    (reads included) queues behind it: up to 5 s per attempt (`lock_timeout`), not indefinitely, and again on each retry
+    of a 55P03 (EF's retries, the migrate Job's, the sync's). Once held, the lock lasts two UPDATEs and one scan, short
+    at this size. The API's statement_timeout is also 5 s, so a query queued for nearly the whole wait plus the hold can
+    be cancelled (57014) and its request fails; the 10 s command timeout is not the binding limit.
+  - Taking the lock first means no write lands between the clean-up and the CHECK, and the UPDATEs' ROW EXCLUSIVE never
+    has to be upgraded while an app transaction waits on one of their row locks (a deadlock).
+- **Rolling back after the contract step.** A PR 59 or later api works against the CHECK (it always writes the pair
+  consistently). An api older than PR 59 would fail every start review and every decision or withdrawal of a claimed
+  dispute with 23514, answered 500 (`DbErrorTranslator` maps only unique violations); it would not crash-loop, since
+  the api never checks the migration history and its readiness check is `SELECT 1`. So a rollback past PR 59 needs a
+  forward fix, not a bump revert. `Down()` drops only the constraint, but it is for design-time tooling (`dotnet ef
+  database update`): the migrate Job only ever migrates forward, and an older image ignores a migration it does not know.
