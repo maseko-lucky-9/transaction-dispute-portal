@@ -4,7 +4,7 @@ import { describeBlockReasons, describeViolation } from "./dispute-reasons";
 
 describe("describeViolation", () => {
   it.each([
-    ["not_posted", "Pending transactions can't be disputed yet"],
+    ["not_posted", "Only posted transactions can be disputed"],
     ["not_debit", "Only debits can be disputed"],
     ["window_expired", "The 120-day dispute window has closed"],
     ["already_disputed", "This transaction already has a dispute"],
@@ -39,6 +39,28 @@ describe("describeBlockReasons", () => {
     expect(describeBlockReasons([])).toEqual(["This transaction can't be disputed"]);
     expect(describeBlockReasons(["x", "y"])).toEqual(["This transaction can't be disputed"]);
     expect(describeBlockReasons(["not_posted", "not_debit"])).toHaveLength(2);
+  });
+
+  it("says why a transaction is not posted from its status, since one code covers both", () => {
+    expect(describeBlockReasons(["not_posted"], "Pending")).toEqual([
+      "Pending transactions can't be disputed yet",
+    ]);
+    expect(describeBlockReasons(["not_posted"], "Reversed")).toEqual([
+      "Reversed transactions can't be disputed",
+    ]);
+    expect(describeBlockReasons(["not_posted"])).toEqual([
+      "Only posted transactions can be disputed",
+    ]);
+    expect(describeBlockReasons(["not_posted"], "Posted")).toEqual([
+      "Only posted transactions can be disputed",
+    ]);
+  });
+
+  it("uses the status only for not_posted", () => {
+    expect(describeBlockReasons(["not_debit", "window_expired"], "Reversed")).toEqual([
+      "Only debits can be disputed",
+      "The 120-day dispute window has closed",
+    ]);
   });
 
   it("never uses the server's words for a block reason", () => {

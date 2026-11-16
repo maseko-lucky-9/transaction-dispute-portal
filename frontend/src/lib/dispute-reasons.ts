@@ -12,7 +12,8 @@ export type DisputeViolationCode =
   | "too_many_disputes_for_transaction";
 
 const MESSAGES: Record<DisputeViolationCode, string> = {
-  not_posted: "Pending transactions can't be disputed yet",
+  // One code for every status but Posted; describeBlockReasons narrows it by status.
+  not_posted: "Only posted transactions can be disputed",
   not_debit: "Only debits can be disputed",
   // "120" mirrors the server's DisputePolicyOptions.WindowDays default. The API sends only the
   // reason code, never the window length, so this number cannot follow a configuration change:
@@ -35,8 +36,24 @@ export function describeViolation(code: string, serverMessage?: string): string 
   return serverMessage?.trim() || FALLBACK;
 }
 
-/** Friendly sentences for a transaction's block reasons; never empty for a blocked row. */
-export function describeBlockReasons(reasons: readonly string[]): string[] {
-  const sentences = reasons.map((reason) => describeViolation(reason));
+/** `not_posted` in the words of the transaction's own status, when we know it. */
+const NOT_POSTED_BY_STATUS: Readonly<Record<string, string>> = {
+  Pending: "Pending transactions can't be disputed yet",
+  Reversed: "Reversed transactions can't be disputed",
+};
+
+/**
+ * Friendly sentences for a transaction's block reasons; never empty for a blocked row. The
+ * server sends `not_posted` for both a pending and a reversed transaction, so the row's
+ * status picks the sentence.
+ */
+export function describeBlockReasons(reasons: readonly string[], status?: string): string[] {
+  const byStatus =
+    status !== undefined && Object.hasOwn(NOT_POSTED_BY_STATUS, status)
+      ? NOT_POSTED_BY_STATUS[status]
+      : undefined;
+  const sentences = reasons.map((reason) =>
+    reason === "not_posted" && byStatus ? byStatus : describeViolation(reason),
+  );
   return sentences.length > 0 ? [...new Set(sentences)] : [FALLBACK];
 }

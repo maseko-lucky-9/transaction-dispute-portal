@@ -113,7 +113,7 @@ function DisputeAction({ item }: { item: TransactionItem }) {
     );
   }
 
-  const reasons = describeBlockReasons(item.disputeBlockReasons);
+  const reasons = describeBlockReasons(item.disputeBlockReasons, item.status);
   return (
     <div className="flex flex-col items-start gap-1">
       {/* aria-disabled (not `disabled`) keeps it focusable, so the reason is announced. */}
