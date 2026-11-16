@@ -36,6 +36,7 @@ public sealed class EndpointOutageTests(ApiFactory api)
     [
         // Customer routes: the Customer policy admits the session without the database, then CustomerScopeFilter maps the
         // subject to its customer row. That read is the first to fail, so each of these is refused before its own query runs.
+        // The reasons route is the exception: the PortalUser policy has no customer scope, so its own query is the first to fail.
         Customer("GET", "/api/v1/me", session => session.Request(HttpMethod.Get, "/api/v1/me"),
             "Reads the customer row for the subject."),
         Customer("GET", "/api/v1/transactions/", session => session.Request(HttpMethod.Get, "/api/v1/transactions"),
@@ -43,7 +44,7 @@ public sealed class EndpointOutageTests(ApiFactory api)
         Customer("GET", "/api/v1/transactions/{id:guid}", session => session.Request(HttpMethod.Get, "/api/v1/transactions/" + SomeId),
             "Customer scope lookup, then the transaction."),
         Customer("GET", "/api/v1/dispute-reasons/", session => session.Request(HttpMethod.Get, DisputeRequests.Reasons),
-            "The reasons are rows in dispute_reasons, not a constant."),
+            "Open to either role, so no customer scope lookup: the first read is its own, and the reasons are rows in dispute_reasons, not a constant."),
         Customer("GET", "/api/v1/disputes/", session => session.Request(HttpMethod.Get, DisputeRequests.Disputes),
             "Customer scope lookup, then the dispute page."),
         Customer("GET", "/api/v1/disputes/{id:guid}", session => session.Request(HttpMethod.Get, DisputeRequests.Disputes + "/" + SomeId),

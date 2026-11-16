@@ -11,10 +11,12 @@ a default, not a decision; flip it in `lib/transitions.ts` if you prefer neutral
 beside "Yes, reject" became `ghost` so the outlined confirm still outranks it. Inline links use the
 new `LINK` constant. Checked in a real browser, light and dark. The P2s and P3s are untouched.
 
-**New finding, not fixed.** The agent dispute page requests `/api/v1/dispute-reasons`
-(`agent-dispute-page.tsx:43`) and the API answers an agent with `403`, logged to the console on every
-load. The page still renders, and the mocked tests answer that route with `200`
-(`test/agent.ts:176`), so they cannot see it.
+**New finding, now fixed.** The agent queue (`agent-queue-page.tsx:110`) and dispute pages
+(`agent-dispute-page.tsx:43`) request `/api/v1/dispute-reasons`, and the API used to answer an agent
+with `403`, logged to the console on every load. The route is now open to either role
+(`Policies.PortalUser`), and the agent e2e test asserts that no `/api/` response on the agent pages is
+an error. The mocked tests answer that route with `200` (`test/agent.ts:176`), so they could never see
+it.
 
 ## Score against the recorded principles
 

@@ -19,11 +19,41 @@ import type { HttpHandler } from "msw";
 // dark is checked in a real browser (playwright-cli), not in this file.
 describe("accessibility (axe)", () => {
   it("has no violations in the signed-in shell", async () => {
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     const { container } = renderApp();
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet"); // axe runs on the settled page
 
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  describe("home page (a customer's recent transactions)", () => {
+    it("has no violations with the list loaded", async () => {
+      server.use(signedIn(), fakeTransactionsApi(makeTransactions(30)).handler);
+      const { container } = renderApp("/");
+      await screen.findByRole("table");
+
+      expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it("has no violations when the list is empty", async () => {
+      server.use(signedIn(), fakeTransactionsApi([]).handler);
+      const { container } = renderApp("/");
+      await screen.findByText("You have no transactions yet");
+
+      expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it("has no violations when the list failed to load", async () => {
+      server.use(
+        signedIn(),
+        http.get("/api/v1/transactions", () => problem(503, { code: "idp_unavailable" })),
+      );
+      const { container } = renderApp("/");
+      await screen.findByRole("alert");
+
+      expect(await axe(container)).toHaveNoViolations();
+    });
   });
 
   it("has no violations on the Sign in screen", async () => {

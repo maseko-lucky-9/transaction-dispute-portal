@@ -26,6 +26,34 @@ public sealed class AuthorizationPolicyTests
         Assert.Equal(allowed, result.Succeeded);
     }
 
+    [Theory]
+    [InlineData(new[] { Roles.Customer }, true)]
+    [InlineData(new[] { Roles.DisputeAgent }, true)]
+    [InlineData(new string[0], false)]
+    [InlineData(new[] { Roles.Customer, Roles.DisputeAgent }, false)]
+    public async Task PortalUserAdmitsEitherSingleRoleAndNothingElse(string[] roles, bool allowed)
+    {
+        AuthorizationResult result = await Authorization.AuthorizeAsync(Principal(roles), Policies.PortalUser);
+
+        Assert.Equal(allowed, result.Succeeded);
+    }
+
+    [Fact]
+    public async Task PortalUserRefusesAnAnonymousUser()
+    {
+        AuthorizationResult result = await Authorization.AuthorizeAsync(new ClaimsPrincipal(new ClaimsIdentity()), Policies.PortalUser);
+
+        Assert.False(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task BothRolesFailPortalUserWithTheRoleConflictReason()
+    {
+        AuthorizationResult result = await Authorization.AuthorizeAsync(Principal([Roles.Customer, Roles.DisputeAgent]), Policies.PortalUser);
+
+        Assert.Contains(result.Failure!.FailureReasons, reason => reason.Handler is SingleRoleRequirement);
+    }
+
     [Fact]
     public async Task BothRolesFailWithTheRoleConflictReason()
     {

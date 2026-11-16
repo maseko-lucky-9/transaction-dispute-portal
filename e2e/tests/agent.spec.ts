@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request, type Response } from '@playwright/test';
 import {
   api,
   DEMO,
@@ -30,6 +30,15 @@ function trackTransitions(page: Page): Request[] {
     if (r.method() === 'POST' && TRANSITIONS.test(new URL(r.url()).pathname)) sent.push(r);
   });
   return sent;
+}
+
+/** Every `/api/` response a page receives, so a test can say that nothing the page asked for was refused. */
+function trackApiResponses(page: Page): Response[] {
+  const seen: Response[] = [];
+  page.on('response', (r) => {
+    if (new URL(r.url()).pathname.startsWith('/api/')) seen.push(r);
+  });
+  return seen;
 }
 
 /** Axe evaluates strings in the page, which the CSP blocks by design: read CSP violations first. */
@@ -76,6 +85,7 @@ test('an agent reviews and accepts a customer dispute; the customer sees the out
   const agent = await agentContext.newPage();
   const customerViolations = await trackCspViolations(customer);
   const agentViolations = await trackCspViolations(agent);
+  const agentResponses = trackApiResponses(agent);
   const description = `${DESCRIPTION} Reference ${crypto.randomUUID().slice(0, 8)}.`;
   let disputeId = '';
 
@@ -178,6 +188,13 @@ test('an agent reviews and accepts a customer dispute; the customer sees the out
         agent.getByText(`Agent ${agentSubject.slice(0, 8)} changed the status from Under review to Accepted`),
       ).toBeVisible();
       await expectClean(agent, agentViolations);
+    });
+
+    await test.step('none of the API calls the agent pages made was refused', async () => {
+      // The review page reads the reason catalogue, which a customer-only route used to answer with a 403 on every load.
+      expect(agentResponses.map((r) => new URL(r.url()).pathname)).toContain('/api/v1/dispute-reasons');
+      const refused = agentResponses.filter((r) => r.status() >= 400);
+      expect(refused.map((r) => `${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`)).toEqual([]);
     });
 
     await test.step('the customer reloads and sees the resolution, the note and "Back-office", never who', async () => {
