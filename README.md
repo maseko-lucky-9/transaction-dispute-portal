@@ -2,7 +2,7 @@
 
 Customers view their bank transactions and dispute them, with a historic view of every dispute.
 
-> SE3 take-home. Backend `backend/src/`, frontend `frontend/`, E2E `e2e/`. Deeper material is in [docs/](docs/): the
+> Backend `backend/src/`, frontend `frontend/`, E2E `e2e/`. Deeper material is in [docs/](docs/): the
 > [runbook](docs/runbook.md), the [threat model and POPIA mapping](docs/threat-model.md), the
 > [AI-use disclosure](docs/ai-use.md), the [time log](docs/time-log.md), the [ADRs](docs/decisions/) and the
 > [system design](docs/design/transaction-dispute-portal-system-design.md).
@@ -88,26 +88,27 @@ image's build provenance (signed by `ci.yml` on `main` for that commit). Everyth
 
 ## Measured results
 
-Raw summary lines (macOS). Unit, Integration and Backend are from `main` at 781426e, 2026-11-05 (`scripts/coverage.sh` after
-`dotnet build -c Release -warnaserror`); Web is from the hardening-pass branch, 2026-11-04 (`npm run test:coverage`):
+Raw summary lines (macOS), all from `main` at `74b1d94`, 2026-11-16 (`dotnet build -c Release -warnaserror`, then
+`scripts/coverage.sh`; `npm run lint`, `typecheck`, `test:coverage` and `build` in `frontend/`):
 
 ```
-Unit        Passed!  - Failed:     0, Passed:   584, Skipped:     0, Total:   584, Duration: 2 s - DisputePortal.UnitTests.dll (net10.0)
-Integration Passed!  - Failed:     0, Passed:   416, Skipped:     0, Total:   416, Duration: 25 s - DisputePortal.IntegrationTests.dll (net10.0)
-Backend     line coverage, unit + integration merged: 91.81% (gate: scripts/coverage.sh fails below 80%)
-Web         Test Files  40 passed (40)
-                 Tests  1046 passed (1046)
-            Lines : 99.53% ( 857/861 )   Branches : 95.46% ( 715/749 )   (vitest v8 coverage; floor 80% in frontend/vite.config.ts)
-Build       dotnet build DisputePortal.slnx -c Release --no-restore -warnaserror: 0 Warning(s), 0 Error(s)
+Build       dotnet build DisputePortal.slnx -c Release -warnaserror: 0 Warning(s), 0 Error(s)
+Unit        Passed!  - Failed:     0, Passed:   708, Skipped:     0, Total:   708, Duration: 16 s - DisputePortal.UnitTests.dll (net10.0)
+Integration Passed!  - Failed:     0, Passed:   501, Skipped:     0, Total:   501, Duration: 54 s - DisputePortal.IntegrationTests.dll (net10.0)
+Backend     line coverage, unit + integration merged: 92.41% (gate: scripts/coverage.sh fails below 80%)
+Web         Test Files  50 passed (50)        (re-run on main at ffac818 after #64)
+                 Tests  1234 passed (1234)
+            Lines : 99.61% ( 1035/1039 )   Branches : 96.28% ( 934/970 )   (vitest v8 coverage; floor 80% in frontend/vite.config.ts)
+E2E         24 passed (42.4s)   (clean clone of 74b1d94, see "Verified on a clean clone"); 24 passed (1.2m) again on a clean clone of ffac818
 ```
 
-Measured by CI and earlier local runs, not re-run in the same session as the lines above:
+From CI (the E2E count was also re-run locally, above) and earlier local runs:
 
 | Figure | Value | Where it is gated or reported |
 |---|---|---|
-| E2E (Playwright, full compose stack, real Keycloak) | 20 tests (auth 6, back-channel logout 2, transactions 5, disputes 5, agent 2); `20 passed` twice locally on an isolated stack (`feat/backchannel-logout`, more than 60 s apart), and once more after the review fixes (`20 passed (18.0s)`) | CI job `e2e` |
-| Stryker.NET mutation score, `DisputePortal.Domain` | 86.80% (171 killed, 25 survived, 1 not covered; reproduced locally this session) | CI job `stryker`, report only (`backend/tests/DisputePortal.UnitTests/stryker-config.json` has `break: 0`) |
-| Manual mutation checks (window rule, Owner filter, If-Match, plus CSRF, Luhn, 23505, partial unique index, concurrency; back-channel logout) | 14 mutations all caught, 1 probe survived (likely an equivalent mutant); back-channel logout: 55 mutations (53 code, nginx rule, Keycloak URL) all caught, after one equivalent mutant was removed from the code and two tests were strengthened | [docs/mutation-checks.md](docs/mutation-checks.md) with raw output |
+| E2E (Playwright, full compose stack, real Keycloak) | 24 tests (auth 7, back-channel logout 2, transactions 5, disputes 5, agent 2, work assignment 3); job `e2e` green on `main` at `13a50f7` (run 43890281574) | CI job `e2e` |
+| Stryker.NET mutation score, `DisputePortal.Domain` | 87.26% (185 killed, 26 survived, 1 not covered; CI run 43890281574 on `main` at `13a50f7`) | CI job `stryker`, report only (`backend/tests/DisputePortal.UnitTests/stryker-config.json` has `break: 0`) |
+| Manual mutation checks (window rule, Owner filter, If-Match, plus CSRF, Luhn, 23505, partial unique index, concurrency; back-channel logout) | 14 mutations all caught, 1 probe survived (likely an equivalent mutant); back-channel logout: 55 mutations (53 code, nginx rule, Keycloak URL) all caught, after one equivalent mutant was removed from the code and two tests were strengthened; dispute assignment (ADR-019): the review fixes and the assignee invariant, results in their own sections | [docs/mutation-checks.md](docs/mutation-checks.md) with raw output |
 | CodeQL (C#, JavaScript/TypeScript, Actions) | first analysis: 0, 1, 0 results; the one finding (a regex in the CSP build guard) is fixed | GitHub code scanning (default setup) |
 
 Latency (k6 smoke test, `perf/k6/smoke.js`, two 3-minute runs on a laptop with three API replicas, 12 req/s reads plus
@@ -118,20 +119,23 @@ at about 10% CPU) and it does not measure availability, so the 99.9% target rema
 
 ## Verified on a clean clone
 
-A fresh clone of `main` at `15c3b67` was brought up with `docker compose -p dp-verify up --build -d` (no `.env`, no make),
-isolated from any other stack. Raw observations from that run (2026-11-04):
+A fresh clone of `main` at `74b1d94` was brought up with
+`APP_PORT=9090 AUTH_PORT=9190 DATA_SUBNET=10.231.38.0/24 APP_SUBNET=10.231.39.0/24 docker compose -p dp-verify up --build -d --wait`
+(no `.env`, no make), isolated from another stack running on the default ports and subnets. Raw observations from that
+run (2026-11-16):
 
 | Check | Result |
 |---|---|
-| Startup | api, web, postgres, redis, keycloak healthy in 38.6 s with cached layers; `bootstrap` and `migrate` exit 0 |
+| Startup | api, web, postgres, redis, keycloak healthy and vault running in 59 s with cached layers; `bootstrap`, `migrate` and `keycloak-users` exit 0 |
 | No cookie | `GET /api/v1/disputes` with `X-CSRF: 1` is `401 application/problem+json`, no redirect |
-| No `X-CSRF` | `403 csrf_required`. CSRF is checked before authentication, so a bare `curl` with no headers gets 403, not 401. The one exception is a GET or HEAD of the flag-gated API docs (see "API docs") |
-| `--scale api=3` | 24 requests on one session cookie all 200, spread 9 / 9 / 8 across the three replicas (nginx upstream log) |
-| `APP_PORT=9090` | login works end to end on fresh volumes; fails after a plain `down` (see "Run it") |
-| Headers | `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP and a strict CSP on every app location; `no-store` on `/api` and `/bff`; auth origin `/admin` and `/realms/master` return 404 |
-| E2E | `17 passed (15.4s)` |
-| Observability | with `OTEL_ENDPOINT` set: `disputes_submitted_total{reason=...} = 1`, `security_events_total{type="csrf_rejected"} = 1`, `{type="authz_denied"} = 1`; one Tempo trace for the submit with redis and 9 Npgsql spans. No Grafana screenshot taken |
-| GHCR | `dispute-portal-api` and `dispute-portal-web` tags `15c3b67a4dec50a4de892c31deadff8b64bcb650` and `latest` return 200 with the same digest |
+| No `X-CSRF` | `403 csrf_required` problem document with a `traceId`. CSRF is checked before authentication, so a bare `curl` with no headers gets 403, not 401. The one exception is a GET or HEAD of the flag-gated API docs (see "API docs") |
+| `--scale api=3` | after one browser sign-in, 24 requests on that session cookie all 200, spread 8 / 8 / 8 across the three replicas (nginx JSON access log, `upstream` field) |
+| `APP_PORT=9090` | the whole run used 9090 / 9190 on fresh volumes: sign-in, E2E and the browser pass below all worked |
+| Headers | `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP and a strict CSP on `/`, `/api` and `/bff`; `no-store` on `/api` and `/bff`; auth origin `/admin` and `/realms/master` return 404 |
+| E2E | `24 passed (42.4s)` with `COMPOSE_PROJECT_NAME=dp-verify` (the admin-delete back-channel test runs `kcadm` in that project's Keycloak; without it, it reaches the other stack's Keycloak and fails) |
+| Browser pass | customer (home, transactions, disputes, a dispute, the dispute form) and agent (queue, a dispute) in light and dark: 14 pages, 0 axe violations (WCAG 2.1 A/AA tags), 0 CSP violations (repeated on a clean clone of `ffac818`, after #64, with the same result); the only console error per context is the expected `401` from `/bff/user` before sign-in. Screenshots in [docs/screenshots/](docs/screenshots/) |
+| Observability | not re-run on `74b1d94`. On `15c3b67` (2026-11-04) with `OTEL_ENDPOINT` set: `disputes_submitted_total{reason=...} = 1`, `security_events_total{type="csrf_rejected"} = 1`, `{type="authz_denied"} = 1`; one Tempo trace for the submit with redis and 9 Npgsql spans |
+| GHCR | publishing is path-scoped, so `74b1d94` (Keycloak theme only) published nothing. `dispute-portal-api:latest` resolves to the digest of the `13a50f7` tag and `dispute-portal-web:latest` to the `1f1f1a6` tag (`docker buildx imagetools inspect`, anonymous pull) |
 
 ## Criteria → evidence
 
@@ -148,7 +152,7 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 | Customers view their transactions | `backend/src/DisputePortal.Api/Features/Transactions/`, `frontend/src/components/transactions-page.tsx` | `TransactionsTests.WalkingEveryPageReturnsAllOfMyTransactionsInKeysetOrderWithNoDuplicatesOrGaps`; e2e `customer pages through their own transactions without duplicates, with a11y and CSP clean` | |
 | Customers dispute a transaction | `Features/Disputes/`, `backend/src/DisputePortal.Domain/Disputes/Dispute.cs`, `frontend/src/components/dispute-form-page.tsx` | `DisputesTests.SubmittingCreatesADisputeWithLocationETagAndOneTimelineEntry`; e2e `a customer disputes a transaction, sees it in history, replays it safely, withdraws it and disputes again` | |
 | Historic view of disputed transactions | `GET /api/v1/disputes` in `Features/Disputes/DisputesEndpoints.cs`; `frontend/src/components/disputes-page.tsx`, `dispute-timeline.tsx` | `DisputesTests.TheHistoryWalksEveryStatusNewestFirstAndFiltersByStatus`; `TheDisputeShowsInMyHistoryAndBlocksTheTransaction`; `frontend/src/components/disputes-page.test.tsx` | |
-| Runnable Dockerfile | `Dockerfile` (targets `web` and `api`, default `api`; chiseled non-root runtime, digest-pinned bases) | CI job `images` builds both targets and runs Trivy; CI job `e2e` runs the built images through `docker compose up` twice (second `up` proves bootstrap is idempotent) | CI starts the stack with `--no-build` from the built images; the `up --build` path is the one in this README and was not re-run for this change |
+| Runnable Dockerfile | `Dockerfile` (targets `web` and `api`, default `api`; chiseled non-root runtime, digest-pinned bases) | CI job `images` builds both targets and runs Trivy; CI job `e2e` runs the built images through `docker compose up` twice (second `up` proves bootstrap is idempotent); the `up --build` path was run on a clean clone of `74b1d94` (see "Verified on a clean clone") | CI starts the stack with `--no-build` from the built images |
 | README with build, run and test | this file, "Run it" and "Build and test" | Same commands are what `.github/workflows/ci.yml` runs | A clean-clone run by a second person is [UNVERIFIED] |
 
 ### Graded criteria named in the plan
@@ -158,9 +162,9 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 | Requirements fit | US1-US5 and FR/NFR table below | Every row below names a test | NFR-5 (SLOs) and the retention part of NFR-7 have no test (see below) |
 | Architecture and scalability | [ADR-001](docs/decisions/001-vertical-slices-and-domain-project.md), [ADR-002](docs/decisions/002-ef-core-repositories-unit-of-work.md), [ADR-006](docs/decisions/006-keyset-pagination-and-signed-cursors.md); stateless API, nginx upstream `resolve` in `frontend/nginx/default.conf.template`, keyset indexes | `TransactionPlanTests.TheKeysetQueryIsAnIndexScanWithNoSortOn50kRows`; `ArchitectureTests.TheDomainReferencesNeitherEfCoreNorAspNetCore`; `ProductionAuthStackTests.ParallelRefreshesAcrossTwoReplicasRedeemOnceAndKeepTheSession`; `BackchannelLogoutTests.AReplayToAnotherReplicaIsRefusedToo`; `scripts/check-constraints.sh` | `docker compose up --scale api=3` was not exercised by any test in the repository (back-channel logout across three replicas was checked by hand, ADR-011: sessions signed in on one replica were ended by Keycloak's call to another, and the call failed over when that replica stopped); the capacity numbers in the design doc are assumptions (the doc says so) |
 | Security | [Threat model](docs/threat-model.md), ADR-004, 005, 007, 008 | Rows in the security table below | Residual risks listed in "Known limits" and the threat model |
-| Domain modelling | `backend/src/DisputePortal.Domain/` (aggregate, transition table, eligibility chain, `Money`), [ADR-003](docs/decisions/003-dispute-state-machine.md) | `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable`, `TerminalStatusesHaveNoWayOut`; `DisputeEligibilityPolicyTests.TheWindowIncludesDay120AndEndsOnDay121`; `DisputeEligibilityPolicyTests`; Stryker 86.80% on this project | Stryker figure is from an earlier run on the same commit |
+| Domain modelling | `backend/src/DisputePortal.Domain/` (aggregate, transition table, eligibility chain, `Money`), [ADR-003](docs/decisions/003-dispute-state-machine.md) | `DisputeLifecycleTests.EveryMoveIsAllowedExactlyWhenItIsInTheTable`, `TerminalStatusesHaveNoWayOut`; `DisputeEligibilityPolicyTests.TheWindowIncludesDay120AndEndsOnDay121`; `DisputeEligibilityPolicyTests`; Stryker 87.26% on this project | Stryker figure is from CI on `13a50f7`, the last commit that changed backend code |
 | API contracts | `docs/openapi.json` (code-first, committed), [ADR-007](docs/decisions/007-http-status-policy-and-idempotency.md), RFC 9457 errors with `code` and `traceId` | `OpenApiTests.TheDocumentMatchesTheCommittedSnapshot`, `TheAgentRoutesDocumentIfMatchTheETagAnd412And428`, `TakeNextDocuments200WithAnETagAnd204AndTheQueueItsAssignmentFilter`; `frontend/src/api/contract.test.ts`; CI step "TS types match the committed OpenAPI snapshot" | `api.http` (41 requests: 37 checked against a live stack; the agent customer-transactions one and the three assignment ones (the `assignment` filter, take next, release) are new and were not run against one; not tested in VS Code or JetBrains) lets a reviewer call every endpoint |
-| Testing | [Test catalogue](#test-catalogue) | Counts above; CI | Manual mutation-check output (plan: "paste the output") is not in the repository [UNVERIFIED] |
+| Testing | [Test catalogue](#test-catalogue) | Counts above; CI; manual mutation checks with raw output in [docs/mutation-checks.md](docs/mutation-checks.md) | Manual checks cover the mutations listed there (including the ADR-019 assignment review fixes and invariant), not every code path |
 | Observability | `backend/src/DisputePortal.Api/Shared/Observability/`, `frontend/nginx/default.conf.template` (JSON access log with `$request_id`), [runbook](docs/runbook.md) | `DisputeMetricsTests`, `Bola404MetricTests`, `ResolutionDurationMetricTests`, `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`, `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes` | No automated test asserts the OTLP export or the Grafana view. It was checked by hand on a clean clone (see "Verified on a clean clone"); that check is not repeatable in CI |
 
 ### User stories and requirements (`specs/001-transaction-disputes/spec.md`)
@@ -178,14 +182,14 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 | US2.6 inline errors, no request sent | `frontend/src/lib/dispute-form.ts`, `components/dispute-form.tsx` | `frontend/src/components/dispute-form-page.test.tsx`, `frontend/src/lib/dispute-form.test.ts`; e2e `an invalid filter shows inline errors and sends no request` (transactions filters; the dispute-form case is covered by the Vitest files) |
 | US3 history with timeline showing actor type, never the agent's identity (FR-3) | `Features/Disputes/TimelineEntry.cs` | `DisputeSecurityTests.TheTimelineNeverCarriesActorIds`; e2e `an agent reviews and accepts a customer dispute; the customer sees the outcome but not who decided` |
 | US4 withdraw: 412 stale, 428 missing `If-Match`, 409 terminal (FR-4) | `Features/Disputes/DisputeCommands.cs`, `DisputeETag.cs` | `DisputeSecurityTests.WithdrawingWithoutIfMatchIs428`, `AStaleOrLooseIfMatchIs412WithTheCurrentETag`, `AfterAWithdrawalTheOldETagIs412AndTheNewOne409InvalidTransition`; `DisputeConcurrencyTests.TwoWithdrawalsWithTheSameETagGiveOne200AndOne412WithTheNewETag` |
-| US5 agent queue and transitions; agent cannot act as customer; customer cannot reach `/agent`; dual-role refused; views logged; one agent per dispute: claim, take next, release, only the reviewer decides ([ADR-019](docs/decisions/019-dispute-assignment-claim-take-next-release.md)) | `Features/Agent/`, `Shared/Security/SingleRoleRequirement.cs`, `Domain/Disputes/Dispute.cs` (`AssigneeId`, `NotAssigneeException`) | `AgentTransitionTests.AValidMoveIs200WithTheNewETagAndTheAgentAsActor`, `ACustomerIs403AndADualRoleSessionIs403RoleConflict`; `AgentQueueTests`; `AgentAssignmentTests`; `AgentTakeNextTests.TwoAgentsTakingNextAtOnceGetDifferentDisputes`, `EightParallelTakeNextsNeverHandOutADisputeTwice`; `DisputeLifecycleTests.AnotherAgentCannotDecideOrReleaseAndNothingChanges`; `DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; `AgentCustomerTransactionsTests`, `AgentCustomerTransactionsAuditTests`; `DisputeSecurityTests.AnAgentIs403OnEveryCustomerDisputeRoute`; `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`; e2e `the agent role is separate from the customer role`; e2e `take next, the reviewer-only rule and the customer view of an assigned dispute` (written, not yet run in CI) |
+| US5 agent queue and transitions; agent cannot act as customer; customer cannot reach `/agent`; dual-role refused; views logged; one agent per dispute: claim, take next, release, only the reviewer decides ([ADR-019](docs/decisions/019-dispute-assignment-claim-take-next-release.md)) | `Features/Agent/`, `Shared/Security/SingleRoleRequirement.cs`, `Domain/Disputes/Dispute.cs` (`AssigneeId`, `NotAssigneeException`) | `AgentTransitionTests.AValidMoveIs200WithTheNewETagAndTheAgentAsActor`, `ACustomerIs403AndADualRoleSessionIs403RoleConflict`; `AgentQueueTests`; `AgentAssignmentTests`; `AgentTakeNextTests.TwoAgentsTakingNextAtOnceGetDifferentDisputes`, `EightParallelTakeNextsNeverHandOutADisputeTwice`; `DisputeLifecycleTests.AnotherAgentCannotDecideOrReleaseAndNothingChanges`; `DisputeSecurityTests.TheCustomerViewNeverCarriesTheAssignee`; `AgentCustomerTransactionsTests`, `AgentCustomerTransactionsAuditTests`; `DisputeSecurityTests.AnAgentIs403OnEveryCustomerDisputeRoute`; `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`; e2e `the agent role is separate from the customer role`; e2e `two agents taking next at the same moment get different disputes`, `only the reviewing agent may decide or release, and the customer never sees who`, `the workbench: take next lands under "In review by you", a colleague can only read it, and after release can claim it` (`frontend/src/components/agent-workbench.tsx`) |
 | FR-5 sign in and out through Keycloak, roles `customer` and `dispute-agent` | `Features/Bff/`, `deploy/keycloak/dispute-portal-realm.json` | e2e `customer signs in through Keycloak, sees the shell, no CSP violations, no axe violations`, `after logout the password is asked for again (Keycloak session really ended)`; `ProductionAuthStackTests.LogoutDeletesTheTicketAndRedirectsToKeycloakEndSessionWithIdTokenHint` |
 | FR-6 reason catalogue | `Features/Disputes/DisputeReasonRepository.cs` | `DisputesTests.TheReasonCatalogueListsSevenReasonsInDisplayOrder` |
 | NFR-2 stateless, scalable | ADR-001, ADR-006 | see "Architecture and scalability" above |
 | NFR-3 reliability: idempotent submit, optimistic concurrency, readiness, bounded startup retry | `Shared/Health/`, `Shared/Secrets/VaultConfigurationProvider.cs`, `Shared/Persistence/PersistenceRegistration.cs` | `DisputeConcurrencyTests.*`; `ManagementPortTests.HealthAnswersOnTheManagementPort`; `VaultConfigurationProviderTests.AnUnavailableVaultFailsAfterTheBoundedRetry`, `TheRetryReallyBacksOff`; `ProductionAuthStackTests.WhenRedisIsDownLoginAndSessionValidationFailClosedWith503` |
 | NFR-4 observability | see "Observability" above | see above |
 | NFR-5 SLOs 99.9% / p95 300 ms reads, 500 ms writes | [runbook](docs/runbook.md) (assumed targets), `perf/k6/smoke.js`, [docs/perf.md](docs/perf.md) | k6 smoke run (manual, not in CI): read p95 about 8 ms, write p95 18 to 21 ms at 12 req/s. **Does not prove** capacity, tail behaviour under saturation, or the 99.9% availability target |
-| NFR-6 one-command start, CI runs full-stack E2E | `docker-compose.yml`, CI job `e2e` | CI job `e2e` (20 Playwright tests) |
+| NFR-6 one-command start, CI runs full-stack E2E | `docker-compose.yml`, CI job `e2e` | CI job `e2e` (24 Playwright tests) |
 | NFR-7 POPIA: masked account numbers, no PII in logs, agent views logged, retention | `Features/Transactions/Account.cs` (`MaskedNumber`), [threat model](docs/threat-model.md) | `AgentTransitionTests.TheNoteTextIsNeverLoggedOnlyIdsAndCodes`; `AgentDisputeDetailTests.EverySuccessfulViewIsAuditedWithIdsOnlyAndAMissingOneIsNot`. **Retention is a documented design, not implemented code** |
 
 ### Security controls
@@ -215,17 +219,17 @@ test names are xUnit methods (`backend/tests/DisputePortal.*Tests/<File>.cs`), V
 
 ## Test catalogue
 
-| Layer | Where | Count (commit `15c3b67`; Unit, Integration and E2E on `feat/backchannel-logout`) | Proves | Does not prove |
+| Layer | Where | Count (`main` at `74b1d94`, 2026-11-16) | Proves | Does not prove |
 |---|---|---|---|---|
-| Unit (xUnit 2.9.3) | `backend/tests/DisputePortal.UnitTests/` | 626 | The state-machine table, every eligibility rule and the 119/120/121-day boundary with a fake clock, `Money`, the card and ID detector (shared cases with the web), request validators, cursor protectors, CSRF rule and its management-port exemption, the management-port split (port, internal host, peer network), logout-token validation (one negative test per Back-Channel Logout rule), refresh single-flight, Vault provider retry and the Vault TLS pin (against a real HTTPS listener on 127.0.0.1), seeding, ETag format | Anything that needs real SQL, grants, HTTP, Redis or Keycloak. Services run against substitutes, so repository SQL is not exercised here |
-| Integration (WebApplicationFactory + Testcontainers Postgres and Redis, connecting as `dispute_app`) | `backend/tests/DisputePortal.IntegrationTests/` | 416 | Endpoint behaviour and status codes, owner filter and BOLA 404s, idempotent submit, 23505 backstop and forced interleavings, `If-Match` 412/428, DB grants and append-only history, production auth stack (401 not 302, CSRF, cookie flags, ticket encryption, refresh, Redis down), back-channel logout (ticket and sid-index deletion, generic refusals, replay across two hosts, reachability by port, host and peer, per-peer limit, no ids in logs), keyset plan (index scan, no Sort, 50k rows), OpenAPI snapshot, architecture rules, security metrics | A real Keycloak (the IdP is a test double here; e2e covers the real one), real nginx headers, TLS, browser behaviour, multi-replica scale-out beyond the two-replica refresh test, performance |
-| Frontend (Vitest + Testing Library + MSW) | `frontend/src/**/*.test.ts(x)` | 1046 in 40 files (`npm run test:coverage`, 2026-11-04: `Tests  1046 passed (1046)`) | Form and filter validation, shared `validation-cases.json` parity, server-error mapping (400, 409, 412, 422), focus and `traceId` display, role guards, session gate, axe checks in `a11y.test.tsx`, generated-type contract | The real API (MSW stubs it), real CSP enforcement, real browsers beyond jsdom |
-| E2E (Playwright, Chromium, full compose stack) | `e2e/tests/*.spec.ts` | 20 | Real login and logout through Keycloak, back-channel logout from real Keycloak (a logout at Keycloak itself; an admin deleting the session with `kcadm`), journeys for customer and agent, BOLA over HTTP, CSRF, per-location headers, nginx's own 404 for the back-channel path, zero CSP violations, axe, Keycloak admin 404 | Other browsers (Safari unverified), load, failure injection, anything that needs a second replica |
-| Coverage gate | `scripts/coverage.sh`, CI job `backend` | 91.81% line (`main` at 781426e) | Total line coverage of `DisputePortal.Api` and `DisputePortal.Domain` (migrations excluded) stays at or above 80% | That the covered lines are asserted on; branch coverage is not gated. The frontend has its own 80% threshold in `frontend/vite.config.ts` |
-| Stryker.NET (non-blocking) | CI job `stryker`, `backend/tests/DisputePortal.UnitTests/stryker-config.json` | 86.80% on Domain | How many injected Domain mutants the unit tests kill. Not in `ci-ok`'s `needs`, so it can never block a merge | Mutation strength of the API, authorization or SQL code (only `DisputePortal.Domain` is mutated) |
+| Unit (xUnit 2.9.3) | `backend/tests/DisputePortal.UnitTests/` | 708 | The state-machine table, every eligibility rule and the 119/120/121-day boundary with a fake clock, `Money`, the card and ID detector (shared cases with the web), request validators, cursor protectors, CSRF rule and its management-port exemption, the management-port split (port, internal host, peer network), logout-token validation (one negative test per Back-Channel Logout rule), refresh single-flight, Vault provider retry and the Vault TLS pin (against a real HTTPS listener on 127.0.0.1), seeding, ETag format | Anything that needs real SQL, grants, HTTP, Redis or Keycloak. Services run against substitutes, so repository SQL is not exercised here |
+| Integration (WebApplicationFactory + Testcontainers Postgres and Redis, connecting as `dispute_app`) | `backend/tests/DisputePortal.IntegrationTests/` | 501 | Endpoint behaviour and status codes, owner filter and BOLA 404s, idempotent submit, 23505 backstop and forced interleavings, `If-Match` 412/428, DB grants and append-only history, production auth stack (401 not 302, CSRF, cookie flags, ticket encryption, refresh, Redis down), back-channel logout (ticket and sid-index deletion, generic refusals, replay across two hosts, reachability by port, host and peer, per-peer limit, no ids in logs), keyset plan (index scan, no Sort, 50k rows), OpenAPI snapshot, architecture rules, security metrics | A real Keycloak (the IdP is a test double here; e2e covers the real one), real nginx headers, TLS, browser behaviour, multi-replica scale-out beyond the two-replica refresh test, performance |
+| Frontend (Vitest + Testing Library + MSW) | `frontend/src/**/*.test.ts(x)` | 1234 in 50 files (`npm run test:coverage` on `ffac818`: `Tests  1234 passed (1234)`) | Form and filter validation, shared `validation-cases.json` parity, server-error mapping (400, 409, 412, 422), focus and `traceId` display, role guards, session gate, axe checks in `a11y.test.tsx`, generated-type contract | The real API (MSW stubs it), real CSP enforcement, real browsers beyond jsdom |
+| E2E (Playwright, Chromium, full compose stack) | `e2e/tests/*.spec.ts` | 24 | Real login and logout through Keycloak, back-channel logout from real Keycloak (a logout at Keycloak itself; an admin deleting the session with `kcadm`), journeys for customer and agent, work assignment (two agents racing take next, reviewer-only decide and release, the workbench), BOLA over HTTP, CSRF, per-location headers, nginx's own 404 for the back-channel path, zero CSP violations, axe, Keycloak admin 404 | Other browsers (Safari unverified), load, failure injection, anything that needs a second replica |
+| Coverage gate | `scripts/coverage.sh`, CI job `backend` | 92.41% line | Total line coverage of `DisputePortal.Api` and `DisputePortal.Domain` (migrations excluded) stays at or above 80% | That the covered lines are asserted on; branch coverage is not gated. The frontend has its own 80% threshold in `frontend/vite.config.ts` |
+| Stryker.NET (non-blocking) | CI job `stryker`, `backend/tests/DisputePortal.UnitTests/stryker-config.json` | 87.26% on Domain (CI, `13a50f7`) | How many injected Domain mutants the unit tests kill. Not in `ci-ok`'s `needs`, so it can never block a merge | Mutation strength of the API, authorization or SQL code (only `DisputePortal.Domain` is mutated) |
 | Trivy | CI job `images` | n/a | No fixable CRITICAL finding in the `api` and `web` images at build time (`--ignore-unfixed`, `.trivyignore` empty) | HIGH findings, unfixed findings, runtime exposure, the base-image supply chain beyond digest pinning |
 | gitleaks | pre-commit hook (if installed) and CI job `secrets` | n/a | No secret matching the default ruleset in the checked history; the documented demo passwords are the only allowlist entry (`.gitleaks.toml`) | Secrets that do not match a rule; secrets outside git |
-| Other CI gates | `.github/workflows/ci.yml`, `scripts/check-constraints.sh` | n/a | path scoping (`scripts/test-changed-paths.sh`), the homelab bump scripts (`scripts/test-bump-homelab-image.sh`, `scripts/test-open-homelab-bump-pr.sh`), `-warnaserror` build, `dotnet format whitespace`, locked restore, vulnerable packages, `npm audit --audit-level=high`, lint, typecheck, TS types equal the OpenAPI snapshot, banned packages and unpinned images | CodeQL: default setup reported `not-configured` by `gh api repos/maseko-lucky-9/transaction-dispute-portal/code-scanning/default-setup` on 2026-11-04, so there is no CodeQL scan |
+| Other CI gates | `.github/workflows/ci.yml`, `scripts/check-constraints.sh` | n/a | path scoping (`scripts/test-changed-paths.sh`), the homelab bump scripts (`scripts/test-bump-homelab-image.sh`, `scripts/test-open-homelab-bump-pr.sh`), `-warnaserror` build, `dotnet format whitespace`, locked restore, vulnerable packages, `npm audit --audit-level=high`, lint, typecheck, TS types equal the OpenAPI snapshot, banned packages and unpinned images; the Keycloak login theme drift check against homelab-infra (`.github/workflows/keycloak-theme-sync.yml`, [ADR-018](docs/decisions/018-keycloak-theme-drift-check.md)); CodeQL default setup (C#, JavaScript/TypeScript, Actions) on every push to `main` | Whether CodeQL findings block a merge: it is not part of `ci-ok` |
 
 ## Known limits (deliberate, with the upgrade path)
 
@@ -250,9 +254,12 @@ The plan's cut line, in order, is: dark/light screenshots, then the Stryker job,
 plan schedules the decision for 2026-11-08.
 
 - Stryker: kept, as a non-blocking CI job and a reported score.
-- Agent UI: built (`frontend/src/components/agent-queue-page.tsx`, `agent-dispute-page.tsx`), covered by Vitest and two E2E tests.
-- Dark/light screenshots: none are committed in this repository. The theme toggle exists (`frontend/src/components/theme-toggle.tsx`).
-- Whether any of the three is formally cut is not recorded in the repository. [UNVERIFIED]
+- Agent UI: built (`frontend/src/components/agent-queue-page.tsx`, `agent-dispute-page.tsx`, `agent-workbench.tsx`,
+  `agent-customer-transactions.tsx`), covered by Vitest and five E2E tests (`agent.spec.ts`, `work-assignment.spec.ts`).
+- Dark/light screenshots: kept. Eight are committed in [docs/screenshots/](docs/screenshots/) (customer transactions,
+  disputes and dispute form, agent dispute; light and dark), taken on a clean clone of `ffac818` (after #64, so Reversed rows say they can't be disputed). The theme follows
+  `prefers-color-scheme` and the toggle (`frontend/src/components/theme-toggle.tsx`) pins a choice.
+- None of the three was cut.
 
 ## Next
 
