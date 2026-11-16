@@ -20,8 +20,16 @@ and what is not.
   `backend/tests/DisputePortal.IntegrationTests/AuthHardeningTests.cs`: "Gaps the independent test review found by mutation
   (PR #1)"; `specs/001-transaction-disputes/tasks.md` T040a: "PR4 review N7"). The review reports themselves are not in
   the repository, so the review outcomes cannot be audited from here. [UNVERIFIED]
-- **This document set.** The README evidence tables, runbook, threat model and this file were drafted by a Claude Code
-  executor agent from the repository contents, then checked by script for broken links.
+- **Work after the plan's week.** From 11-05 to 11-16 the same set-up (Claude Code driven by the owner, one pull request
+  per change, squash-merged on a green `ci-ok`) added back-channel logout, the Vault Kubernetes auth path, path-scoped
+  CI with homelab image-bump PRs, the Keycloak theme drift check, demo-user seeding, the agent view of a customer's
+  recent transactions, and dispute assignment (claim, take next, release, the workbench and the database check). Each
+  has an ADR where the plan's process called for one (ADR-011 to ADR-019). Dates per pull request are in the
+  [time log](time-log.md).
+- **This document set.** The README evidence tables, runbook, threat model and this file were drafted by Claude Code
+  agents from the repository contents, then checked by script for broken links. On 2026-11-16 the README's measured
+  results, clean-clone run, test catalogue, the time log and this file were refreshed by Claude Code from fresh runs
+  on `main` at `74b1d94`.
 
 ## What the human owner decided
 
@@ -46,9 +54,11 @@ does not distinguish human from AI work.
 - Gates: warnings as errors, line-coverage floor (80%), `scripts/check-constraints.sh`, gitleaks, Trivy, npm audit,
   vulnerable-package check; `ci-ok` is the required check on `main` (branch protection read with `gh api` on
   2026-11-04 [UNVERIFIED from the repository]).
-- Mutation: Stryker.NET on the Domain project (report only). The plan also asks for manual "break the code, watch the
-  test go red" checks on the window rule, the owner filter and the `If-Match` check; the repository does not contain
-  their output. [UNVERIFIED]
+- Mutation: Stryker.NET on the Domain project (report only, 87.26% in CI on `13a50f7`). Manual "break the code, watch
+  the test go red" checks on the window rule, the owner filter, `If-Match`, CSRF, Luhn, the 23505 backstop,
+  back-channel logout and dispute assignment (ADR-019), with raw output, are in [mutation-checks.md](mutation-checks.md).
+- Browser: a scripted Playwright pass on a clean clone (customer and agent pages in light and dark, axe and CSP), with
+  the screenshots in [screenshots/](screenshots/).
 - Known blind spots: AI-written tests can assert what the AI-written code does. The mutation score and the
   database-level tests reduce that risk but do not remove it. No human line-by-line review of the whole codebase is
   recorded. The AI-written documents may contain mistakes; every unverifiable statement in them is tagged
