@@ -264,6 +264,9 @@ test('an empty or invalid dispute form shows inline errors per field and sends n
 test('the Dispute link in the transactions table opens the form for that row', async ({ page }) => {
   await signIn(page, DEMO.customer);
   await page.getByRole('link', { name: /my transactions/i }).click();
+  // Home lists transactions with Dispute links too: be on /transactions before picking a row.
+  await expect(page).toHaveURL(/\/transactions$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Transactions' })).toBeVisible();
   const link = page
     .getByRole('region', { name: 'Transactions table' })
     .getByRole('link', { name: /^Dispute / })

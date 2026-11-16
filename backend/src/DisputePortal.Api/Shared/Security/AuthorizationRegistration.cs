@@ -15,7 +15,8 @@ public static class AuthorizationRegistration
             .SetDefaultPolicy(authenticated)
             .SetFallbackPolicy(authenticated)
             .AddPolicy(Policies.Customer, policy => policy.Combine(authenticated).RequireRole(Roles.Customer))
-            .AddPolicy(Policies.DisputeAgent, policy => policy.Combine(authenticated).RequireRole(Roles.DisputeAgent));
+            .AddPolicy(Policies.DisputeAgent, policy => policy.Combine(authenticated).RequireRole(Roles.DisputeAgent))
+            .AddPolicy(Policies.PortalUser, policy => policy.Combine(authenticated).RequireRole(Roles.Customer, Roles.DisputeAgent));
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, ProblemAuthorizationResultHandler>();
         return services;
     }

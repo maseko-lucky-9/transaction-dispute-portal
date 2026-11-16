@@ -14,7 +14,12 @@ public static class DisputesEndpoints
 
     public static WebApplication MapDisputesEndpoints(this WebApplication app)
     {
-        app.MapGroup("/api/v1/dispute-reasons").WithTags("Disputes").RequireCustomer()
+        // A global lookup, not a customer's data: the agent's review page shows the same catalogue, so it is open to
+        // either role and skips the customer scope.
+        app.MapGroup("/api/v1/dispute-reasons").WithTags("Disputes")
+            .RequireAuthorization(Policies.PortalUser)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .MapGet("/", ReasonsAsync)
             .WithName("ListDisputeReasons")
             .WithSummary("The reasons a dispute can give, in display order.");

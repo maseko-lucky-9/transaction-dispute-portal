@@ -7,6 +7,7 @@ import { fakeAgentApi, makeAgentDispute } from "@/test/agent";
 import { alice, bob, carol, signedIn } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
+import { fakeTransactionsApi } from "@/test/transactions";
 
 const DISPUTE = "dddddddd-0000-4000-8000-000000000001";
 const TRANSACTION = "00000000-0000-4000-8000-000000000001";
@@ -27,9 +28,10 @@ const nav = () => screen.getByRole("navigation", { name: "Primary" });
 
 describe("header navigation by role", () => {
   it("a customer sees Transactions and Disputes, and no Queue", async () => {
-    server.use(signedIn(alice));
+    server.use(signedIn(alice), fakeTransactionsApi([]).handler);
     renderApp("/");
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet"); // let Home's list request finish
 
     const links = within(nav()).getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual(["Transactions", "Disputes"]);
@@ -79,9 +81,10 @@ describe("home by role", () => {
   });
 
   it("a customer gets the customer cards and no queue", async () => {
-    server.use(signedIn(alice));
+    server.use(signedIn(alice), fakeTransactionsApi([]).handler);
     renderApp("/");
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet");
 
     const main = within(screen.getByRole("navigation", { name: "Main" }));
     expect(main.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([

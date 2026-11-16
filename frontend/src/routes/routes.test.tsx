@@ -20,9 +20,10 @@ describe("routes", () => {
   });
 
   it("renders home with a junk query string instead of crashing", async () => {
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     renderApp("/?junk=1&limit=999");
     expect(await screen.findByText(/Signed in as/)).toBeInTheDocument();
+    await screen.findByText("You have no transactions yet"); // let Home's list request finish
   });
 
   it("renders the not-found page inside the shell for unknown paths", async () => {
@@ -52,7 +53,7 @@ describe("routes", () => {
 
   describe("primary navigation", () => {
     it.each([
-      ["/", null, "Signed in as"],
+      ["/", null, "You have no transactions yet"],
       ["/transactions", "Transactions", "You have no transactions yet"],
       ["/disputes", "Disputes", "You have not raised any disputes yet"],
     ])("at %s marks %s as the current page", async (path, current, loaded) => {
@@ -98,7 +99,7 @@ describe("routes", () => {
     });
 
     it("home links to the transactions and to my disputes", async () => {
-      server.use(signedIn());
+      server.use(signedIn(), fakeTransactionsApi([]).handler);
       renderApp("/");
       expect(await screen.findByRole("link", { name: /My disputes/ })).toHaveAttribute(
         "href",
@@ -108,6 +109,7 @@ describe("routes", () => {
         "href",
         "/transactions",
       );
+      await screen.findByText("You have no transactions yet"); // let Home's list request finish
     });
   });
 });

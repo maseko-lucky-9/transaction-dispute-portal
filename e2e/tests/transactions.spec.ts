@@ -19,7 +19,9 @@ test('customer pages through their own transactions without duplicates, with a11
   const violations = await trackCspViolations(page);
   await signIn(page, DEMO.customer);
   await page.getByRole('link', { name: /my transactions/i }).click();
-  await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
+  // Home has a transactions table too (and headings that contain the word): be on the page before reading it.
+  await expect(page).toHaveURL(/\/transactions$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Transactions' })).toBeVisible();
 
   await expect(rows(page).first()).toBeVisible();
   expect(await rows(page).count()).toBe(25); // default page size
@@ -42,6 +44,8 @@ test('customer pages through their own transactions without duplicates, with a11
 test('an invalid filter shows inline errors and sends no request', async ({ page }) => {
   await signIn(page, DEMO.customer);
   await page.getByRole('link', { name: /my transactions/i }).click();
+  await expect(page).toHaveURL(/\/transactions$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Transactions' })).toBeVisible();
   await expect(rows(page).first()).toBeVisible();
 
   let listRequests = 0;
