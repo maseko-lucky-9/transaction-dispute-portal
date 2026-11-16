@@ -6,7 +6,6 @@
   --dp-crimson: #e51718;
   --dp-crimson-hover: #c41213;
   --dp-gem: #4111a4;
-  --keycloak-card-top-color: var(--dp-crimson);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -30,16 +29,22 @@
   width: 14rem;
   height: 4rem;
   margin: 0 auto 1.25rem;
-  background: #fff url("../img/logo.jpg") center / auto 80% no-repeat;
+  background: #fff url("../img/logo.jpg?v=2") center / auto 80% no-repeat;
   border-radius: 0.875rem;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
 }
 
+/* The crimson accent bar is the card's own top border, so it follows the rounded corners (the parent theme draws it on
+   the inner header, whose square ends poke out past them, in the parent's blue unless a variable is overridden). */
 .pf-v5-c-login__main {
   background: var(--dp-card);
   color: var(--dp-fg);
+  border-top: 4px solid var(--dp-crimson);
   border-radius: 0.875rem;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.1);
+}
+.pf-v5-c-login__main-header {
+  border-top: 0;
 }
 #kc-page-title {
   color: var(--dp-fg);
