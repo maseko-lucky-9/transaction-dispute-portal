@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import type { DisputeStatus } from "@/api/disputes";
 import { searchWithStatus } from "@/lib/status-links";
-import { CARD, FILTER_LINK, PAGE_TITLE } from "@/lib/table-styles";
+import { CARD, FILTER_LINK, LINK, PAGE_TITLE } from "@/lib/table-styles";
 
 // getRouteApi avoids importing the route here (the route imports this component).
 const route = getRouteApi("/disputes");
@@ -123,7 +123,7 @@ function DisputeResults({ filters }: { filters: DisputeFilters }) {
               <p className="font-medium">You have not raised any disputes yet</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Find a transaction in{" "}
-                <Link to="/transactions" className="underline underline-offset-4">
+                <Link to="/transactions" className={LINK}>
                   your transactions
                 </Link>{" "}
                 to dispute it.

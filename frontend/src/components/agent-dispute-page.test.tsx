@@ -109,6 +109,19 @@ describe("agent dispute page", () => {
     expect(api.transitionCalls).toEqual([]);
   });
 
+  it("keeps crimson for Accept only: Reject is outlined, on the choice and on the confirmation", async () => {
+    await openDispute("UnderReview");
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: "Accept" })).toHaveClass("bg-primary");
+    expect(screen.getByRole("button", { name: "Reject" })).not.toHaveClass("bg-primary");
+
+    await user.type(note(), "The charge was authorised.");
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    expect(await screen.findByRole("button", { name: "Yes, reject" })).not.toHaveClass(
+      "bg-primary",
+    );
+  });
+
   it("refuses a note with a card number before any request", async () => {
     const { api } = await openDispute("UnderReview");
     const user = userEvent.setup();

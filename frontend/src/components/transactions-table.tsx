@@ -7,7 +7,7 @@ import { DisputeStatusPill, TransactionStatusPill } from "@/components/status-pi
 import { Button } from "@/components/ui/button";
 import { describeBlockReasons } from "@/lib/dispute-reasons";
 import { formatDate, formatMoney } from "@/lib/format";
-import { AMOUNT_CELL, COLUMN_HEADER, TABLE_ROW } from "@/lib/table-styles";
+import { AMOUNT_CELL, COLUMN_HEADER, LINK, TABLE_ROW } from "@/lib/table-styles";
 
 export function TransactionsTable({ items }: { items: readonly TransactionItem[] }) {
   return (
@@ -134,7 +134,7 @@ function DisputeAction({ item }: { item: TransactionItem }) {
           to="/disputes/$disputeId"
           params={{ disputeId: item.dispute.id }}
           aria-label={`View dispute for ${item.merchantName}, ${formatDate(item.transactionDate)}`}
-          className="text-xs underline underline-offset-4"
+          className={`${LINK} text-xs`}
         >
           View dispute
         </Link>
