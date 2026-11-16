@@ -40,7 +40,7 @@ Custom meters (source: `backend/src/DisputePortal.Api/Shared/Observability/`):
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|
 | `security.events` | counter | `type` | `authz_denied`, `backchannel_logout`, `backchannel_logout_rejected`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
-| `audit.events` | counter | `action` | `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
+| `audit.events` | counter | `action` | `agent_customer_transactions_viewed`, `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
 | `disputes.submitted` | counter | `reason` | reason code | `DisputePortal.Disputes` |
 | `disputes.transitions` | counter | `to` | status name | `DisputePortal.Disputes` |
 | `disputes.eligibility_rejections` | counter | `rule` | rule code | `DisputePortal.Disputes` |
@@ -57,7 +57,7 @@ Traces: ASP.NET Core, HttpClient and Npgsql, plus a `DisputePortal.Api` activity
 server spans; client spans keep the URL without its query. Health endpoints are not traced. Telemetry is exported only
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`Telemetry.cs`).
 
-Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` (ids, filter, counts and agent
+Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned`, `agent.queue.viewed` and `agent.customer_transactions.viewed` (ids, filter, counts and agent
 subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`,
 `Back-channel logout ended {SessionCount} session(s)` (a count, never a sid, sub or jti) and `Back-channel logout token
 refused: {Reason}`, where `Reason` is one of `Malformed`, `Algorithm`, `Type`, `Signature`, `Issuer`, `Audience`,
@@ -245,7 +245,7 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 1. Revoke sessions: rotate DataProtection keys (Section 7) so every ticket becomes unreadable, or flush the `bff:*` keys in Redis.
 2. End the user's sessions in Keycloak (admin console: Users, the user, Sessions, sign out; or `kcadm.sh delete sessions/<id> -r dispute-portal` inside the `keycloak` container) and disable the user. Keycloak calls the back-channel logout, so the app sessions end on their next request (API log `Back-channel logout ended n session(s)`). If that call was lost, the access token still lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
 3. Rotate the secrets that may have leaked (Section 7).
-4. Review `agent.dispute.viewed`, `agent.dispute.transitioned` and `agent.queue.viewed` log lines and `audit.events` for the affected agent subject.
+4. Review `agent.dispute.viewed`, `agent.dispute.transitioned`, `agent.queue.viewed` and `agent.customer_transactions.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
 
 **Homelab deploy: merging a bump PR** ([ADR-017](decisions/017-homelab-image-bump-prs.md)). After each publish on

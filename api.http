@@ -302,6 +302,16 @@ Cookie: dp_session={{agentCookie}}
 
 ###
 
+# The customer's recent transactions, newest first, read-only (opening a page is logged as agent.customer_transactions.viewed).
+# Only while the dispute is Submitted or UnderReview: once it is decided or withdrawn this is 404 dispute_not_found.
+# Goes back 90 days, or to the disputed transaction's day if that is older; `from` in the answer is that day. Add limit and cursor to page.
+# Expect: 200
+GET {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/customer-transactions?limit=25
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
 # Without If-Match the change is refused.
 # Expect: 428
 POST {{baseUrl}}/api/v1/agent/disputes/{{disputeId}}/transitions

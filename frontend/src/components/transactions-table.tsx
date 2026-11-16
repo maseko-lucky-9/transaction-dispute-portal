@@ -78,7 +78,11 @@ function TransactionRow({ item }: { item: TransactionItem }) {
 }
 
 /** Sign, colour and a text label: credits never rely on colour alone. */
-function Amount({ item }: { item: TransactionItem }) {
+export function Amount({
+  item,
+}: {
+  item: Pick<TransactionItem, "direction" | "amount" | "currency">;
+}) {
   const isCredit = item.direction === "Credit";
   return (
     <>

@@ -59,6 +59,8 @@ public sealed class EndpointOutageTests(ApiFactory api)
             "The work queue is one query over disputes."),
         Agent("GET", "/api/v1/agent/disputes/{id:guid}", session => session.Request(HttpMethod.Get, AgentRequests.Detail(SomeId)),
             "One query for the dispute with its customer and history; the audit log line follows a successful read only."),
+        Agent("GET", "/api/v1/agent/disputes/{id:guid}/customer-transactions", session => session.Request(HttpMethod.Get, AgentRequests.CustomerTransactions(SomeId)),
+            "The dispute is read first, to find its customer; the page of transactions and its audit follow a successful read only."),
         Agent("POST", "/api/v1/agent/disputes/{id:guid}/transitions", session => AgentRequests.Transition(session, SomeId, SomeETag, "UnderReview"),
             "A body that binds; the dispute is read first (404 is decided before If-Match), so the outage is hit before any precondition."),
 

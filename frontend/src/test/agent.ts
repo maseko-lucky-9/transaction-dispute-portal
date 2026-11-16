@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 
-import type { AgentDisputeDetail, TransitionRequest } from "@/api/agent";
+import type { AgentCustomerTransaction, AgentDisputeDetail, TransitionRequest } from "@/api/agent";
 import type { DisputeStatus } from "@/api/disputes";
 import { freeTextProblem } from "@/lib/validation";
 
@@ -38,9 +38,38 @@ export function makeAgentDispute(
   };
 }
 
+/** The first day of the window the fake reports: a date, as the API sends it. */
+export const CUSTOMER_TRANSACTIONS_FROM = "2026-08-04";
+
+/** A posted debit of the customer behind a dispute; `index` 0 is the NEWEST. Its account differs from the detail's. */
+export function makeAgentCustomerTransaction(
+  overrides: Partial<AgentCustomerTransaction> = {},
+  index = 0,
+): AgentCustomerTransaction {
+  const n = String(index + 1).padStart(4, "0");
+  const date = Date.UTC(2026, 10, 3 - index, 10);
+  return {
+    id: `eeeeeeee-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    reference: `TXN-${n}`,
+    merchantName: `Shop ${n}`,
+    category: "Groceries",
+    amount: "123.45",
+    currency: "ZAR",
+    direction: "Debit",
+    status: "Posted",
+    transactionDate: new Date(date).toISOString(),
+    postedAt: new Date(date + 3_600_000).toISOString(),
+    maskedAccountNumber: "**** 7788",
+    dispute: null,
+    ...overrides,
+  };
+}
+
 export interface FakeAgentApi {
   readonly store: AgentDisputeDetail[];
   readonly queueRequests: URL[];
+  /** Every customer-transactions request, with its path's dispute id. */
+  readonly customerTransactionRequests: { id: string; url: URL }[];
   readonly transitionCalls: { id: string; ifMatch: string | null; body: TransitionRequest }[];
   /** Another agent acts: the ETag moves on. */
   otherAgentActs(id: string, to: DisputeStatus): void;
@@ -50,13 +79,20 @@ export interface FakeAgentApi {
 
 const etagOf = (version: number) => `"v${version}"`;
 
-/** The agent endpoints with the server's rules: 428 / 412 / 409 / 400, ETag on every read. */
-export function fakeAgentApi(initial: AgentDisputeDetail[]) {
+/**
+ * The agent endpoints with the server's rules: 428 / 412 / 409 / 400, ETag on every read. The
+ * customer's transactions (newest first, any dispute of the store reads the same list) default to none.
+ */
+export function fakeAgentApi(
+  initial: AgentDisputeDetail[],
+  customerTransactions: AgentCustomerTransaction[] = [],
+) {
   const store = [...initial];
   const versions = new Map(store.map((d) => [d.id, 1]));
   const api: FakeAgentApi = {
     store,
     queueRequests: [],
+    customerTransactionRequests: [],
     transitionCalls: [],
     otherAgentActs(id, to) {
       apply(id, to, "Handled elsewhere");
@@ -123,6 +159,35 @@ export function fakeAgentApi(initial: AgentDisputeDetail[]) {
       : problem(404, { title: "Not Found", code: "not_found" });
   });
 
+  // The server reads a row's dispute from the database, so a decision shows on the next read.
+  function withLiveDispute(item: AgentCustomerTransaction): AgentCustomerTransaction {
+    const live = store.find((d) => d.id === item.dispute?.id);
+    return live ? { ...item, dispute: { id: live.id, status: live.status } } : item;
+  }
+
+  const customerList = http.get(
+    "/api/v1/agent/disputes/:id/customer-transactions",
+    ({ params, request }) => {
+      const id = String(params["id"]);
+      const url = new URL(request.url);
+      api.customerTransactionRequests.push({ id, url });
+      // The server's rule: only a dispute still under review opens its customer's transactions.
+      const dispute = store.find((d) => d.id === id);
+      if (!dispute || !OPEN.includes(dispute.status)) {
+        return problem(404, { title: "Not Found", code: "dispute_not_found" });
+      }
+      const limit = Number(url.searchParams.get("limit") ?? 25);
+      const cursor = url.searchParams.get("cursor");
+      const offset = cursor ? Number(atob(cursor).replace("cursor:", "")) : 0;
+      const next = offset + limit;
+      return HttpResponse.json({
+        items: customerTransactions.slice(offset, next).map(withLiveDispute),
+        nextCursor: next < customerTransactions.length ? btoa(`cursor:${next}`) : null,
+        from: CUSTOMER_TRANSACTIONS_FROM,
+      });
+    },
+  );
+
   const transition = http.post(
     "/api/v1/agent/disputes/:id/transitions",
     async ({ params, request }) => {
@@ -174,5 +239,5 @@ export function fakeAgentApi(initial: AgentDisputeDetail[]) {
   );
 
   const reasonList = http.get("/api/v1/dispute-reasons", () => HttpResponse.json(reasons));
-  return { api, handlers: [reasonList, queue, get, transition] };
+  return { api, handlers: [reasonList, queue, get, customerList, transition] };
 }

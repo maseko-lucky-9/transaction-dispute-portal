@@ -35,6 +35,13 @@ public static class AgentEndpoints
             .WithSummary("A dispute with the customer's details and who acted on it; the ETag header is its version. Every view is audited.")
             .ProducesProblem(StatusCodes.Status404NotFound)
             .AddOpenApiOperationTransformer(DisputeOpenApi.ETagOn(StatusCodes.Status200OK));
+        agent.MapGet("/{id:guid}/customer-transactions", CustomerTransactionsAsync)
+            .AddEndpointFilter<ValidationFilter<AgentCustomerTransactionsRequest>>()
+            .AddOpenApiOperationTransformer(ListQueryParameters.Describe<DisputeStatus>)
+            .WithName("ListAgentCustomerTransactions")
+            .WithSummary("The recent transactions of the customer behind a dispute, newest first, read-only: from the earlier of 90 days ago and the disputed transaction's day. Only while the dispute is Submitted or UnderReview (otherwise 404). Every page read is audited.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound);
         agent.MapPost("/{id:guid}/transitions", TransitionAsync)
             .AddEndpointFilter<ValidationFilter<TransitionRequest>>()
             .WithName("TransitionDispute")
@@ -57,6 +64,14 @@ public static class AgentEndpoints
 
     private static async Task<Ok<AgentDisputeDetail>> GetAsync(Guid id, AgentQueries queries, HttpContext httpContext, CancellationToken cancellationToken) =>
         TypedResults.Ok(WithETag(httpContext, await queries.GetAsync(id, SessionPrincipal.Subject(httpContext.User), TraceId(httpContext), cancellationToken)));
+
+    private static async Task<Ok<AgentCustomerTransactionsResponse>> CustomerTransactionsAsync(
+        Guid id,
+        [AsParameters] AgentCustomerTransactionsRequest request,
+        AgentCustomerTransactionQueries queries,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await queries.ListAsync(id, request, SessionPrincipal.Subject(httpContext.User), TraceId(httpContext), cancellationToken));
 
     private static string TraceId(HttpContext httpContext) => Activity.Current?.Id ?? httpContext.TraceIdentifier;
 

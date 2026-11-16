@@ -11,6 +11,7 @@ public sealed class SecurityMetricsAuditTests : IDisposable
     [Theory]
     [InlineData("agent_queue_viewed")]
     [InlineData("agent_dispute_viewed")]
+    [InlineData("agent_customer_transactions_viewed")]
     [InlineData("agent_dispute_transitioned")]
     public void AKnownActionIsCountedOnceWithTheActionAsTheOnlyTag(string action)
     {
