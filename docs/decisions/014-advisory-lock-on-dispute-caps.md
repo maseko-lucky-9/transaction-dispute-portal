@@ -50,3 +50,5 @@ and lock the contended resource, here the customer.
   connection (TCP keepalive, hours by default). Only that customer is affected. Upgrade path:
   `idle_in_transaction_session_timeout` in the application connection options, set above the 15 s the gated tests hold
   racers idle.
+
+Amended by [ADR-019](019-dispute-assignment-claim-take-next-release.md): take next locks the row it claims (`FOR UPDATE SKIP LOCKED`, in `SaveInTransactionAsync`); the other agent moves still take no lock.

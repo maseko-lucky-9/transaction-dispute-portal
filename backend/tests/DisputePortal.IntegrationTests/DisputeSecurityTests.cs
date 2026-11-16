@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using DisputePortal.Api.Shared.OpenApi;
 using DisputePortal.Api.Shared.Persistence;
 using DisputePortal.Api.Shared.Security;
 using Microsoft.Net.Http.Headers;
@@ -176,6 +177,45 @@ public sealed class DisputeSecurityTests(ApiFactory api)
             Assert.DoesNotContain(customer.User.Subject, json, StringComparison.Ordinal);
             Assert.DoesNotContain("actorId", json, StringComparison.OrdinalIgnoreCase);
         });
+    }
+
+    // ADR-019: a customer never learns which agent is reviewing their dispute, or that anyone is: not in any response
+    // (raw JSON of the detail, the list and a withdrawal of a claimed dispute), and not in the customer schemas at all.
+    [Fact]
+    public async Task TheCustomerViewNeverCarriesTheAssignee()
+    {
+        (_, Guid id, _, BrowserSession session) = await SubmittedAsync();
+        IdpUser reviewer = AgentRequests.Agent("agent-" + Guid.NewGuid().ToString("N"));
+        BrowserSession agent = await BrowserSession.SignInAsync(api, reviewer);
+        HttpResponseMessage read = await SendAsync(agent.Request(HttpMethod.Get, AgentRequests.Detail(id)));
+        HttpResponseMessage claimed = await SendAsync(AgentRequests.Transition(agent, id, DisputeRequests.ETagOf(read), "UnderReview"));
+        Assert.Equal(HttpStatusCode.OK, claimed.StatusCode);
+
+        string detail = await (await SendAsync(session.Request(HttpMethod.Get, $"{DisputeRequests.Disputes}/{id}"))).Content.ReadAsStringAsync();
+        string list = await (await SendAsync(session.Request(HttpMethod.Get, DisputeRequests.Disputes))).Content.ReadAsStringAsync();
+        HttpResponseMessage withdrawn = await SendAsync(DisputeRequests.Withdraw(session, id, DisputeRequests.ETagOf(claimed)));
+        string withdrawal = await withdrawn.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, withdrawn.StatusCode);
+        Assert.Contains("UnderReview", detail, StringComparison.Ordinal);
+        Assert.All(new[] { detail, list, withdrawal }, json =>
+        {
+            Assert.DoesNotContain(reviewer.Subject, json, StringComparison.Ordinal);
+            Assert.DoesNotContain("assign", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("claimed", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("actorId", json, StringComparison.OrdinalIgnoreCase);
+        });
+        using HttpClient client = api.CreateClient();
+        using JsonDocument document = JsonDocument.Parse(await client.GetStringAsync(ApiDocumentation.DocumentPath));
+        JsonElement schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        foreach (string customerSchema in new[] { "DisputeDetail", "DisputeListItem", "TimelineEntry" })
+        {
+            List<string> properties = [.. schemas.GetProperty(customerSchema).GetProperty("properties").EnumerateObject().Select(property => property.Name)];
+            Assert.NotEmpty(properties);
+            Assert.DoesNotContain(properties, name => name.Contains("assign", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("claimed", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("actorId", StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     [Fact]

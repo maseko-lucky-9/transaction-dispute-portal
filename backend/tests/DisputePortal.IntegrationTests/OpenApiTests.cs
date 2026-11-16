@@ -98,8 +98,35 @@ public sealed class OpenApiTests(ApiFactory api)
         Assert.True(detail.GetProperty("responses").GetProperty("200").GetProperty("headers").TryGetProperty("ETag", out _));
         Assert.True(detail.GetProperty("responses").TryGetProperty("404", out _));
         Assert.True(queue.GetProperty("responses").TryGetProperty("400", out _));
-        Assert.Equal(["UnderReview", "Accepted", "Rejected"], document.RootElement.GetProperty("components").GetProperty("schemas")
+        Assert.Equal(["UnderReview", "Accepted", "Rejected", "Submitted"], document.RootElement.GetProperty("components").GetProperty("schemas")
             .GetProperty("TransitionRequest").GetProperty("properties").GetProperty("toStatus").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
+    // ADR-019: take next is 200 with the dispute and its ETag, or 204 when there is nothing to take; a move by an agent
+    // who is not reviewing the dispute is a 409 (not_assignee); the queue documents its assignment filter.
+    [Fact]
+    public async Task TakeNextDocuments200WithAnETagAnd204AndTheQueueItsAssignmentFilter()
+    {
+        using JsonDocument document = JsonDocument.Parse(await DocumentAsync());
+        JsonElement paths = document.RootElement.GetProperty("paths");
+        JsonElement takeNext = paths.GetProperty("/api/v1/agent/disputes/take-next").GetProperty("post");
+        JsonElement queue = paths.GetProperty("/api/v1/agent/disputes").GetProperty("get");
+
+        Assert.Equal("TakeNextDispute", takeNext.GetProperty("operationId").GetString());
+        JsonElement responses = takeNext.GetProperty("responses");
+        foreach (string status in new[] { "200", "204", "401", "403" })
+        {
+            Assert.True(responses.TryGetProperty(status, out _), "take-next " + status);
+        }
+
+        Assert.True(responses.GetProperty("200").GetProperty("headers").TryGetProperty("ETag", out _));
+        Assert.Equal("#/components/schemas/AgentDisputeDetail",
+            responses.GetProperty("200").GetProperty("content").GetProperty("application/json").GetProperty("schema").GetProperty("$ref").GetString());
+        Assert.False(responses.GetProperty("204").TryGetProperty("content", out _));
+        Assert.False(takeNext.TryGetProperty("requestBody", out _));
+        Assert.True(paths.GetProperty("/api/v1/agent/disputes/{id}/transitions").GetProperty("post").GetProperty("responses").TryGetProperty("409", out _));
+        JsonElement assignment = queue.GetProperty("parameters").EnumerateArray().Single(parameter => parameter.GetProperty("name").GetString() == "assignment");
+        Assert.Equal(["unclaimed", "mine", "others"], assignment.GetProperty("schema").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
     }
 
     private async Task<string> DocumentAsync()

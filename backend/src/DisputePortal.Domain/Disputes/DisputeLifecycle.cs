@@ -11,6 +11,8 @@ public static class DisputeLifecycle
         (DisputeStatus.Submitted, DisputeStatus.UnderReview, ActorType.Agent),
         (DisputeStatus.UnderReview, DisputeStatus.Accepted, ActorType.Agent),
         (DisputeStatus.UnderReview, DisputeStatus.Rejected, ActorType.Agent),
+        // Release (ADR-019): the reviewing agent hands the dispute back to the queue, unclaimed.
+        (DisputeStatus.UnderReview, DisputeStatus.Submitted, ActorType.Agent),
         (DisputeStatus.Submitted, DisputeStatus.Withdrawn, ActorType.Customer),
         (DisputeStatus.UnderReview, DisputeStatus.Withdrawn, ActorType.Customer),
     ];
@@ -28,4 +30,13 @@ public static class DisputeLifecycle
 
     /// <summary>An agent's decision: it must say why (the resolution note).</summary>
     public static bool IsResolution(DisputeStatus status) => status is DisputeStatus.Accepted or DisputeStatus.Rejected;
+
+    /// <summary>
+    /// A release: the only move back to Submitted. It takes no note, because notes are shown to the customer and a
+    /// reason for handing a dispute back is the agent's own business.
+    /// </summary>
+    public static bool IsRelease(DisputeStatus to) => to is DisputeStatus.Submitted;
+
+    /// <summary>An agent's move out of UnderReview (accept, reject, release): only the agent reviewing it may make it.</summary>
+    public static bool IsAssigneeOnly(DisputeStatus from, ActorType actor) => from is DisputeStatus.UnderReview && actor is ActorType.Agent;
 }

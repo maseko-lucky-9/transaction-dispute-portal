@@ -1,4 +1,6 @@
+using DisputePortal.Api.Features.Agent;
 using DisputePortal.Api.Shared.Persistence;
+using DisputePortal.Domain.Disputes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -94,6 +96,89 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
         Assert.Equal(0, await AdminSql.CountAsync(api.AdminConnectionString, "SELECT count(*) FROM disputes WHERE id = @id", ("id", id)));
     }
 
+    // ADR-019: claiming and releasing write status and assignee_id, as dispute_app, rolled back like the test above.
+    [Fact]
+    public async Task TheAppRoleCanClaimAndReleaseADispute()
+    {
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        Guid transactionId = await customer.AddEligibleTransactionAsync(api);
+        await using NpgsqlConnection connection = new(api.AppConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+        await using NpgsqlCommand claimAndRelease = new("""
+            INSERT INTO disputes (id, transaction_id, customer_id, reason_code, description, disputed_amount, currency, status, created_at, updated_at)
+            VALUES (@id, @transaction, @customer, 'other', 'Probe dispute.', 1, 'ZAR', 'Submitted', now(), now());
+            UPDATE disputes SET status = 'UnderReview', assignee_id = 'probe-agent', updated_at = now() WHERE id = @id;
+            UPDATE disputes SET status = 'Submitted', assignee_id = NULL, updated_at = now() WHERE id = @id;
+            SELECT count(*) FROM disputes WHERE id = @id AND status = 'Submitted' AND assignee_id IS NULL;
+            """, connection, transaction);
+        Guid id = Guid.NewGuid();
+        claimAndRelease.Parameters.AddWithValue("id", id);
+        claimAndRelease.Parameters.AddWithValue("transaction", transactionId);
+        claimAndRelease.Parameters.AddWithValue("customer", customer.CustomerId);
+
+        object? released = await claimAndRelease.ExecuteScalarAsync();
+        await transaction.RollbackAsync();
+
+        Assert.Equal(1L, released);
+        Assert.Equal(0, await AdminSql.CountAsync(api.AdminConnectionString, "SELECT count(*) FROM disputes WHERE id = @id", ("id", id)));
+    }
+
+    // Take next's lock (ADR-019), the repository's own statement, as dispute_app in two sessions at once: while the first
+    // holds the oldest Submitted row, the second gets the next one straight away instead of waiting for it. FOR UPDATE
+    // needs UPDATE on a column, which dispute_app has on disputes. The second session's lock_timeout turns a wait (the
+    // statement without SKIP LOCKED) into a quick 55P03 instead of a hang. Both roll back.
+    [Fact]
+    public async Task TwoAppSessionsTakingNextSkipEachOthersLockedRow()
+    {
+        DateTimeOffset oldest = (await AdminSql.ListAsync(
+            api.AdminConnectionString, "SELECT coalesce(min(created_at), now()) FROM disputes WHERE status = 'Submitted'", reader => reader.GetFieldValue<DateTimeOffset>(0))).Single();
+        TestCustomer customer = await TestCustomer.CreateAsync(api);
+        Guid first = await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), DisputeStatus.Submitted, oldest.AddDays(-1));
+        Guid second = await customer.AddDisputeAsync(api, await customer.AddEligibleTransactionAsync(api), DisputeStatus.Submitted, oldest.AddDays(-1).AddSeconds(1));
+        await using NpgsqlConnection holder = new(api.AppConnectionString);
+        await using NpgsqlConnection taker = new(api.AppConnectionString);
+        await holder.OpenAsync();
+        await taker.OpenAsync();
+        await using NpgsqlTransaction holding = await holder.BeginTransactionAsync();
+        await using NpgsqlTransaction taking = await taker.BeginTransactionAsync();
+        await using NpgsqlCommand noWaiting = new("SET LOCAL lock_timeout = '2s'", taker, taking);
+        await noWaiting.ExecuteNonQueryAsync();
+
+        await using NpgsqlCommand hold = new(AgentDisputeRepository.LockOldestUnclaimedSql, holder, holding);
+        await using NpgsqlCommand take = new(AgentDisputeRepository.LockOldestUnclaimedSql, taker, taking);
+
+        object? held = await hold.ExecuteScalarAsync();
+        object? taken = await take.ExecuteScalarAsync();
+        await taking.RollbackAsync();
+        await holding.RollbackAsync();
+
+        Assert.Equal((first, second), (held, taken));
+        Assert.Equal(("Submitted", "Submitted"), (await StatusAsync(first), await StatusAsync(second)));
+    }
+
+    // Claiming and releasing write assignee_id; a dispute's identity, owner, subject, amount and creation stay fixed.
+    [Theory]
+    [InlineData("assignee_id", true)]
+    [InlineData("status", true)]
+    [InlineData("id", false)]
+    [InlineData("customer_id", false)]
+    [InlineData("transaction_id", false)]
+    [InlineData("reason_code", false)]
+    [InlineData("description", false)]
+    [InlineData("disputed_amount", false)]
+    [InlineData("currency", false)]
+    [InlineData("created_at", false)]
+    public async Task TheAppRoleMayUpdateOnlyTheLifecycleColumnsOfADispute(string column, bool granted)
+    {
+        await using NpgsqlConnection connection = new(api.AppConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlCommand check = new("SELECT has_column_privilege(current_user, 'disputes', @column, 'UPDATE')", connection);
+        check.Parameters.AddWithValue("column", column);
+
+        Assert.Equal(granted, (bool)(await check.ExecuteScalarAsync())!);
+    }
+
     [Fact]
     public async Task TheAppRoleCanReadCustomersAndAddADataProtectionKey()
     {
@@ -162,4 +247,7 @@ public sealed class DatabasePrivilegeTests(ApiFactory api)
         await using NpgsqlCommand command = new(sql, connection);
         await command.ExecuteNonQueryAsync();
     }
+
+    private async Task<string> StatusAsync(Guid id) =>
+        (await AdminSql.ListAsync(api.AdminConnectionString, "SELECT status FROM disputes WHERE id = @id", reader => reader.GetString(0), ("id", id))).Single();
 }

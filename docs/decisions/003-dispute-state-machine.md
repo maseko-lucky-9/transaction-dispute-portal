@@ -42,3 +42,5 @@ legal next states for the agent form.
   Clock skew between replicas larger than the gap between a withdraw and a re-dispute could order the withdrawn
   dispute after the active one, so the list would offer Dispute while submit answers 409. Keep replicas on NTP; a
   database-stamped `created_at` (as `occurred_at` already is) is the upgrade.
+
+Amended by [ADR-019](019-dispute-assignment-claim-take-next-release.md): a release row `(UnderReview -> Submitted, Agent)`, no note, and only the assignee may move a dispute out of UnderReview.

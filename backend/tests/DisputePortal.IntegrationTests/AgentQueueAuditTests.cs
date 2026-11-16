@@ -56,7 +56,7 @@ public sealed class AgentQueueAuditTests(ApiFactory factory)
         (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
         // A cursor past the newest row: the real queue, the real database, a page with nothing on it.
         string pastTheEnd = factory.Services.GetRequiredService<AgentCursorProtector>().Protect(
-            new DisputeKey(DateTimeOffset.UtcNow.AddYears(50), Guid.NewGuid()), user.Subject, AgentQueueFilter.Parse(new AgentQueueRequest(null, null, null)));
+            new DisputeKey(DateTimeOffset.UtcNow.AddYears(50), Guid.NewGuid()), user.Subject, AgentQueueFilter.Parse(new AgentQueueRequest(null, null, null, null)));
         using MeasurementProbe<long> probe = MeasurementProbe<long>.On(factory, SecurityMetrics.MeterName, AuditEvents);
 
         JsonElement page = await api.OkAsync(agent, AgentRequests.Queue + "?cursor=" + Uri.EscapeDataString(pastTheEnd));

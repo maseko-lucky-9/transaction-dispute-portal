@@ -36,4 +36,20 @@ public static class ListQueryParameters
 
         return Task.CompletedTask;
     }
+
+    /// <summary>As <see cref="Describe{TStatus}"/>, plus an <c>assignment</c> filter whose values are the lower-case names of <typeparamref name="TAssignment"/> (any case is accepted).</summary>
+    public static async Task Describe<TStatus, TAssignment>(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
+        where TStatus : struct, Enum
+        where TAssignment : struct, Enum
+    {
+        await Describe<TStatus>(operation, context, cancellationToken);
+        foreach (OpenApiParameter parameter in operation.Parameters?.OfType<OpenApiParameter>().Where(parameter => parameter.Name == "assignment") ?? [])
+        {
+            parameter.Schema = new OpenApiSchema
+            {
+                Type = JsonSchemaType.String,
+                Enum = [.. Enum.GetNames<TAssignment>().Select(name => (JsonNode)name.ToLowerInvariant())],
+            };
+        }
+    }
 }

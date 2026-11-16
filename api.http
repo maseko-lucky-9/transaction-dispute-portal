@@ -341,7 +341,8 @@ Content-Type: application/json
 
 ###
 
-# Decide. toStatus is UnderReview|Accepted|Rejected; a note is required to accept or reject and the customer sees it.
+# Decide. toStatus is UnderReview|Accepted|Rejected|Submitted (release); a note is required to accept or reject and
+# the customer sees it. Only the agent who started the review may decide (another agent: 409 not_assignee).
 # Change "Accepted" to "Rejected" for the other outcome. Both are final.
 # Expect: 200
 # @name decide
@@ -369,6 +370,40 @@ Content-Type: application/json
 {
   "toStatus": "Rejected",
   "note": "Trying to change a final decision."
+}
+
+###
+
+# Assignment (ADR-019): the disputes you are reviewing. assignment is unclaimed|mine|others, any case, and cannot be
+# combined with status (400). Items carry assignment (Unclaimed|You|AnotherAgent), assigneeId and claimedAt.
+# Expect: 200
+GET {{baseUrl}}/api/v1/agent/disputes?assignment=mine&limit=25
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
+# Take next: claims the oldest Submitted dispute nobody else is taking right now and starts its review. No body, no
+# If-Match. The response carries the dispute and its ETag.
+# Expect: 200 (204 with no body when there is nothing unclaimed; the release below then has nothing to release)
+# @name takeNext
+POST {{baseUrl}}/api/v1/agent/disputes/take-next
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+
+###
+
+# Release: only the agent reviewing it may hand it back to the queue, and without a note (a note is 400). Another
+# agent gets 409 not_assignee, here and on Accepted or Rejected.
+# Expect: 200
+POST {{baseUrl}}/api/v1/agent/disputes/{{takeNext.response.body.id}}/transitions
+X-CSRF: 1
+Cookie: dp_session={{agentCookie}}
+If-Match: {{takeNext.response.headers.ETag}}
+Content-Type: application/json
+
+{
+  "toStatus": "Submitted"
 }
 
 

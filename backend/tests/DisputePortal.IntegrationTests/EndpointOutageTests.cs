@@ -64,6 +64,8 @@ public sealed class EndpointOutageTests(ApiFactory api)
             "The dispute is read first, to find its customer; the page of transactions and its audit follow a successful read only."),
         Agent("POST", "/api/v1/agent/disputes/{id:guid}/transitions", session => AgentRequests.Transition(session, SomeId, SomeETag, "UnderReview"),
             "A body that binds; the dispute is read first (404 is decided before If-Match), so the outage is hit before any precondition."),
+        Agent("POST", "/api/v1/agent/disputes/take-next", AgentRequests.TakeNext,
+            "No body; the first statement is the transaction that locks the oldest unclaimed dispute."),
 
         // Routes that never touch Postgres, so the outage does not reach them.
         new OutageRoute("GET", "/bff/user", CustomerRequestAsync(session => session.Request(HttpMethod.Get, "/bff/user")), HttpStatusCode.OK, null,

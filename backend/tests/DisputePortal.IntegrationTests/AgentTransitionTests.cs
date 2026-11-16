@@ -118,7 +118,10 @@ public sealed class AgentTransitionTests(ApiFactory factory)
         (_, BrowserSession agent) = await api.NewAgentAsync();
         string etag = await api.ETagAsync(agent, id);
 
-        Problem problem = await api.ProblemAsync(AgentRequests.Transition(agent, id, etag, to, "Checked with the merchant."), HttpStatusCode.Conflict);
+        // A move to Submitted is a release, which takes no note (a note would be 400 before the lifecycle is consulted).
+        string? note = to == "Submitted" ? null : "Checked with the merchant.";
+
+        Problem problem = await api.ProblemAsync(AgentRequests.Transition(agent, id, etag, to, note), HttpStatusCode.Conflict);
 
         Assert.Equal("invalid_transition", problem.Code);
         Assert.Equal(from.ToString(), await StatusAsync(id));
@@ -134,8 +137,8 @@ public sealed class AgentTransitionTests(ApiFactory factory)
     [InlineData("", "Checked.", "toStatus", "validation_failed")]
     public async Task ABadMoveBodyIs400WithTheFieldNamed(string toStatus, string? note, string field, string code)
     {
-        (_, BrowserSession agent) = await api.NewAgentAsync();
-        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
+        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview, assignee: user.Subject);
         string etag = await api.ETagAsync(agent, id);
 
         Problem problem = await api.ProblemAsync(AgentRequests.Transition(agent, id, etag, toStatus, note), HttpStatusCode.BadRequest);
@@ -150,8 +153,8 @@ public sealed class AgentTransitionTests(ApiFactory factory)
     [Fact]
     public async Task AnUnknownStatusIsTheSameBadRequestFromTheValidatorAsFromTheCommandsOwnGuard()
     {
-        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
-        (_, BrowserSession agent) = await api.NewAgentAsync();
+        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview, assignee: user.Subject);
         string etag = await api.ETagAsync(agent, id);
         HttpValidationProblemDetails guard = Assert.IsType<HttpValidationProblemDetails>(new UnknownTargetStatusException().ToProblem());
 
@@ -167,8 +170,8 @@ public sealed class AgentTransitionTests(ApiFactory factory)
     [Fact]
     public async Task APaddedCardNumberIsStillSensitiveData()
     {
-        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
-        (_, BrowserSession agent) = await api.NewAgentAsync();
+        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview, assignee: user.Subject);
         string etag = await api.ETagAsync(agent, id);
         string padded = new string(' ', 12_000) + Card;
 
@@ -181,8 +184,8 @@ public sealed class AgentTransitionTests(ApiFactory factory)
     [Fact]
     public async Task ANoteOver2000CharactersIs400()
     {
-        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
-        (_, BrowserSession agent) = await api.NewAgentAsync();
+        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview, assignee: user.Subject);
         string etag = await api.ETagAsync(agent, id);
 
         Problem problem = await api.ProblemAsync(AgentRequests.Transition(agent, id, etag, "Rejected", new string('n', 2001)), HttpStatusCode.BadRequest);
@@ -260,10 +263,10 @@ public sealed class AgentTransitionTests(ApiFactory factory)
     [Fact]
     public async Task TheNoteTextIsNeverLoggedOnlyIdsAndCodes()
     {
-        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview);
+        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
+        (_, Guid id) = await api.SeedDisputeAsync(DisputeStatus.UnderReview, assignee: user.Subject);
         RecordingLoggerProvider logs = new();
         await using WebApplicationFactory<Program> host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddLogging(logging => logging.AddProvider(logs))));
-        (IdpUser user, BrowserSession agent) = await api.NewAgentAsync();
         string etag = await api.ETagAsync(agent, id);
         const string Secret = "Refund reference ZX-SECRET-NOTE-9931 approved";
         const string Rejected = "Contains card 4111 1111 1111 1111 in a refused note";

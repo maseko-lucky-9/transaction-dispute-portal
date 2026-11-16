@@ -12,7 +12,7 @@ namespace DisputePortal.Api.Features.Agent;
 public sealed class UnknownTargetStatusException()
     : ApiException(FieldMessage, StatusCodes.Status400BadRequest, ValidationFilter<TransitionRequest>.DefaultCode)
 {
-    public const string FieldMessage = "toStatus must be UnderReview, Accepted or Rejected.";
+    public const string FieldMessage = "toStatus must be UnderReview, Accepted, Rejected or Submitted.";
 
     public const string Field = "toStatus";
 

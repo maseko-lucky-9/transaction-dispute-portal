@@ -27,7 +27,7 @@ public sealed class AgentQueries(
         DisputeKey? after = string.IsNullOrEmpty(request.Cursor) ? null : cursors.Unprotect(request.Cursor, agentSubject, filter);
         int limit = PageLimit.ParseOrDefault(request.Limit);
         // One extra row says whether a next page exists, without a count query.
-        IReadOnlyList<AgentQueueItem> rows = await disputes.ListAsync(filter, after, limit + 1, cancellationToken);
+        IReadOnlyList<AgentQueueItem> rows = await disputes.ListAsync(filter, agentSubject, after, limit + 1, cancellationToken);
         string? nextCursor = rows.Count > limit
             ? cursors.Protect(new DisputeKey(rows[limit - 1].CreatedAt, rows[limit - 1].Id), agentSubject, filter)
             : null;
@@ -39,7 +39,7 @@ public sealed class AgentQueries(
     /// <exception cref="Shared.Errors.NotFoundException">No dispute has this id.</exception>
     public async Task<VersionedAgentDispute> GetAsync(Guid id, string agentSubject, string traceId, CancellationToken cancellationToken)
     {
-        VersionedAgentDispute dispute = await disputes.GetDetailAsync(id, cancellationToken) ?? throw DisputeNotFound.ToAgent();
+        VersionedAgentDispute dispute = await disputes.GetDetailAsync(id, agentSubject, cancellationToken) ?? throw DisputeNotFound.ToAgent();
         securityMetrics.Audit(SecurityMetrics.AgentDisputeViewed);
         logger.LogInformation(DisputeViewed, "agent.dispute.viewed {DisputeId} by {AgentSubject} trace {TraceId}", id, agentSubject, traceId);
         return dispute;

@@ -2,6 +2,7 @@ using DisputePortal.Api.Shared.Security;
 using DisputePortal.Domain.Disputes;
 using DisputePortal.Domain.Transactions;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace DisputePortal.IntegrationTests;
 
@@ -21,12 +22,14 @@ public sealed record TestCustomer(IdpUser User, Guid CustomerId, Guid AccountId)
         VALUES (@id, @account, @customer, @reference, 'Test merchant', 'Test', @amount, 'ZAR', @direction, @status, @date, @posted)
         """;
 
-    // Written as the superuser, past the app's grants: a dispute in any status, with its first history entry.
+    // Written as the superuser, past the app's grants: a dispute in any status, with its first history entry, and an
+    // assignee exactly when it is UnderReview (ADR-019).
     private const string InsertDisputeSql = """
-        INSERT INTO disputes (id, transaction_id, customer_id, reason_code, description, disputed_amount, currency, status, created_at, updated_at, resolved_at, resolution_note)
+        INSERT INTO disputes (id, transaction_id, customer_id, reason_code, description, disputed_amount, currency, status, created_at, updated_at, resolved_at, resolution_note, assignee_id)
         VALUES (@id, @transaction, @customer, 'other', 'Inserted by a test.', 1, 'ZAR', @status, @created, @created,
                 CASE WHEN @status IN ('Accepted', 'Rejected', 'Withdrawn') THEN now() END,
-                CASE WHEN @status IN ('Accepted', 'Rejected') THEN 'Decided by a test.' END);
+                CASE WHEN @status IN ('Accepted', 'Rejected') THEN 'Decided by a test.' END,
+                CASE WHEN @status = 'UnderReview' THEN @assignee END);
         INSERT INTO dispute_status_changes (dispute_id, from_status, to_status, actor_type, actor_id)
         VALUES (@id, NULL, 'Submitted', 'Customer', @subject);
         """;
@@ -68,7 +71,10 @@ public sealed record TestCustomer(IdpUser User, Guid CustomerId, Guid AccountId)
     /// <summary>A dispute of this customer on <paramref name="transactionId"/>, inserted directly (no eligibility, no API).</summary>
     /// <param name="createdAt">Set explicitly to give several disputes the same instant (keyset tie-breaks); now by default.</param>
     /// <param name="id">Set explicitly to control the order of ids (and so of the heap); a new one by default.</param>
-    public async Task<Guid> AddDisputeAsync(ApiFactory api, Guid transactionId, DisputeStatus status, DateTimeOffset? createdAt = null, Guid? id = null)
+    /// <param name="assignee">The reviewing agent's subject, for UnderReview only; a fresh one nobody signs in as by default,
+    /// so a test that decides as another agent is refused (409 not_assignee) instead of passing by accident.</param>
+    public async Task<Guid> AddDisputeAsync(
+        ApiFactory api, Guid transactionId, DisputeStatus status, DateTimeOffset? createdAt = null, Guid? id = null, string? assignee = null)
     {
         Guid disputeId = id ?? Guid.NewGuid();
         await using NpgsqlConnection connection = new(api.AdminConnectionString);
@@ -80,6 +86,7 @@ public sealed record TestCustomer(IdpUser User, Guid CustomerId, Guid AccountId)
         command.Parameters.AddWithValue("status", status.ToString());
         command.Parameters.AddWithValue("subject", User.Subject);
         command.Parameters.AddWithValue("created", createdAt ?? DateTimeOffset.UtcNow);
+        command.Parameters.Add(new NpgsqlParameter("assignee", NpgsqlDbType.Varchar) { Value = assignee ?? "seeded-agent-" + Guid.NewGuid().ToString("N") });
         await command.ExecuteNonQueryAsync();
         return disputeId;
     }

@@ -40,7 +40,7 @@ Custom meters (source: `backend/src/DisputePortal.Api/Shared/Observability/`):
 | Instrument | Type | Tag | Values | Meter |
 |---|---|---|---|---|
 | `security.events` | counter | `type` | `authz_denied`, `backchannel_logout`, `backchannel_logout_rejected`, `bola_404`, `csrf_rejected`, `rate_limited`, `session_refresh_failed` | `DisputePortal.Security` |
-| `audit.events` | counter | `action` | `agent_customer_transactions_viewed`, `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
+| `audit.events` | counter | `action` | `agent_customer_transactions_viewed`, `agent_dispute_denied`, `agent_dispute_viewed`, `agent_dispute_transitioned`, `agent_queue_viewed` | `DisputePortal.Security` |
 | `disputes.submitted` | counter | `reason` | reason code | `DisputePortal.Disputes` |
 | `disputes.transitions` | counter | `to` | status name | `DisputePortal.Disputes` |
 | `disputes.eligibility_rejections` | counter | `rule` | rule code | `DisputePortal.Disputes` |
@@ -57,7 +57,7 @@ Traces: ASP.NET Core, HttpClient and Npgsql, plus a `DisputePortal.Api` activity
 server spans; client spans keep the URL without its query. Health endpoints are not traced. Telemetry is exported only
 when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`Telemetry.cs`).
 
-Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned`, `agent.queue.viewed` and `agent.customer_transactions.viewed` (ids, filter, counts and agent
+Logs: JSON console. Structured events of note: `agent.dispute.viewed`, `agent.dispute.transitioned` (also written by take next), `agent.dispute.denied` (event 5105: an accept, reject or release refused 409 `not_assignee`; the dispute id and the refused agent only, never the reviewing agent), `agent.queue.viewed` and `agent.customer_transactions.viewed` (ids, filter, counts and agent
 subject only; no customer data), `Session refresh was refused; the session was ended`, `Request refused with 400 ...`,
 `Back-channel logout ended {SessionCount} session(s)` (a count, never a sid, sub or jti) and `Back-channel logout token
 refused: {Reason}`, where `Reason` is one of `Malformed`, `Algorithm`, `Type`, `Signature`, `Issuer`, `Audience`,
@@ -245,8 +245,61 @@ nginx JSON log by `request_id` (`docker compose logs web`) and the API log line 
 1. Revoke sessions: rotate DataProtection keys (Section 7) so every ticket becomes unreadable, or flush the `bff:*` keys in Redis.
 2. End the user's sessions in Keycloak (admin console: Users, the user, Sessions, sign out; or `kcadm.sh delete sessions/<id> -r dispute-portal` inside the `keycloak` container) and disable the user. Keycloak calls the back-channel logout, so the app sessions end on their next request (API log `Back-channel logout ended n session(s)`). If that call was lost, the access token still lasts at most 5 minutes (realm `accessTokenLifespan` 300) and refresh then fails.
 3. Rotate the secrets that may have leaked (Section 7).
-4. Review `agent.dispute.viewed`, `agent.dispute.transitioned`, `agent.queue.viewed` and `agent.customer_transactions.viewed` log lines and `audit.events` for the affected agent subject.
+4. Review `agent.dispute.viewed`, `agent.dispute.transitioned`, `agent.dispute.denied`, `agent.queue.viewed` and `agent.customer_transactions.viewed` log lines and `audit.events` for the affected agent subject.
 5. POPIA: if personal information was accessed, see the "Breach notification" row of the POPIA mapping in [threat-model.md](threat-model.md) (no procedure is defined yet); that document is an engineering mapping, not legal advice.
+
+**Stale claim: an agent holds disputes under review and is not coming back** ([ADR-019](decisions/019-dispute-assignment-claim-take-next-release.md)).
+Claims never expire, and only the assignee can release one through the API. Break glass, one dispute at a time, as the
+schema owner `dispute_owner` (credentials in Vault `kv/dispute-portal/database-owner`; the API's own credentials stay
+the API's), in one transaction. Use your own agent subject as the actor, so the history says
+who released it. The history row is written only if the dispute really was UnderReview:
+```
+-- break-glass-release: AgentAssignmentTests runs the statement between BEGIN and the "Expect" line, read from here.
+\set id '<dispute id>'
+\set operator '<your agent subject>'
+BEGIN;
+WITH released AS (
+  UPDATE disputes SET status = 'Submitted', assignee_id = NULL, updated_at = now()
+  WHERE id = :'id' AND status = 'UnderReview'
+  RETURNING id)
+INSERT INTO dispute_status_changes (dispute_id, from_status, to_status, actor_type, actor_id)
+SELECT id, 'UnderReview', 'Submitted', 'Agent', :'operator' FROM released;
+-- Expect INSERT 0 1. INSERT 0 0 means it was not UnderReview: ROLLBACK and look again.
+COMMIT;
+```
+`AgentAssignmentTests.TheRunbookBreakGlassReleaseReturnsAStaleClaimToTheQueueOnce` reads that statement from this file
+(the `break-glass-release` marker), swaps the psql variables for parameters and runs it, so an edit here is tested. The dispute's ETag changes, so an
+agent who still has it open gets 412 and reloads. The customer sees a move back to Submitted by an agent.
+
+**Assignment rollout order** (ADR-019, expand then contract).
+- *Deploy order for this feature: web first, then api.* Until the Phase 5 web ships, a claim made with the current
+  web's Start review cannot be released from the UI (only through the API or the break-glass step above), and agents
+  who are not the assignee still see Accept and Reject and get 409 `not_assignee`. So hold the api bump PR for the
+  Phase 4 change until the Phase 5 web bump has merged and rolled; the Phase 5 web copes with an api that does not send
+  the assignment fields yet. This is a deliberate exception to "api bump first when `docs/openapi.json` changed"
+  (Homelab deploy, step 2): the change is additive, so the older api stays compatible with the newer web.
+- *The `AgentAssignment` migration gives up instead of queueing.* Its `ADD COLUMN` needs ACCESS EXCLUSIVE on `disputes`;
+  it sets `lock_timeout` to 5 s for its own transaction (`SET LOCAL`), so behind a transaction holding the table (a
+  submission left idle in its transaction, ADR-014) it fails with `55P03 lock_not_available` and rolls back whole,
+  rather than holding every disputes query in a queue behind it. EF's retrying strategy may run it again within one
+  migrate run (observed in the test: about 24 s before the run gave up, consistent with 5 s attempts plus back-off;
+  not checked against Npgsql's transient list), then the run exits 1 and the migrate Job and the Application's sync
+  retries run it again; the old pods keep serving meanwhile. That retrying is the intended path. If it keeps failing,
+  find the holder: `SELECT pid, state, now() - xact_start AS open_for, left(query, 80) FROM pg_stat_activity WHERE
+  datname = current_database() AND xact_start IS NOT NULL ORDER BY xact_start;` (`AgentAssignmentMigrationTests`).
+- *Expand (this change).* Old pods write no assignee: one that starts a review leaves it null (any agent may decide it,
+  which is why the guard tolerates null), and one that accepts or rejects a claimed dispute, or serves a customer's
+  withdrawal of one, leaves a stale non-null assignee on a row that is no longer UnderReview. The projections show an
+  assignee only while UnderReview, so neither is visible, but both break the intended invariant
+  `(status = 'UnderReview') = (assignee_id IS NOT NULL)`.
+- *Contract (a later change), only after the Phase 4 api has fully rolled out* (no old pod left serving, including
+  after any rollback). In that order: backfill the assignee of UnderReview rows that have none; clear `assignee_id` on
+  every row that is not UnderReview; `ALTER TABLE disputes ADD CONSTRAINT ck_disputes_assignee CHECK ((status =
+  'UnderReview') = (assignee_id IS NOT NULL)) NOT VALID` (brief lock, no scan); then `ALTER TABLE disputes VALIDATE
+  CONSTRAINT ck_disputes_assignee` (scans without blocking writes); then drop the null tolerance in `Dispute.Transition`.
+  If any old pod still served after the CHECK, every accept, reject or customer withdrawal of a claimed dispute (it
+  leaves the assignee set) and every start review (it sets none) would fail the CHECK.
+- After the contract step, rolling the api back past ADR-019 needs a forward fix, not a revert, for the same reason.
 
 **Homelab deploy: merging a bump PR** ([ADR-017](decisions/017-homelab-image-bump-prs.md)). After each publish on
 `main`, CI opens one pull request per published half in `maseko-lucky-9/homelab-infra`, titled
@@ -257,7 +310,9 @@ owner's account (a PAT acts as its owner); the commit only names `github-actions
 1. Review it as code: the diff must be exactly one `digest:` line in `apps/dispute-portal/kustomization.yaml`, and the
    digest must match the portal run's `publish` summary for that commit (`published ghcr.io/...@sha256:...`).
 2. Contract rule: if the portal commit changed `docs/openapi.json`, merge the api bump first and wait for it to be
-   healthy before merging the web bump; the API must stay backward compatible for one release.
+   healthy before merging the web bump; the API must stay backward compatible for one release. Exception: the ADR-019
+   assignment change goes web first (the Phase 5 web bump), then the api bump, which is held until then (see
+   "Assignment rollout order" above).
 3. Merge (squash). ArgoCD's `dispute-portal` Application (namespace `argocd`) auto-syncs: the `dispute-migrate` Sync
    hook Job (wave 4) re-runs the migrations, then `dispute-api` (wave 5) and `dispute-web` (wave 6) roll.
 4. Watch it: `ssh homelab 'microk8s kubectl -n argocd get application dispute-portal -o jsonpath="{.status.sync.status} {.status.health.status} {.status.operationState.phase}"'`

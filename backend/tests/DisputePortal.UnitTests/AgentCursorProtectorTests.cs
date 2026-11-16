@@ -39,6 +39,39 @@ public sealed class AgentCursorProtectorTests
     public void ADifferentStatusGivesADifferentFingerprint() =>
         Assert.NotEqual(Open.Fingerprint(), new AgentQueueFilter(DisputeStatus.Submitted).Fingerprint());
 
+    // A cursor issued before the assignment filter existed must stay valid after the deploy: without an assignment the
+    // fingerprint is SHA-256 of exactly the old text, first 16 bytes (values worked out outside the code under test).
+    [Fact]
+    public void WithoutAnAssignmentTheFingerprintIsTheOneOlderVersionsIssued()
+    {
+        Assert.Equal("5F1C094A575D6438814BD5335BEFAAAB", Open.Fingerprint());
+        Assert.Equal("439D1FDE58A928A08A2117F4FA42B2D5", new AgentQueueFilter(DisputeStatus.Submitted).Fingerprint());
+        Assert.Equal(KeysetCursor.Fingerprint("agent-queue;status=open"), Open.Fingerprint());
+    }
+
+    [Fact]
+    public void AnAssignmentHasItsOwnFingerprintWhateverTheCaseItWasAskedIn()
+    {
+        AgentQueueFilter mine = AgentQueueFilter.Parse(new AgentQueueRequest(null, null, null, "MINE"));
+
+        Assert.Equal("20445961878589F1D4D91D7BDA414871", mine.Fingerprint());
+        Assert.Equal(KeysetCursor.Fingerprint("agent-queue;assignment=mine"), mine.Fingerprint());
+        Assert.Equal(mine.Fingerprint(), AgentQueueFilter.Parse(new AgentQueueRequest(null, null, null, "mine")).Fingerprint());
+        Assert.Equal("assignment=mine", mine.Label);
+    }
+
+    [Theory]
+    [InlineData(AgentQueueAssignment.Unclaimed, AgentQueueAssignment.Mine)]
+    [InlineData(AgentQueueAssignment.Mine, AgentQueueAssignment.Others)]
+    [InlineData(AgentQueueAssignment.Others, null)]
+    public void ACursorIssuedForOneAssignmentIsRefusedForAnother(AgentQueueAssignment issuedFor, AgentQueueAssignment? usedWith)
+    {
+        string cursor = cursors.Protect(Last, Agent, new AgentQueueFilter(null, issuedFor));
+
+        Assert.Equal(Last, cursors.Unprotect(cursor, Agent, new AgentQueueFilter(null, issuedFor)));
+        Assert.Throws<InvalidCursorException>(() => cursors.Unprotect(cursor, Agent, new AgentQueueFilter(null, usedWith)));
+    }
+
     [Fact]
     public void ACustomerDisputeCursorIsNotAnAgentCursor()
     {

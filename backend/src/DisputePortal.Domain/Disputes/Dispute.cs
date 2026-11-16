@@ -42,6 +42,12 @@ public sealed class Dispute
     /// <summary>The agent's reason for accepting or rejecting; null otherwise.</summary>
     public string? ResolutionNote { get; private set; }
 
+    /// <summary>
+    /// The subject of the agent reviewing the dispute: set when it enters UnderReview, cleared on every way out
+    /// (decision, release, withdrawal). Null in every other status.
+    /// </summary>
+    public string? AssigneeId { get; private set; }
+
     /// <summary>The store's row version (PostgreSQL xmin), sent as the ETag. Maintained by the store, never by this class.</summary>
     public uint Version { get; private set; }
 
@@ -86,7 +92,8 @@ public sealed class Dispute
     public void Withdraw(Actor actor, DateTimeOffset now) => Transition(DisputeStatus.Withdrawn, actor, note: null, now);
 
     /// <exception cref="InvalidTransitionException">(current, <paramref name="to"/>, actor) is not in the lifecycle table.</exception>
-    /// <exception cref="DomainException">A resolution without a note, a note over 2000 characters, or a note with control characters or a card or ID number.</exception>
+    /// <exception cref="NotAssigneeException">An agent other than the reviewing one accepts, rejects or releases it.</exception>
+    /// <exception cref="DomainException">A resolution without a note, a note on a release, a note over 2000 characters, or a note with control characters or a card or ID number.</exception>
     public void Transition(DisputeStatus to, Actor actor, string? note, DateTimeOffset now)
     {
         if (!DisputeLifecycle.Allows(Status, to, actor.Type))
@@ -94,8 +101,17 @@ public sealed class Dispute
             throw new InvalidTransitionException(Status, to, actor.Type);
         }
 
+        // TEMPORARY expand-phase tolerance (ADR-019): a dispute put UnderReview by a pod older than the assignee column
+        // has no assignee, and any agent may move it. The contract step adds a CHECK that UnderReview has an assignee
+        // and removes the `is not null` clause.
+        if (DisputeLifecycle.IsAssigneeOnly(Status, actor.Type) && AssigneeId is not null && AssigneeId != actor.Id)
+        {
+            throw new NotAssigneeException();
+        }
+
         string? checkedNote = CheckNote(to, note);
         statusChanges.Add(new DisputeStatusChange(Id, Status, to, actor, checkedNote));
+        AssigneeId = to == DisputeStatus.UnderReview ? actor.Id : null;
         Status = to;
         UpdatedAt = now;
         if (DisputeLifecycle.IsTerminal(to))
@@ -115,6 +131,11 @@ public sealed class Dispute
         if (trimmed is null && DisputeLifecycle.IsResolution(to))
         {
             throw new DomainException("resolution_note_required", "Accepting or rejecting a dispute needs a note.");
+        }
+
+        if (trimmed is not null && DisputeLifecycle.IsRelease(to))
+        {
+            throw new DomainException("note_not_allowed", "Releasing a dispute takes no note: the customer would see it.");
         }
 
         if (trimmed is { Length: > NoteMaxLength })

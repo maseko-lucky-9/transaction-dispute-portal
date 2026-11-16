@@ -8,11 +8,32 @@ import { problem } from "./handlers";
 import { makeDisputeDetail, reasons } from "./disputes";
 
 const AGENT = "aaaaaaaa-0000-4000-8000-000000000001";
+/** The colleague behind `otherAgentActs`. */
+const OTHER_AGENT = "bbbbbbbb-0000-4000-8000-000000000002";
 const OPEN: DisputeStatus[] = ["Submitted", "UnderReview"];
 const NEXT: Partial<Record<DisputeStatus, DisputeStatus[]>> = {
   Submitted: ["UnderReview"],
   UnderReview: ["Accepted", "Rejected"],
 };
+
+type Assignment = Pick<AgentDisputeDetail, "assignment" | "assigneeId" | "claimedAt">;
+
+/**
+ * Who is reviewing, as the server reports it for a status (ADR-019): an UnderReview dispute is the
+ * assignee's (the fake agent unless a colleague acted), claimed at `at`; a decided or withdrawn
+ * one is nobody's. The fake does not refuse a non-assignee's move (409 not_assignee) yet.
+ */
+function assignmentFor(status: DisputeStatus, at: string, assignee = AGENT): Assignment {
+  if (status === "Submitted") return { assignment: "Unclaimed", assigneeId: null, claimedAt: null };
+  if (status === "UnderReview") {
+    return {
+      assignment: assignee === AGENT ? "You" : "AnotherAgent",
+      assigneeId: assignee,
+      claimedAt: at,
+    };
+  }
+  return { assignment: null, assigneeId: null, claimedAt: null };
+}
 
 /** An agent's view of a dispute; `index` 0 is the OLDEST. */
 export function makeAgentDispute(
@@ -34,6 +55,7 @@ export function makeAgentDispute(
       actorId: "cccccccc-0000-4000-8000-000000000001",
       occurredAt: createdAt,
     })),
+    ...assignmentFor(overrides.status ?? rest.status, createdAt),
     ...overrides,
   };
 }
@@ -95,14 +117,14 @@ export function fakeAgentApi(
     customerTransactionRequests: [],
     transitionCalls: [],
     otherAgentActs(id, to) {
-      apply(id, to, "Handled elsewhere");
+      apply(id, to, "Handled elsewhere", OTHER_AGENT);
     },
     versionMovesOn(id) {
       versions.set(id, (versions.get(id) ?? 1) + 1);
     },
   };
 
-  function apply(id: string, to: DisputeStatus, note: string | null) {
+  function apply(id: string, to: DisputeStatus, note: string | null, actor = AGENT) {
     const index = store.findIndex((d) => d.id === id);
     const current = store[index];
     if (!current) throw new Error(`no dispute ${id}`);
@@ -114,9 +136,10 @@ export function fakeAgentApi(
       updatedAt: at,
       resolvedAt: done ? at : null,
       resolutionNote: done ? note : null,
+      ...assignmentFor(to, at, actor),
       timeline: [
         ...current.timeline,
-        { from: current.status, to, actorType: "Agent", actorId: AGENT, note, occurredAt: at },
+        { from: current.status, to, actorType: "Agent", actorId: actor, note, occurredAt: at },
       ],
     };
     versions.set(id, (versions.get(id) ?? 1) + 1);
@@ -143,6 +166,9 @@ export function fakeAgentApi(
       reasonCode: d.reasonCode,
       customerDisplayName: d.customerDisplayName,
       maskedAccountNumber: d.maskedAccountNumber,
+      assignment: d.assignment,
+      assigneeId: d.assigneeId,
+      claimedAt: d.claimedAt,
     }));
     const next = offset + limit;
     return HttpResponse.json({

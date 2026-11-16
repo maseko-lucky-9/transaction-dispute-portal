@@ -19,6 +19,10 @@ public sealed class TransitionRequestValidator : AbstractValidator<TransitionReq
         RuleFor(request => request.Note).Must(note => !string.IsNullOrWhiteSpace(note))
             .When(request => IsResolution(request.ToStatus))
             .WithMessage("note is required to accept or reject a dispute.");
+        // Blank counts as none, as in the Domain, which trims a note to nothing before it checks this.
+        RuleFor(request => request.Note).Must(string.IsNullOrWhiteSpace)
+            .When(request => IsRelease(request.ToStatus))
+            .WithMessage("note is not allowed when releasing a dispute: the customer would see it.");
         RuleFor(request => request.Note).Must(note => note is null || note.Trim().Length <= Dispute.NoteMaxLength)
             .WithMessage($"note has at most {Dispute.NoteMaxLength} characters.");
         RuleFor(request => request.Note).Must(note => !SensitiveNumberDetector.ContainsInvalidCharacters(note))
@@ -32,6 +36,10 @@ public sealed class TransitionRequestValidator : AbstractValidator<TransitionReq
             .WithState(_ => new ProblemCode(SensitiveNumberDetector.Code));
     }
 
-    private static bool IsResolution(string? toStatus) =>
-        Enum.TryParse(toStatus, ignoreCase: true, out DisputeStatus status) && Enum.IsDefined(status) && DisputeLifecycle.IsResolution(status);
+    private static bool IsResolution(string? toStatus) => Parsed(toStatus) is { } status && DisputeLifecycle.IsResolution(status);
+
+    private static bool IsRelease(string? toStatus) => Parsed(toStatus) is { } status && DisputeLifecycle.IsRelease(status);
+
+    private static DisputeStatus? Parsed(string? toStatus) =>
+        Enum.TryParse(toStatus, ignoreCase: true, out DisputeStatus status) && Enum.IsDefined(status) ? status : null;
 }
