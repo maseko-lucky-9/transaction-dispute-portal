@@ -1,6 +1,6 @@
 # Transactions Dispute Portal
 
-SE3 take-home. Customers view and dispute transactions; agents review disputes. Due 2026-11-10.
+Customers view and dispute transactions; agents review disputes. Due 2026-11-10.
 
 - Backend: .NET 10 Minimal API, vertical slices (`backend/src/DisputePortal.Api/Features/*`) + pure `DisputePortal.Domain`. EF Core 10 + Npgsql. No MediatR, no generic repository.
 - Auth: Keycloak, API is the OIDC confidential client (BFF). Tokens live encrypted in Redis; the browser holds only the HttpOnly `dp_session` cookie. Credentials come from Vault only (AppRole in compose, Kubernetes auth on a cluster, ADR-016).
