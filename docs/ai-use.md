@@ -29,7 +29,8 @@ and what is not.
 - **This document set.** The README evidence tables, runbook, threat model and this file were drafted by Claude Code
   agents from the repository contents, then checked by script for broken links. On 2026-11-16 the README's measured
   results, clean-clone run, test catalogue, the time log and this file were refreshed by Claude Code from fresh runs
-  on `main` at `74b1d94`.
+  on `main` at `74b1d94`; the web test count and screenshots were taken again on `ffac818`, after the
+  Reversed-copy fix (#64).
 
 ## What the human owner decided
 
