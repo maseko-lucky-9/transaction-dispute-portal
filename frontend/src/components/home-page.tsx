@@ -3,11 +3,14 @@ import { ArrowRight } from "lucide-react";
 
 import type { DisputeStatus } from "@/api/disputes";
 import { DisputeStatusPill } from "@/components/status-pill";
+import { TransactionResults } from "@/components/transaction-results";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useUser } from "@/components/user-context";
 import { homeGreeting } from "@/lib/greeting";
-import { accessFor, type Access } from "@/lib/roles";
+import { accessFor, CUSTOMER_ROLE, type Access } from "@/lib/roles";
+import { CARD, LINK } from "@/lib/table-styles";
+import type { TransactionFilters } from "@/lib/transaction-filters";
 import { cn } from "@/lib/utils";
 
 const LIFECYCLE: readonly { status: DisputeStatus; meaning: string }[] = [
@@ -18,9 +21,20 @@ const LIFECYCLE: readonly { status: DisputeStatus; meaning: string }[] = [
   { status: "Withdrawn", meaning: "You cancelled it" },
 ];
 
+/**
+ * Home's own short list. A limit other than /transactions' default gives it a query key of its own,
+ * so Home never replays the pages /transactions has loaded, and Load more here does not grow that
+ * view. A constant, not an inline literal: the list memoizes on identity.
+ */
+const RECENT_TRANSACTIONS: TransactionFilters = { limit: 10 };
+
 export function HomePage() {
   const user = useUser();
   const access = accessFor(user);
+  // A session with no roles is treated as a customer, but the API refuses it the list (403): it
+  // gets the "none assigned" hint instead of a list that cannot load.
+  const showRecent = access === "customer" && user.roles.includes(CUSTOMER_ROLE);
+  const showRoles = access !== "customer" || user.roles.length === 0;
 
   return (
     <div className="grid items-start gap-5 min-[960px]:grid-cols-[minmax(0,1fr)_320px]">
@@ -37,27 +51,48 @@ export function HomePage() {
               Signed in as <strong className="text-foreground">{user.name}</strong>
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground">Roles</span>
-            {user.roles.length > 0 ? (
-              <ul className="flex flex-wrap gap-2" aria-label="Roles">
-                {user.roles.map((role) => (
-                  <li key={role}>
-                    <Badge variant="secondary">{role}</Badge>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <span className="text-sm text-muted-foreground">none assigned</span>
-            )}
-          </div>
+          {/* A customer has no use for their role names; the back-office, a refused session and one with no role do. */}
+          {showRoles && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Roles</span>
+              {user.roles.length > 0 ? (
+                <ul className="flex flex-wrap gap-2" aria-label="Roles">
+                  {user.roles.map((role) => (
+                    <li key={role}>
+                      <Badge variant="secondary">{role}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="text-sm text-muted-foreground">none assigned</span>
+              )}
+            </div>
+          )}
         </section>
 
         <HomeLinks access={access} />
       </div>
 
       {access === "customer" && <LifecyclePanel />}
+      {showRecent && <RecentTransactions />}
     </div>
+  );
+}
+
+/** Full width under the cards: the table needs more room than the column beside the legend. */
+function RecentTransactions() {
+  return (
+    <section aria-labelledby="recent-heading" className="grid min-w-0 gap-3 min-[960px]:col-span-2">
+      <h2 id="recent-heading" className="text-lg font-semibold">
+        Recent transactions
+      </h2>
+      <div className={CARD}>
+        <TransactionResults filters={RECENT_TRANSACTIONS} />
+        <Link to="/transactions" className={`${LINK} self-start text-sm`}>
+          See all transactions and filters
+        </Link>
+      </div>
+    </section>
   );
 }
 

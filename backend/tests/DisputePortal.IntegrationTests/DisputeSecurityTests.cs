@@ -99,7 +99,6 @@ public sealed class DisputeSecurityTests(ApiFactory api)
     }
 
     [Theory]
-    [InlineData("GET", DisputeRequests.Reasons)]
     [InlineData("GET", DisputeRequests.Disputes)]
     [InlineData("POST", DisputeRequests.Disputes)]
     [InlineData("GET", SomeDispute)]
@@ -123,6 +122,41 @@ public sealed class DisputeSecurityTests(ApiFactory api)
         BrowserSession both = await BrowserSession.SignInAsync(api, customer.User with { Roles = [Roles.Customer, Roles.DisputeAgent] });
 
         Assert.Equal(SingleRoleRequirement.Code, (await ProblemAsync(Request(both, method, path), HttpStatusCode.Forbidden)).Code);
+    }
+
+    // The catalogue is a global lookup, not a customer's data: the agent's review page lists the same reasons a customer picks from.
+    [Fact]
+    public async Task AnAgentReadsTheSameReasonCatalogueAsACustomer()
+    {
+        (_, BrowserSession agent) = await new AgentApi(api).NewAgentAsync();
+        BrowserSession customer = await BrowserSession.SignInAsync(api, (await TestCustomer.CreateAsync(api)).User);
+
+        JsonElement forTheAgent = await OkAsync(agent, DisputeRequests.Reasons);
+        JsonElement forTheCustomer = await OkAsync(customer, DisputeRequests.Reasons);
+
+        Assert.NotEmpty(forTheAgent.EnumerateArray());
+        Assert.Equal(forTheCustomer.GetRawText(), forTheAgent.GetRawText());
+    }
+
+    [Fact]
+    public async Task AnUnauthenticatedCallerIs401OnTheReasonCatalogue()
+    {
+        using HttpClient browser = api.CreateBrowserClient();
+        using HttpRequestMessage request = new(HttpMethod.Get, DisputeRequests.Reasons);
+        request.Headers.Add(CsrfMiddleware.HeaderName, "1");
+
+        HttpResponseMessage response = await browser.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // Open to either role, not to every session: one that holds neither is refused like an agent on a customer route.
+    [Fact]
+    public async Task ASessionWithNoPortalRoleIs403OnTheReasonCatalogue()
+    {
+        BrowserSession nobody = await BrowserSession.SignInAsync(api, new IdpUser("no-role-" + Guid.NewGuid().ToString("N"), "No Role", []));
+
+        Assert.Equal("forbidden", (await ProblemAsync(nobody.Request(HttpMethod.Get, DisputeRequests.Reasons), HttpStatusCode.Forbidden)).Code);
     }
 
     // A customer sees who acted only as a type: never a subject, theirs or an agent's (checked on the raw JSON).

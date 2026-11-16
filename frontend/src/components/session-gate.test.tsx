@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type * as Navigation from "@/lib/navigation";
 import { navigate } from "@/lib/navigation";
-import { alice, problem, signedIn, signedOut } from "@/test/handlers";
+import { alice, carol, problem, signedIn, signedOut } from "@/test/handlers";
 import { renderApp } from "@/test/render-app";
 import { server } from "@/test/server";
 import { fakeTransactionsApi, makeTransactions } from "@/test/transactions";
@@ -16,31 +16,37 @@ vi.mock("@/lib/navigation", async (importOriginal) => ({
 }));
 
 describe("session gate: signed in (200)", () => {
+  // A customer is not shown their roles; a session that is not a plain customer still is.
   it("shows the user, the roles as badges and the shell", async () => {
-    server.use(signedIn({ ...alice, roles: ["customer", "dispute_agent"] }));
+    server.use(signedIn(carol));
     renderApp();
 
-    expect(await screen.findByText(/Signed in as/)).toHaveTextContent(
-      "Signed in as Alice Customer",
-    );
+    expect(await screen.findByText(/Signed in as/)).toHaveTextContent("Signed in as Carol Both");
     const roles = within(screen.getByRole("list", { name: "Roles" }));
     expect(roles.getByText("customer")).toBeInTheDocument();
-    expect(roles.getByText("dispute_agent")).toBeInTheDocument();
+    expect(roles.getByText("dispute-agent")).toBeInTheDocument();
 
     expect(screen.getByText("Transactions Dispute Portal")).toBeInTheDocument();
-    expect(screen.getByTestId("header-user")).toHaveTextContent("Alice Customer");
+    expect(screen.getByTestId("header-user")).toHaveTextContent("Carol Both");
     expect(screen.getByRole("button", { name: "Logout" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
-  it("says so when the user has no roles", async () => {
-    server.use(signedIn({ ...alice, roles: [] }));
+  // The API refuses such a session the list (403), so Home must not ask for it, only say why nothing opens.
+  it("says a user with no roles has none, and asks for no transactions", async () => {
+    const { api, handler } = fakeTransactionsApi(makeTransactions(3));
+    server.use(signedIn({ ...alice, roles: [] }), handler);
     renderApp();
+
     expect(await screen.findByText("none assigned")).toBeInTheDocument();
+    expect(screen.getByText("Roles")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent transactions" })).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50)); // let anything that was going to fire, fire
+    expect(api.requests).toEqual([]);
   });
 
   it("links My transactions and My disputes for a customer, and shows no agent queue", async () => {
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     renderApp();
     await screen.findByText(/Signed in as/);
 
@@ -51,6 +57,7 @@ describe("session gate: signed in (200)", () => {
     expect(screen.queryByText("Agent queue")).not.toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /queue/i })).not.toBeInTheDocument();
+    await screen.findByText("You have no transactions yet");
   });
 
   it("opens the transactions page from Home", async () => {
@@ -73,9 +80,11 @@ describe("session gate: signed in (200)", () => {
         calls += 1;
         return HttpResponse.json(alice);
       }),
+      fakeTransactionsApi([]).handler,
     );
     renderApp();
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet");
     expect(calls).toBe(1);
   });
 });
@@ -139,17 +148,19 @@ describe("session gate: loading and failure", () => {
     expect(alert).toHaveTextContent("Reference: trace-abc");
     expect(screen.queryByRole("heading", { name: "Sign in" })).not.toBeInTheDocument();
 
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
 
     expect(await screen.findByText(/Signed in as/)).toBeInTheDocument();
+    await screen.findByText("You have no transactions yet");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("returns to the Sign in screen when any later call reports the session ended", async () => {
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     const { queryClient } = renderApp();
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet");
 
     server.use(http.get("/api/v1/transactions", () => problem(401, { title: "Unauthorized" })));
     const { apiFetch } = await import("@/api/client");
@@ -168,9 +179,10 @@ describe("session gate: loading and failure", () => {
 
 describe("logout", () => {
   it("clears the query cache, then navigates to the server-supplied logoutUrl", async () => {
-    server.use(signedIn());
+    server.use(signedIn(), fakeTransactionsApi([]).handler);
     const { queryClient } = renderApp();
     await screen.findByText(/Signed in as/);
+    await screen.findByText("You have no transactions yet");
     queryClient.setQueryData(["transactions"], [{ id: "t1" }]);
 
     let cachedWhenNavigating = -1;
