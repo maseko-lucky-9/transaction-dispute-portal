@@ -14,7 +14,6 @@ export type DisputeStatus = Schemas["DisputeStatus"];
 export type DisputeReason = Schemas["DisputeReason"];
 export type DisputeItem = Schemas["DisputeListItem"];
 export type TimelineEntry = Schemas["TimelineEntry"];
-export type DisputeTransaction = Schemas["TransactionSummary"];
 export type DisputeDetail = Schemas["DisputeDetail"];
 export type DisputePage = Schemas["DisputeListResponse"];
 /**

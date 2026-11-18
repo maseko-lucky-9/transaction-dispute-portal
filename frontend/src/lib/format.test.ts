@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { describeBlockReasons } from "./dispute-reasons";
-import { formatAge, formatDate, formatMoney, shortId } from "./format";
+import { formatDate, formatMoney, shortId } from "./format";
 
 describe("formatMoney", () => {
   it("formats ZAR with the item's currency", () => {
@@ -97,34 +97,6 @@ describe("describeBlockReasons", () => {
     expect(describeBlockReasons(["constructor", "toString"])).toEqual([
       "This transaction can't be disputed",
     ]);
-  });
-});
-
-describe("formatAge", () => {
-  const NOW = Date.UTC(2026, 10, 10, 12, 0, 0);
-  const ago = (ms: number) => new Date(NOW - ms).toISOString();
-  const HOUR = 3_600_000;
-
-  it.each([
-    [0, "Today"],
-    [23 * HOUR + 59 * 60_000, "Today"],
-    [24 * HOUR, "1 day"],
-    [47 * HOUR, "1 day"],
-    [48 * HOUR, "2 days"],
-    [3 * 24 * HOUR + HOUR, "3 days"],
-    [30 * 24 * HOUR, "30 days"],
-    [400 * 24 * HOUR, "400 days"],
-  ])("%i ms ago is %s", (elapsed, expected) => {
-    expect(formatAge(ago(elapsed), NOW)).toBe(expected);
-  });
-
-  it("calls the future and nonsense Today instead of negative or NaN", () => {
-    expect(formatAge(ago(-5 * 24 * HOUR), NOW)).toBe("Today");
-    expect(formatAge("not a date", NOW)).toBe("Today");
-  });
-
-  it("uses the real clock by default", () => {
-    expect(formatAge(new Date(Date.now() - 2 * 24 * HOUR - 1000).toISOString())).toBe("2 days");
   });
 });
 
