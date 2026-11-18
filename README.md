@@ -28,7 +28,6 @@ flowchart LR
   subgraph APPT["⚙️ Application · app + data networks"]
     KC["🔑 Keycloak 26<br/>realm dispute-portal"]:::identity
     API["🟪 .NET 10 API ×N<br/>BFF · OIDC client"]:::api
-    OBS["📊 Grafana LGTM<br/>opt-in profile"]:::optional
   end
 
   subgraph DATA["🗄️ Data & secrets · data network"]
@@ -47,7 +46,6 @@ flowchart LR
   AUTH -->|"login UI"| KC
   APP -->|"/api · /bff"| API
   API <-->|"code + PKCE · refresh<br/>back-channel logout"| KC
-  API -.->|"OTLP"| OBS
   KC -->|"JDBC"| PG
   API -->|"EF Core"| PG
   API -->|"tickets"| RD
@@ -64,11 +62,10 @@ flowchart LR
   classDef data fill:#E69F00,stroke:#8a5f00,stroke-width:2px,color:#000000
   classDef secret fill:#F0E442,stroke:#8a8200,stroke-width:3px,color:#000000
   classDef job fill:#BBBBBB,stroke:#555555,stroke-width:2px,color:#000000
-  classDef optional fill:#BBBBBB,stroke:#555555,stroke-width:2px,stroke-dasharray:3 3,color:#000000
 ```
 
-Colours are Okabe-Ito (colour-blind safe), always with an icon and text. Solid arrows are always on; the dashed arrow
-is the opt-in `--profile observability`.
+Colours are Okabe-Ito (colour-blind safe), always with an icon and text. Not drawn: the opt-in Grafana LGTM stack
+(`--profile observability`), which receives the API's OTLP traces and metrics on the `app` network.
 
 | Colour | Tier | Icons |
 |---|---|---|
@@ -78,7 +75,7 @@ is the opt-in `--profile observability`.
 | Blue | Application | 🟪 .NET API (scaled ×N, state in Redis) |
 | Orange | Data | 🐘 PostgreSQL · ⚡ Redis |
 | Yellow | Secrets | 🔒 Vault |
-| Grey | Jobs and opt-in | 🐳 one-shot jobs · 🛠️ migrate · 🧰 bootstrap · 📊 LGTM (dashed) |
+| Grey | One-shot jobs | 🐳 jobs · 🛠️ migrate · 🧰 bootstrap |
 
 ## Run it
 
