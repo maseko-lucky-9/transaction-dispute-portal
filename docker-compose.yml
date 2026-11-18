@@ -42,7 +42,7 @@ services:
     networks: [data]
 
   postgres:
-    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    image: postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
     depends_on:
       bootstrap: { condition: service_completed_successfully }
     environment:
