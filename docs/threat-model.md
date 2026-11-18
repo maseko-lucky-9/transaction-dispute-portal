@@ -83,8 +83,9 @@ Vault on a cluster: its server certificate is pinned (`VaultPinnedServerCertific
 
 ## 3. Supply chain and build
 
-gitleaks (hook and CI), `restore --locked-mode`, vulnerable-package check, `npm ci --ignore-scripts`, `npm audit
---audit-level=high`, Trivy on fixable CRITICAL, digest-pinned base images (`scripts/check-image-pins.sh`), SHA-pinned
+gitleaks (hook and CI), `restore --locked-mode`, vulnerable-package check, `npm ci --ignore-scripts`, `npm audit`
+failing on high or critical (`frontend/scripts/audit.mjs`, with dated exceptions: GHSA-fc5q-39xc-vjpf, a picomatch ReDoS with no
+patched release that runs only at build time through Vite, is allowed until 2026-12-31), Trivy on fixable CRITICAL, digest-pinned base images (`scripts/check-image-pins.sh`), SHA-pinned
 Actions with a `contents: read` default token, SBOM and provenance on `main` images, Dependabot. CodeQL default setup (enabled 2026-11-04 for C#, JavaScript/TypeScript and Actions; the first analysis found 0, 1 and 0 results, the one being a CSP build-guard regex fixed in the same change). Not present: image
 signing (cosign), a ZAP baseline scan.
 
