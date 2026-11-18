@@ -7,6 +7,76 @@ Customers view their bank transactions and dispute them, with a historic view of
 > [AI-use disclosure](docs/ai-use.md), the [time log](docs/time-log.md), the [ADRs](docs/decisions/) and the
 > [system design](docs/design/transaction-dispute-portal-system-design.md).
 
+## Architecture
+
+The compose stack as it runs locally: one browser origin for the app, a second for Keycloak's login pages, and the API
+as the only service that holds tokens or reaches the data tier. `web` is on the `edge` and `app` networks only, never
+`data` ([ADR-008](docs/decisions/008-csp-edge-headers-and-keycloak-origin.md),
+[ADR-004](docs/decisions/004-bff-session-lifecycle.md), [ADR-005](docs/decisions/005-vault-approle-and-secret-zero.md)).
+
+```mermaid
+flowchart LR
+  subgraph CLIENT["👤 Client"]
+    BR["💻 Browser<br/>⚛️ React 19 SPA<br/>customer · agent"]:::client
+  end
+
+  subgraph EDGE["🌐 Edge · nginx (web)"]
+    AUTH["🔐 Auth origin :8180<br/>Keycloak login pages only"]:::edge
+    APP["🌐 App origin :8080<br/>SPA · /api · /bff · CSP"]:::edge
+  end
+
+  subgraph APPT["⚙️ Application · app + data networks"]
+    KC["🔑 Keycloak 26<br/>realm dispute-portal"]:::identity
+    API["🟪 .NET 10 API ×N<br/>BFF · OIDC client"]:::api
+  end
+
+  subgraph DATA["🗄️ Data & secrets · data network"]
+    PG["🐘 PostgreSQL 17<br/>disputes · keycloak DBs"]:::data
+    RD["⚡ Redis 8<br/>encrypted session tickets"]:::data
+    VA["🔒 Vault 1.21<br/>AppRole credentials"]:::secret
+  end
+
+  subgraph JOBS["🐳 One-shot jobs"]
+    MG["🛠️ migrate<br/>EF Core migrations"]:::job
+    BS["🧰 bootstrap<br/>init · unseal · secrets"]:::job
+  end
+
+  BR -->|"login"| AUTH
+  BR -->|"dp_session cookie"| APP
+  AUTH -->|"login UI"| KC
+  APP -->|"/api · /bff"| API
+  API <-->|"code + PKCE · refresh<br/>back-channel logout"| KC
+  KC -->|"JDBC"| PG
+  API -->|"EF Core"| PG
+  API -->|"tickets"| RD
+  API -->|"AppRole login"| VA
+  PG ~~~ MG
+  VA ~~~ BS
+  MG -->|"schema"| PG
+  BS -->|"init · AppRoles"| VA
+
+  classDef client fill:#56B4E9,stroke:#1f6f99,stroke-width:2px,color:#000000
+  classDef edge fill:#009E73,stroke:#00553e,stroke-width:2px,color:#000000
+  classDef identity fill:#CC79A7,stroke:#7a3f63,stroke-width:2px,color:#000000
+  classDef api fill:#0072B2,stroke:#003f63,stroke-width:2px,color:#ffffff
+  classDef data fill:#E69F00,stroke:#8a5f00,stroke-width:2px,color:#000000
+  classDef secret fill:#F0E442,stroke:#8a8200,stroke-width:3px,color:#000000
+  classDef job fill:#BBBBBB,stroke:#555555,stroke-width:2px,color:#000000
+```
+
+Colours are Okabe-Ito (colour-blind safe), always with an icon and text. Not drawn: the opt-in Grafana LGTM stack
+(`--profile observability`), which receives the API's OTLP traces and metrics on the `app` network.
+
+| Colour | Tier | Icons |
+|---|---|---|
+| Sky blue | Client | 💻 browser · ⚛️ React SPA |
+| Green | Edge (nginx) | 🌐 app origin · 🔐 auth origin |
+| Reddish purple | Identity | 🔑 Keycloak |
+| Blue | Application | 🟪 .NET API (scaled ×N, state in Redis) |
+| Orange | Data | 🐘 PostgreSQL · ⚡ Redis |
+| Yellow | Secrets | 🔒 Vault |
+| Grey | One-shot jobs | 🐳 jobs · 🛠️ migrate · 🧰 bootstrap |
+
 ## Run it
 
 Needs Docker with Compose v2.27+ and nothing else on the host.
