@@ -196,7 +196,8 @@ jobs:
             npm run gen:types
             git diff --exit-code src/api/schema.d.ts
           fi
-      - run: npm audit --audit-level=high
+      # High and critical advisories fail, except the dated exceptions in scripts/audit.mjs (each says why it is safe).
+      - run: npm audit --json | node scripts/audit.mjs
 
   images:
     # Both images are built and scanned whenever the stack is touched: the E2E needs both, and the layer cache keeps the
